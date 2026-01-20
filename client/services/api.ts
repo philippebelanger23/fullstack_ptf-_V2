@@ -204,6 +204,61 @@ export const fetchBetas = async (tickers: string[]): Promise<Record<string, numb
     return result;
 };
 
+// Dividend yield cache - Initialize from localStorage if available
+let dividendCache: Record<string, number> = {};
+try {
+    const cached = localStorage.getItem('dividendCache');
+    if (cached) {
+        dividendCache = JSON.parse(cached);
+    }
+} catch (e) {
+    console.warn("Failed to load dividend cache from localStorage", e);
+}
+
+export const fetchDividends = async (tickers: string[]): Promise<Record<string, number>> => {
+    // 1. Filter out tickers we already have in cache
+    const missingTickers = tickers.filter(ticker => dividendCache[ticker] === undefined);
+
+    // 2. Fetch only missing tickers
+    if (missingTickers.length > 0) {
+        try {
+            const response = await fetch(`${API_Base_URL}/fetch-dividends`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ tickers: missingTickers }),
+            });
+
+            if (response.ok) {
+                const newDividends = await response.json();
+                // 3. Update cache
+                dividendCache = { ...dividendCache, ...newDividends };
+                // Persist to localStorage
+                try {
+                    localStorage.setItem('dividendCache', JSON.stringify(dividendCache));
+                } catch (e) {
+                    console.warn("Failed to save dividend cache to localStorage", e);
+                }
+            } else {
+                console.error('Failed to fetch dividends');
+            }
+        } catch (error) {
+            console.error("Error fetching dividends:", error);
+        }
+    }
+
+    // 4. Return all requested dividends from cache (existing + new)
+    const result: Record<string, number> = {};
+    tickers.forEach(ticker => {
+        if (dividendCache[ticker] !== undefined) {
+            result[ticker] = dividendCache[ticker];
+        }
+    });
+
+    return result;
+};
+
 // In-memory cache for index history data
 let indexHistoryCache: {
     data: Record<string, { date: string, value: number }[]> | null;

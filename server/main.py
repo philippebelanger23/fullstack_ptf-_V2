@@ -10,11 +10,12 @@ from pydantic import BaseModel
 import logging
 
 # Import existing logic
-from data_loader import load_weights_file, load_nav_file
+from data_loader import load_weights_file, load_nav_file, load_historic_nav_csvs
 from market_data import calculate_returns, calculate_benchmark_returns, build_results_dataframe, get_ticker_performance
 from cache_manager import load_cache, save_cache
 from constants import CASH_TICKER, FX_TICKER
 from pdf_generator import generate_pdf
+from nav_scraper import NAVScraper
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -42,6 +43,57 @@ class PortfolioItem(BaseModel):
     returnPct: Optional[float] = None
     contribution: Optional[float] = None
 
+# --- Helper for NAV Loading ---
+def get_aggregated_nav_data():
+    """
+    Load and aggregate NAV data from all server-side sources:
+    1. manual_navs.json
+    2. scraped_navs.json
+    3. historic_navs/*.csv
+    """
+    nav_dict = {}
+    
+    # 1. Load manually provided NAVs
+    manual_nav_path = Path("data/manual_navs.json")
+    if manual_nav_path.exists():
+        try:
+            import json
+            import datetime
+            with open(manual_nav_path, "r") as f:
+                static_navs = json.load(f)
+                for ticker, dates_data in static_navs.items():
+                    if ticker not in nav_dict: nav_dict[ticker] = {}
+                    for d, v in dates_data.items():
+                        nav_dict[ticker][datetime.datetime.strptime(d, "%Y-%m-%d")] = v
+        except Exception as e:
+            logger.warning(f"Failed to load manual_navs.json: {e}")
+
+    # 2. Load scraped NAVs
+    scraped_nav_path = Path("data/scraped_navs.json")
+    if scraped_nav_path.exists():
+        try:
+            import json
+            import datetime
+            with open(scraped_nav_path, "r") as f:
+                scraped_navs = json.load(f)
+                for ticker, dates_data in scraped_navs.items():
+                    if ticker not in nav_dict: nav_dict[ticker] = {}
+                    for d, v in dates_data.items():
+                        nav_dict[ticker][datetime.datetime.strptime(d, "%Y-%m-%d")] = v
+        except Exception as e:
+            logger.warning(f"Failed to load scraped_navs.json: {e}")
+
+    # 3. Load historical CSV NAVs
+    try:
+        csv_navs = load_historic_nav_csvs("data/historic_navs")
+        for ticker, dates_data in csv_navs.items():
+            if ticker not in nav_dict: nav_dict[ticker] = {}
+            nav_dict[ticker].update(dates_data)
+    except Exception as e:
+        logger.warning(f"Failed to load historical CSV NAVs: {e}")
+        
+    return nav_dict
+
 @app.post("/analyze", response_model=List[PortfolioItem])
 async def analyze_portfolio(
     weights_file: UploadFile = File(...),
@@ -67,10 +119,17 @@ async def analyze_portfolio(
         logger.info(f"Loading weights file: {weights_path}")
         weights_dict, dates = load_weights_file(str(weights_path))
         
-        nav_dict = {}
+        # Start with server-side aggregated NAVs
+        nav_dict = get_aggregated_nav_data()
+        
+        # Merge uploaded NAVs if present (overwriting server data if collision? or vice versa? 
+        # Usually uploaded data is specific, so let's overwrite/update)
         if nav_path:
             logger.info(f"Loading NAV file: {nav_path}")
-            nav_dict = load_nav_file(str(nav_path))
+            uploaded_navs = load_nav_file(str(nav_path))
+            for ticker, dates_data in uploaded_navs.items():
+                if ticker not in nav_dict: nav_dict[ticker] = {}
+                nav_dict[ticker].update(dates_data)
             
         # Run analysis
         return run_portfolio_analysis(weights_dict, nav_dict, dates)
@@ -113,12 +172,31 @@ async def analyze_manual(request: ManualAnalysisRequest):
                 if ticker not in weights_dict:
                     weights_dict[ticker] = {}
                 
-                # Frontend sends 50 for 50% usually, or 0.5. 
-                # Our load_weights_file normalizes >1.0 to /100.
-                # Let's apply same logic.
-                w = float(item.weight)
-                if w > 1.0:
-                    w = w / 100.0
+                # Handle weight logic (string parsing for %)
+                w_val = item.weight
+                if isinstance(w_val, str):
+                    is_percentage = '%' in w_val
+                    # Clean string
+                    val_str = w_val.replace('%', '').strip()
+                    try:
+                        w = float(val_str)
+                        if is_percentage:
+                            w = w / 100.0
+                    except ValueError:
+                         logger.warning(f"Invalid weight string: {w_val}")
+                         continue
+                else:
+                    w = float(w_val)
+                
+                # Heuristic: If value is >= 1, assume it's a percentage (e.g. 50 -> 0.5)
+                # But if it was explicitly a percentage string, we already divided by 100, so check effectively logic
+                # If we processed a %, 'w' is already decimal. e.g. "50%" -> 0.5. "0.5%" -> 0.005.
+                # If explicitly %, we don't need heuristic.
+                
+                # Re-applying heuristic only if NO % was present (implicit)
+                if not isinstance(w_val, str) or '%' not in str(w_val):
+                    if w >= 1.0:
+                        w = w / 100.0
                     
                 weights_dict[ticker][dt] = w
             except Exception as e:
@@ -128,8 +206,10 @@ async def analyze_manual(request: ManualAnalysisRequest):
         if not dates:
              raise HTTPException(status_code=400, detail="No valid dates found in data")
              
-        # Run analysis (empty nav_dict for manual)
-        return run_portfolio_analysis(weights_dict, {}, dates)
+        # Load all available NAV data
+        nav_dict = get_aggregated_nav_data()
+
+        return run_portfolio_analysis(weights_dict, nav_dict, dates)
         
     except Exception as e:
         logger.error(f"Error in manual analysis: {str(e)}", exc_info=True)
@@ -207,9 +287,14 @@ async def generate_pdf_endpoint(
         logger.info(f"Loading weights file for PDF: {weights_path}")
         weights_dict, dates = load_weights_file(str(weights_path))
         
-        nav_dict = {}
+        # Use aggregated NAV data
+        nav_dict = get_aggregated_nav_data()
+        
         if nav_path:
-            nav_dict = load_nav_file(str(nav_path))
+            uploaded_navs = load_nav_file(str(nav_path))
+            for ticker, dates_data in uploaded_navs.items():
+                if ticker not in nav_dict: nav_dict[ticker] = {}
+                nav_dict[ticker].update(dates_data)
             
         logger.info("Fetching market data for PDF...")
         returns, prices = calculate_returns(weights_dict, nav_dict, dates, cache)
@@ -597,6 +682,104 @@ async def fetch_betas(request: dict):
             
     return results
 
+@app.post("/fetch-dividends")
+async def fetch_dividends(request: dict):
+    tickers = request.get("tickers", [])
+    if not tickers:
+        return {}
+    
+    import yfinance as yf
+    import json
+    
+    unique_tickers = list(set([t.strip() for t in tickers if t and isinstance(t, str)]))
+    results = {}
+    
+    # --- Server-Side Persistence for Dividend Yields ---
+    cache_file = Path("data/dividends_cache.json")
+    server_cache = {}
+    
+    # Load existing cache
+    if cache_file.exists():
+        try:
+            with open(cache_file, "r") as f:
+                server_cache = json.load(f)
+        except Exception as e:
+            logger.warning(f"Failed to load dividend cache file: {e}")
+    
+    # Filter tickers not in cache
+    to_fetch = []
+    
+    for ticker in unique_tickers:
+        # Check server cache first
+        if ticker in server_cache:
+            results[ticker] = server_cache[ticker]
+            continue
+            
+        t_upper = ticker.upper()
+        # Cash has 0% dividend yield
+        if 'CASH' in t_upper or '$' in t_upper:
+            results[ticker] = 0.0
+            server_cache[ticker] = 0.0
+        else:
+            to_fetch.append(ticker)
+    
+    # Fetch tickers not in cache
+    if to_fetch:
+        try:
+            tickers_obj = yf.Tickers(" ".join(to_fetch))
+            
+            for ticker in to_fetch:
+                try:
+                    found_ticker = tickers_obj.tickers.get(ticker)
+                    if not found_ticker:
+                        found_ticker = yf.Ticker(ticker)
+                        
+                    info = found_ticker.info
+                    
+                    # dividendYield from yfinance can be:
+                    # - decimal format: 0.0126 for 1.26%
+                    # - percentage format: 1.26 for 1.26% (already as %)
+                    # We need to detect which format and normalize
+                    div_yield = info.get('dividendYield')
+                    if div_yield is not None:
+                        # If value > 1, assume it's already in percentage (e.g., 1.26 means 1.26%)
+                        # If value < 1, it's decimal format (e.g., 0.0126 means 1.26%)
+                        if div_yield > 1:
+                            div_yield_pct = div_yield  # Already a percentage
+                        else:
+                            div_yield_pct = div_yield * 100  # Convert from decimal
+                    else:
+                        # Check trailingAnnualDividendYield as fallback
+                        div_yield = info.get('trailingAnnualDividendYield')
+                        if div_yield is not None:
+                            if div_yield > 1:
+                                div_yield_pct = div_yield
+                            else:
+                                div_yield_pct = div_yield * 100
+                        else:
+                            div_yield_pct = 0.0
+                    
+                    results[ticker] = div_yield_pct
+                    server_cache[ticker] = div_yield_pct
+                            
+                except Exception as e:
+                    logger.warning(f"Failed to fetch dividend for {ticker}: {e}")
+                    results[ticker] = 0.0
+                    server_cache[ticker] = 0.0
+                    
+        except Exception as e:
+            logger.error(f"Error fetching dividends: {e}")
+    
+    # Save updated cache
+    try:
+        cache_file.parent.mkdir(parents=True, exist_ok=True)
+        with open(cache_file, "w") as f:
+            json.dump(server_cache, f)
+    except Exception as e:
+        logger.error(f"Failed to save dividend cache: {e}")
+            
+    return results
+
 @app.get("/index-history")
 async def get_index_history():
     """
@@ -718,6 +901,20 @@ async def get_index_history():
         logger.error(f"Error fetching index history: {e}")
         return {"ACWI": [], "XIU.TO": [], "Index": []}
 
+
+@app.post("/refresh-navs")
+async def refresh_navs(request: dict):
+    url = request.get("url")
+    if not url:
+        raise HTTPException(status_code=400, detail="URL is required")
+        
+    try:
+        scraper = NAVScraper(storage_path="data/scraped_navs.json")
+        success = scraper.update_navs(url)
+        return {"success": success, "message": "Scraping complete" if success else "No data extracted"}
+    except Exception as e:
+        logger.error(f"Error in refresh-navs: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
     import uvicorn

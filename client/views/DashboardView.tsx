@@ -56,6 +56,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ data }) => {
   const [sectorMap, setSectorMap] = React.useState<Record<string, string>>({});
 
   const [betaMap, setBetaMap] = React.useState<Record<string, number>>({});
+  const [divYieldMap, setDivYieldMap] = React.useState<Record<string, number>>({});
 
   // Fetch Sectors and Betas effect
   React.useEffect(() => {
@@ -72,7 +73,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ data }) => {
       if (tickersToFetch.length === 0) return;
 
       try {
-        const { fetchSectors, fetchBetas } = await import('../services/api');
+        const { fetchSectors, fetchBetas, fetchDividends } = await import('../services/api');
 
         // Fetch Sectors
         // We optimize by checking if we need to fetch, but api.ts handles some caching too.
@@ -88,6 +89,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ data }) => {
         const betas = await fetchBetas(tickersToFetch);
         if (Object.keys(betas).length > 0) {
           setBetaMap(betas);
+        }
+
+        const dividends = await fetchDividends(tickersToFetch);
+        if (Object.keys(dividends).length > 0) {
+          setDivYieldMap(dividends);
         }
 
       } catch (error) {
@@ -228,39 +234,37 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ data }) => {
         })()}
 
         <KPICard
-          title="Risk Metrics (Dummy Data)"
+          title="Risk & Income"
           value={
             <div className="flex w-full items-center mt-1">
               <div className="flex-1 flex flex-col items-center justify-center">
                 <div className="flex items-center gap-1.5 mb-1"><span className="text-xs font-extrabold text-slate-600 uppercase tracking-wider">Beta</span></div>
                 <span className="text-xl font-bold text-wallstreet-text font-mono">
                   {(() => {
-                    const investedWeight = totalWeight - enrichedCurrentHoldings.filter(h => h.sector === 'CASH').reduce((sum, h) => sum + h.weight, 0);
-                    // Calculate weighted beta relative to invested capital, not total capital (usually)
-                    // Or relative to total? Usually portfolio beta = sum(weight_i * beta_i).
-                    // If cash has beta=0.
                     let weightedBetaSum = 0;
                     enrichedCurrentHoldings.forEach(item => {
-                      const beta = betaMap[item.ticker] || 1.0; // Default to 1 if missing for calculation safety, or 0? 1 is safer assumption for equity.
-                      // Actually, if it's cash, beta is 0.
+                      const beta = betaMap[item.ticker] || 1.0;
                       let effectiveBeta = beta;
                       if (item.sector === 'CASH') effectiveBeta = 0;
-
-                      // We use the raw weight (e.g. 50% = 50) so we divide by totalWeight later or 100
-                      // Our weights sum to ~100.
                       weightedBetaSum += (item.weight * effectiveBeta);
                     });
-                    // If totalWeight is ~100, we divide by 100.
-                    // If totalWeight is < 100 (e.g. 99.8), it's close enough.
-                    // If we want it strictly standard:
                     return (weightedBetaSum / 100).toFixed(2);
                   })()}
                 </span>
               </div>
               <div className="w-px h-8 bg-wallstreet-100"></div>
               <div className="flex-1 flex flex-col items-center justify-center">
-                <div className="flex items-center gap-1.5 mb-1"><span className="text-xs font-extrabold text-slate-600 uppercase tracking-wider">Sharpe</span></div>
-                <span className="text-xl font-bold text-wallstreet-text font-mono">1.84</span>
+                <div className="flex items-center gap-1.5 mb-1"><span className="text-xs font-extrabold text-slate-600 uppercase tracking-wider">Div Yield</span></div>
+                <span className="text-xl font-bold text-green-600 font-mono">
+                  {(() => {
+                    let weightedDivSum = 0;
+                    enrichedCurrentHoldings.forEach(item => {
+                      const divYield = divYieldMap[item.ticker] || 0;
+                      weightedDivSum += (item.weight * divYield);
+                    });
+                    return (weightedDivSum / 100).toFixed(2) + '%';
+                  })()}
+                </span>
               </div>
             </div> as any
           }
@@ -274,7 +278,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ data }) => {
         <PortfolioEvolutionChart data={areaChartData} topTickers={topTickers} dates={dates} colors={COLORS} />
       </div>
 
-      <PortfolioTable currentHoldings={enrichedCurrentHoldings} allData={data} betaMap={betaMap} />
+      <PortfolioTable currentHoldings={enrichedCurrentHoldings} allData={data} betaMap={betaMap} divYieldMap={divYieldMap} />
     </div>
   );
 };

@@ -53,9 +53,33 @@ def calculate_returns(weights_dict, nav_dict, dates, cache):
         for date_str in dates:
             date_val = pd.to_datetime(date_str, format="%d/%m/%Y")
             
-            if ticker in nav_dict and date_val in nav_dict[ticker]:
-                prices[ticker][date_val] = nav_dict[ticker][date_val]
+            # Check if ticker is in nav_dict (manual or CSV loaded)
+            if ticker in nav_dict:
+                # Try exact match first
+                if date_val in nav_dict[ticker]:
+                    prices[ticker][date_val] = nav_dict[ticker][date_val]
+                else:
+                    # Fallback: Find the most recent previous date
+                    # This handles weekends/holidays where CSV data might be missing the exact date
+                    available_dates = sorted([d for d in nav_dict[ticker].keys() if d <= date_val])
+                    
+                    if available_dates:
+                        last_date = available_dates[-1]
+                        prices[ticker][date_val] = nav_dict[ticker][last_date]
+                    else:
+                        # No previous data available. 
+                        # If it's a manual ticker, Yahoo probably won't have it either, but we can try 
+                        # or just error out more gracefully.
+                        # For now, let's try the fallback to get_price_on_date only if we really have to,
+                        # but avoiding it for known manual tickers is safer to prevent 500s.
+                        try:
+                             prices[ticker][date_val] = get_price_on_date(ticker, date_val, cache)
+                        except Exception:
+                             # If both fail, raise a clear error or default to 0?
+                             # Raising error is better than 500.
+                             raise ValueError(f"No pricing data available for {ticker} on {date_val} (and no history found)")
             else:
+                # Standard Yahoo Finance lookup
                 prices[ticker][date_val] = get_price_on_date(ticker, date_val, cache)
     
     for ticker in all_tickers:

@@ -45,7 +45,9 @@ const CustomizedContent = (props: any) => {
 
     // Gap and Radius logic
     const gap = 2; // Gap of 2px
-    const radius = 6;
+    const radius = 0; // Square corners for cleaner grid look, or keep small radius? 
+    // Screenshot 2 has sharp corners (or very very small). Let's stick to 2px gap but maybe sharp corners or minimal radius.
+    // The previous code had radius 6. Let's try radius 0 to match the "clean grid" look of Screenshot 2.
 
     // Adjusted dimensions for gap
     const adjX = x + gap;
@@ -68,7 +70,7 @@ const CustomizedContent = (props: any) => {
             'Switzerland': 'Switz',
             'Australia': 'Aus',
             'Netherlands': 'Neth.',
-            'Germany': 'DE', // Optional ISO codes if really small? Maybe keep full name if fits.
+            'Germany': 'DE',
             'France': 'Fra',
             'Taiwan': 'Tai',
             'Japan': 'Jap',
@@ -77,27 +79,35 @@ const CustomizedContent = (props: any) => {
         if (aliases[name]) displayName = aliases[name];
     }
 
-    // Hide text if box is excessively small
-    const showText = adjW > 28 && adjH > 28;
+    // Hide text if box is excessively small - slightly more permissive now
+    const showText = adjW > 24 && adjH > 24;
 
     // Font Sizing Calculation
+    // Base it primarily on width, but clamp it reasonable.
+    // We want the text to be legible but not massive.
+
+    // Max font size for large boxes (like US)
+    const maxFontSize = 14;
+    // Min font size for small boxes
+    const minFontSize = 10;
+
+    // Calculate ideal size based on width
+    // 10px per char is roughly 14px font. 
+    // Let's ensure the name fits in 90% of width.
     const charCount = displayName.length;
-    // We want the text to fill about 85% (reduced from 90%) of the box width
-    const targetWidth = adjW * 0.85;
-    // Average char width factor (approx 0.6 for sans-serif)
-    const fontSizeByWidth = targetWidth / (Math.max(charCount, 2) * 0.6);
-    // We want content (2 lines) to fill about 70% of height
-    const fontSizeByHeight = (adjH * 0.7) / 2.5; // 2.5 lines roughly
+    let computedFontSize = (adjW * 0.9) / (charCount * 0.7); // 0.7 aspect ratio approx
 
-    // Clamp font size
-    // For really small boxes (e.g. < 60px wide), go smaller.
-    // For US/Canada, allow big text.
-    let baseFontSize = Math.min(fontSizeByWidth, fontSizeByHeight);
-    baseFontSize = Math.min(Math.max(baseFontSize, 10), 32); // Clamp between 10px and 32px
+    // Clamp
+    let fontSize = Math.min(Math.max(computedFontSize, minFontSize), maxFontSize);
 
-    // For tiny boxes, if the calculated font needs to be < 10, maybe just hide specifically or show initials?
-    // Current logic: if it doesn't fit with size 9, it overlaps. 
-    // Let's rely on showText trigger for tiny boxes.
+    // For very large boxes (US/Canada), we might want slightly larger text but not huge.
+    if (adjW > 200 && adjH > 100) {
+        fontSize = 16;
+    }
+
+    // Padding for bottom-left alignment
+    const paddingX = 6;
+    const paddingY = 6;
 
     return (
         <g>
@@ -106,58 +116,53 @@ const CustomizedContent = (props: any) => {
                 y={adjY}
                 width={adjW}
                 height={adjH}
-                rx={radius}
-                ry={radius}
+                // rx={radius}
+                // ry={radius}
                 fill={fill}
                 style={{
                     stroke: '#fff',
                     strokeWidth: 0,
-                    filter: 'drop-shadow(0px 1px 2px rgba(0,0,0,0.15))', // Stronger shadow for depth
+                    // No shadow for flat clean look
                     cursor: 'pointer'
                 }}
             />
             {showText && (
                 <text
-                    x={adjX + adjW / 2}
-                    y={adjY + adjH / 2}
-                    textAnchor="middle"
-                    dominantBaseline="central"
+                    x={adjX + paddingX}
+                    y={adjY + adjH - paddingY}
+                    textAnchor="start"
+                    // dominantBaseline="auto" // Default is baseline, which is what we want for bottom alignment
                     fill="#fff"
-                    style={{ pointerEvents: 'none' }}
+                    style={{ pointerEvents: 'none', textShadow: '0px 1px 2px rgba(0,0,0,0.4)' }}
                 >
                     <tspan
-                        x={adjX + adjW / 2}
-                        dy={`-${baseFontSize * 0.4}px`} // Move NAME up by ~40% of font size from center
+                        x={adjX + paddingX}
+                        dy="-1.3em" // Move up for the NAME (it's above the percentage)
                         style={{
-                            fontSize: `${baseFontSize}px`,
-                            fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
-                            fontWeight: 500, // Reduced from 600 -> 500
-                            // Removed textShadow for cleaner look on small text
+                            fontSize: `${fontSize}px`,
+                            fontWeight: 500, // Medium (not bold)
+                            fontFamily: '"JetBrains Mono", monospace'
+                            // letterSpacing removed (mono usually fine)
                         }}
                     >
                         {displayName}
                     </tspan>
                     <tspan
-                        x={adjX + adjW / 2}
-                        dy={`${baseFontSize * 1.1}px`} // Move VALUE down. This is offset from the PREVIOUS sibling baseline.
-                        // Previous baseline was approx @ center - 0.4em.
-                        // New baseline = (center - 0.4em) + 1.1em = center + 0.7em.
-                        // Visual check: Cap height ~0.7em. 
-                        // Top text: bottom is ~ center - 0.4em.
-                        // Bottom text: top is ~ center + 0.7em - 0.7em = center.
-                        // This leaves a 0.4em gap between them.
+                        x={adjX + paddingX}
+                        dy="1.5em" // Move down for the VALUE (Back to bottom)
                         style={{
-                            fontSize: `${baseFontSize * 0.8}px`, // Value is 80% of name size
-                            fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
-                            fontWeight: 400, // Kept at 400 (Regular)
-                            opacity: 1, // Removed opacity to ensure thin lines render crisp
+                            fontSize: `${fontSize * 0.9}px`, // Slightly smaller than name
+                            fontWeight: 400, // Regular
+                            fontFamily: '"JetBrains Mono", monospace'
+                            // letterSpacing removed
                         }}
                     >
-                        {value.toFixed(1)}%
+                        {value.toFixed(2)}%
                     </tspan>
                 </text>
-            )}
-        </g>
+            )
+            }
+        </g >
     );
 };
 
@@ -170,9 +175,9 @@ const CustomTooltip = ({ active, payload }: any) => {
                 <div className="flex items-center justify-between gap-4">
                     <span className="text-slate-500 text-xs text-nowrap">Weight</span>
                     <span className={`font-mono font-bold text-sm ${data.name === 'United States' ? 'text-blue-600' :
-                            data.name === 'Canada' ? 'text-red-600' :
-                                emergingMarkets.includes(data.name) ? 'text-amber-600' :
-                                    'text-slate-600'
+                        data.name === 'Canada' ? 'text-red-600' :
+                            emergingMarkets.includes(data.name) ? 'text-amber-600' :
+                                'text-slate-600'
                         }`}>
                         {data.value.toFixed(2)}%
                     </span>
@@ -189,7 +194,7 @@ export const CountryTreemap: React.FC<CountryTreemapProps> = ({ data, width = "1
             <Treemap
                 data={data}
                 dataKey="value"
-                aspectRatio={4 / 3}
+                aspectRatio={2}
                 stroke="#fff"
                 fill="#8884d8"
                 content={<CustomizedContent />}
