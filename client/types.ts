@@ -7,6 +7,7 @@ export interface PortfolioItem {
   notes?: string;
   returnPct?: number;
   contribution?: number;
+  isMutualFund?: boolean; // Flag for mutual funds requiring CSV NAV data
 }
 
 export interface AnalysisState {
@@ -23,5 +24,5 @@ export enum ViewState {
   ANALYSIS = 'ANALYSIS',
   CORRELATION = 'CORRELATION',
   ATTRIBUTION = 'ATTRIBUTION',
-  SETTINGS = 'SETTINGS'
+  PERFORMANCE = 'PERFORMANCE'
 }

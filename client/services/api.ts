@@ -2,31 +2,6 @@ import { PortfolioItem } from '../types';
 
 const API_Base_URL = ''; // Use relative path to leverage Vite proxy
 
-export const analyzePortfolio = async (weightsFile: File, navFile?: File): Promise<PortfolioItem[]> => {
-    const formData = new FormData();
-    formData.append('weights_file', weightsFile);
-    if (navFile) {
-        formData.append('nav_file', navFile);
-    }
-
-    try {
-        const response = await fetch(`${API_Base_URL}/analyze`, {
-            method: 'POST',
-            body: formData,
-        });
-
-        if (!response.ok) {
-            const errorText = await response.text();
-            throw new Error(`Server Error: ${response.status} ${response.statusText} - ${errorText}`);
-        }
-
-        const data: PortfolioItem[] = await response.json();
-        return data;
-    } catch (error) {
-        console.error("API Error details:", error);
-        throw error;
-    }
-};
 
 export const analyzeManualPortfolio = async (items: PortfolioItem[]): Promise<PortfolioItem[]> => {
     try {
@@ -50,7 +25,6 @@ export const analyzeManualPortfolio = async (items: PortfolioItem[]): Promise<Po
     }
 };
 
-// Cache storage
 // Cache storage - Initialize from localStorage if available
 let sectorCache: Record<string, string> = {};
 try {
@@ -221,7 +195,7 @@ try {
         // Cache version mismatch - clear old cache
         localStorage.removeItem('dividendCache');
         localStorage.setItem('dividendCacheVersion', currentVersion);
-        console.log('Dividend cache invalidated due to version update');
+
     }
 } catch (e) {
     console.warn("Failed to load dividend cache from localStorage", e);
@@ -283,7 +257,7 @@ export const fetchIndexHistory = async (): Promise<Record<string, { date: string
     // Check if cache is valid
     const now = Date.now();
     if (indexHistoryCache.data && (now - indexHistoryCache.timestamp) < INDEX_HISTORY_CACHE_TTL) {
-        console.log('Serving index history from frontend cache');
+
         return indexHistoryCache.data;
     }
 
@@ -304,37 +278,3 @@ export const fetchIndexHistory = async (): Promise<Record<string, { date: string
     }
 };
 
-export const generatePDF = async (weightsFile: File, navFile?: File): Promise<void> => {
-    const formData = new FormData();
-    formData.append('weights_file', weightsFile);
-
-    if (navFile) {
-        formData.append('nav_file', navFile);
-    }
-
-    try {
-        const response = await fetch(`${API_Base_URL}/generate-pdf`, {
-            method: 'POST',
-            body: formData,
-        });
-
-        if (!response.ok) {
-            const errorText = await response.text();
-            throw new Error(`Server Error: ${response.status} ${response.statusText} - ${errorText}`);
-        }
-
-        // Download the PDF
-        const blob = await response.blob();
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = 'top_contributors.pdf';
-        document.body.appendChild(a);
-        a.click();
-        window.URL.revokeObjectURL(url);
-        a.remove();
-    } catch (error) {
-        console.error("PDF generation error:", error);
-        throw error;
-    }
-};

@@ -1,5 +1,4 @@
-import React from 'react';
-import { LayoutDashboard, FileText, Upload, PieChart, Network, BarChart2, Globe } from 'lucide-react';
+import { LayoutDashboard, FileText, Upload, PieChart, Network, BarChart2, Globe, TrendingUp } from 'lucide-react';
 import { ViewState } from '../types';
 
 interface SidebarProps {
@@ -43,6 +42,11 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, setView, hasData 
         <div onClick={() => hasData && setView(ViewState.ATTRIBUTION)} className={navItemClass(ViewState.ATTRIBUTION, !hasData)}>
           <BarChart2 size={20} />
           <span className="font-medium">Attribution</span>
+        </div>
+
+        <div onClick={() => hasData && setView(ViewState.PERFORMANCE)} className={navItemClass(ViewState.PERFORMANCE, !hasData)}>
+          <TrendingUp size={20} />
+          <span className="font-medium">Performance</span>
         </div>
 
         <div onClick={() => hasData && setView(ViewState.CORRELATION)} className={navItemClass(ViewState.CORRELATION, !hasData)}>

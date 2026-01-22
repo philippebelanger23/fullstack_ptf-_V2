@@ -37,8 +37,10 @@ def get_fx_return(start_date, end_date, cache):
     return (fx_end / fx_start) - 1
 
 
-def calculate_returns(weights_dict, nav_dict, dates, cache):
+def calculate_returns(weights_dict, nav_dict, dates, cache, mutual_fund_tickers=None):
     """Calculate returns for all holdings across all periods."""
+    if mutual_fund_tickers is None:
+        mutual_fund_tickers = set()
     all_tickers = set(weights_dict.keys())
     all_tickers = sorted(all_tickers)
     
@@ -50,8 +52,9 @@ def calculate_returns(weights_dict, nav_dict, dates, cache):
             continue
         
         prices[ticker] = {}
-        for date_str in dates:
-            date_val = pd.to_datetime(date_str, format="%d/%m/%Y")
+        for date_val in dates:
+            # Ensure date_val is a Timestamp for consistency
+            date_val = pd.to_datetime(date_val)
             
             # Check if ticker is in nav_dict (manual or CSV loaded)
             if ticker in nav_dict:
@@ -103,8 +106,8 @@ def calculate_returns(weights_dict, nav_dict, dates, cache):
             price_end = prices[ticker][end_date]
             period_return = (price_end / price_start) - 1
             
-            # Mutual funds (in nav_dict) use NAV data directly without FX adjustment
-            if ticker in nav_dict:
+            # Mutual funds (in nav_dict or marked as such) use NAV data directly without FX adjustment
+            if ticker in nav_dict or ticker in mutual_fund_tickers:
                 returns[ticker][(start_date, end_date)] = period_return
             elif ticker.endswith('.TO') or ticker == "^GSPTSE":
                 returns[ticker][(start_date, end_date)] = period_return
@@ -125,8 +128,8 @@ def calculate_benchmark_returns(dates, cache):
     for bench_name, ticker in BENCHMARK_TICKERS.items():
         benchmark_returns[bench_name] = {}
         for i in range(len(dates) - 1):
-            start_date = pd.to_datetime(dates[i], format="%d/%m/%Y")
-            end_date = pd.to_datetime(dates[i+1], format="%d/%m/%Y")
+            start_date = pd.to_datetime(dates[i])
+            end_date = pd.to_datetime(dates[i+1])
             
             if ticker == FX_TICKER:
                 benchmark_returns[bench_name][(start_date, end_date)] = get_fx_return(start_date, end_date, cache)
@@ -138,20 +141,22 @@ def calculate_benchmark_returns(dates, cache):
     return benchmark_returns
 
 
-def build_results_dataframe(weights_dict, returns, prices, dates, cache):
+def build_results_dataframe(weights_dict, returns, prices, dates, cache, mutual_fund_tickers=None):
     """Build the results DataFrame with all periods and YTD."""
     from constants import CASH_TICKER, FX_TICKER
+    if mutual_fund_tickers is None:
+        mutual_fund_tickers = set()
     
     all_tickers = sorted(weights_dict.keys())
     
     periods = []
     for i in range(len(dates) - 1):
-        start_date = pd.to_datetime(dates[i], format="%d/%m/%Y")
-        end_date = pd.to_datetime(dates[i+1], format="%d/%m/%Y")
+        start_date = pd.to_datetime(dates[i])
+        end_date = pd.to_datetime(dates[i+1])
         periods.append((start_date, end_date))
     
-    first_date = pd.to_datetime(dates[0], format="%d/%m/%Y")
-    last_date = pd.to_datetime(dates[-1], format="%d/%m/%Y")
+    first_date = pd.to_datetime(dates[0])
+    last_date = pd.to_datetime(dates[-1])
     
     data = []
     for ticker in all_tickers:
@@ -176,7 +181,7 @@ def build_results_dataframe(weights_dict, returns, prices, dates, cache):
                 last_price = prices[ticker][last_date]
                 ytd_return = (last_price / first_price) - 1
                 
-                if not ticker.endswith('.TO') and ticker != "^GSPTSE":
+                if not ticker.endswith('.TO') and ticker != "^GSPTSE" and ticker not in mutual_fund_tickers:
                     fx_start = get_price_on_date(FX_TICKER, first_date, cache)
                     fx_end = get_price_on_date(FX_TICKER, last_date, cache)
                     fx_return = (fx_end / fx_start) - 1

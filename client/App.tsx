@@ -6,6 +6,7 @@ import { AnalysisView } from './views/AnalysisView';
 import { CorrelationView } from './views/CorrelationView';
 import { AttributionView } from './views/AttributionView';
 import { IndexView } from './views/IndexView';
+import { PerformanceView } from './views/PerformanceView';
 import { PortfolioItem, ViewState } from './types';
 
 class GlobalErrorBoundary extends Component<{ children: React.ReactNode }, { hasError: boolean, error: Error | null, errorInfo: ErrorInfo | null }> {
@@ -63,26 +64,28 @@ function App() {
   const [currentView, setCurrentView] = useState<ViewState>(ViewState.UPLOAD);
   const [portfolioData, setPortfolioData] = useState<PortfolioItem[]>([]);
   const [fileHistory, setFileHistory] = useState<{ name: string, count: number }[]>([]);
-  const [uploadedFiles, setUploadedFiles] = useState<{ weightsFile: File | null, navFile: File | null }>({ weightsFile: null, navFile: null });
 
   // Lifted state for Correlation Analysis to prevent regeneration
   const [correlationResult, setCorrelationResult] = useState<any>(null);
   const [correlationStatus, setCorrelationStatus] = useState<'idle' | 'analyzing' | 'complete' | 'error'>('idle');
 
-  const handleDataLoaded = (data: PortfolioItem[], fileInfo?: { name: string, count: number }, files?: { weightsFile: File | null, navFile: File | null }) => {
+  // Shared state for year selection
+  const [selectedYear, setSelectedYear] = useState<2025 | 2026>(2025);
+
+  const handleDataLoaded = (data: PortfolioItem[], fileInfo?: { name: string, count: number }) => {
     setPortfolioData(data);
     setCorrelationResult(null);
     setCorrelationStatus('idle');
 
-    if (files) {
-      setUploadedFiles(files);
-    }
-
     if (data.length === 0) {
       setFileHistory([]);
-      setUploadedFiles({ weightsFile: null, navFile: null });
     } else if (fileInfo) {
-      setFileHistory(prev => [...prev, fileInfo]);
+      if (fileInfo.name === "Manual Entry") {
+        // Manual entry replaces all - show only this entry
+        setFileHistory([fileInfo]);
+      } else {
+        setFileHistory(prev => [...prev, fileInfo]);
+      }
     }
   };
 
@@ -94,7 +97,8 @@ function App() {
             onDataLoaded={handleDataLoaded}
             onProceed={() => setCurrentView(ViewState.DASHBOARD)}
             currentData={portfolioData}
-            fileHistory={fileHistory}
+            selectedYear={selectedYear}
+            setSelectedYear={setSelectedYear}
           />
         );
       case ViewState.DASHBOARD:
@@ -104,7 +108,9 @@ function App() {
       case ViewState.ANALYSIS:
         return <AnalysisView data={portfolioData} />;
       case ViewState.ATTRIBUTION:
-        return <AttributionView data={portfolioData} uploadedFiles={uploadedFiles} />;
+        return <AttributionView data={portfolioData} selectedYear={selectedYear} setSelectedYear={setSelectedYear} />;
+      case ViewState.PERFORMANCE:
+        return <PerformanceView />;
       case ViewState.CORRELATION:
         return (
           <CorrelationView
@@ -121,7 +127,8 @@ function App() {
             onDataLoaded={handleDataLoaded}
             onProceed={() => setCurrentView(ViewState.DASHBOARD)}
             currentData={portfolioData}
-            fileHistory={fileHistory}
+            selectedYear={selectedYear}
+            setSelectedYear={setSelectedYear}
           />
         );
     }

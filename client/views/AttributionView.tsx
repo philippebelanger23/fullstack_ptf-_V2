@@ -36,11 +36,10 @@ class ErrorBoundary extends Component<{ children: React.ReactNode }, { hasError:
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, LabelList, ReferenceLine, ScatterChart, Scatter, ZAxis, ComposedChart, Line, ReferenceArea } from 'recharts';
 import { KPICard } from '../components/KPICard';
 import { TrendingUp, Target, AlertTriangle, Calendar, Grid, Activity, Percent, Layers, Zap, Scale, Info, Printer, Download, Loader2, ArrowUpRight, ArrowDownRight } from 'lucide-react';
-import { generatePDF } from '../services/api';
-
 interface AttributionViewProps {
     data: PortfolioItem[];
-    uploadedFiles?: { weightsFile: File | null, navFile: File | null };
+    selectedYear: 2025 | 2026;
+    setSelectedYear: (year: 2025 | 2026) => void;
 }
 
 const formatPct = (val: number | undefined) => {
@@ -273,7 +272,7 @@ const aggregatePeriodData = (data: PortfolioItem[]): TableItem[] => {
     return results;
 };
 
-const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, uploadedFiles }) => {
+const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selectedYear, setSelectedYear }) => {
     const [viewMode, setViewMode] = useState<'OVERVIEW' | 'TABLES'>('OVERVIEW');
     const [timeRange, setTimeRange] = useState<'YTD' | 'Q1' | 'Q2' | 'Q3' | 'Q4'>('YTD');
 
@@ -281,7 +280,36 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, uploaded
         window.print();
     };
 
-    const cleanData = useMemo(() => data, [data]);
+    const cleanData = useMemo(() => {
+        // Filter by year
+        const yearFiltered = data.filter(d => new Date(d.date).getFullYear() === selectedYear);
+
+        // Carry-over logic for 2026-01-01
+        if (selectedYear === 2026) {
+            const hasJan1 = yearFiltered.some(d => d.date.startsWith('2026-01-01'));
+            if (!hasJan1) {
+                // Find last data point from 2025
+                const data2025 = data.filter(d => new Date(d.date).getFullYear() === 2025);
+                if (data2025.length > 0) {
+                    // Sort to find the latest
+                    data2025.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+                    const lastDate2025 = data2025[0].date;
+                    const latest2025Snapshot = data2025.filter(d => d.date === lastDate2025);
+
+                    // Create simulated entries for Jan 1st 2026 using last 2025 weights
+                    const carryOver = latest2025Snapshot.map(item => ({
+                        ...item,
+                        date: '2026-01-01',
+                        contribution: 0, // Reset contribution for the start of the year
+                        returnPct: 0    // Reset performance for the start of the year
+                    }));
+                    return [...carryOver, ...yearFiltered];
+                }
+            }
+        }
+
+        return yearFiltered;
+    }, [data, selectedYear]);
 
     const { allMonths, primaryYear } = useMemo(() => {
         if (cleanData.length === 0) return { allMonths: [], primaryYear: new Date().getFullYear() };
@@ -612,7 +640,7 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, uploaded
     }, [heatmapTotals.monthlyReturns]);
 
     // Debug logging
-    console.log("AttributionView Render:", { dataLen: data?.length, uploadedFiles });
+
 
     if (!data || data.length === 0) {
         return (
@@ -661,6 +689,15 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, uploaded
                     <p className="text-wallstreet-500 mt-1 text-sm">Allocation vs. Selection Effect Analysis (Excl. Cash)</p>
                 </div>
                 <div className="flex items-center gap-4">
+                    {/* Year Selector */}
+                    <select
+                        value={selectedYear}
+                        onChange={(e) => setSelectedYear(Number(e.target.value) as 2025 | 2026)}
+                        className="px-3 py-2 bg-white border border-wallstreet-700 rounded-lg text-xs font-mono font-bold text-wallstreet-text shadow-sm cursor-pointer hover:bg-slate-50 transition-colors"
+                    >
+                        <option value={2025}>2025</option>
+                        <option value={2026}>2026</option>
+                    </select>
                     <div className="flex p-1 bg-wallstreet-200 rounded-lg">
                         <button onClick={() => setViewMode('OVERVIEW')} className={`px-4 py-2 rounded-md text-xs font-bold font-mono transition-all flex items-center gap-2 ${viewMode === 'OVERVIEW' ? 'bg-white text-wallstreet-accent shadow-sm' : 'text-wallstreet-500 hover:text-wallstreet-text'}`}><Grid size={14} /> Overview</button>
                         <button onClick={() => setViewMode('TABLES')} className={`px-4 py-2 rounded-md text-xs font-bold font-mono transition-all flex items-center gap-2 ${viewMode === 'TABLES' ? 'bg-white text-wallstreet-accent shadow-sm' : 'text-wallstreet-500 hover:text-wallstreet-text'}`}><Layers size={14} /> Tables</button>

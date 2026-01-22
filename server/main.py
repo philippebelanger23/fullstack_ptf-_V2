@@ -10,11 +10,10 @@ from pydantic import BaseModel
 import logging
 
 # Import existing logic
-from data_loader import load_weights_file, load_nav_file, load_historic_nav_csvs
-from market_data import calculate_returns, calculate_benchmark_returns, build_results_dataframe, get_ticker_performance
+from data_loader import load_historic_nav_csvs
+from market_data import calculate_returns, build_results_dataframe, get_ticker_performance
 from cache_manager import load_cache, save_cache
 from constants import CASH_TICKER, FX_TICKER
-from pdf_generator import generate_pdf
 from nav_scraper import NAVScraper
 
 # Configure logging
@@ -42,6 +41,7 @@ class PortfolioItem(BaseModel):
     notes: Optional[str] = None
     returnPct: Optional[float] = None
     contribution: Optional[float] = None
+    isMutualFund: Optional[bool] = None  # Flag for mutual funds requiring CSV NAV data
 
 # --- Helper for NAV Loading ---
 def get_aggregated_nav_data():
@@ -94,58 +94,6 @@ def get_aggregated_nav_data():
         
     return nav_dict
 
-@app.post("/analyze", response_model=List[PortfolioItem])
-async def analyze_portfolio(
-    weights_file: UploadFile = File(...),
-    nav_file: Optional[UploadFile] = File(None)
-):
-    temp_dir = Path("temp_uploads")
-    temp_dir.mkdir(exist_ok=True)
-    
-    weights_path = temp_dir / weights_file.filename
-    nav_path = None
-    
-    try:
-        # Save uploaded files
-        with weights_path.open("wb") as buffer:
-            shutil.copyfileobj(weights_file.file, buffer)
-            
-        if nav_file:
-            nav_path = temp_dir / nav_file.filename
-            with nav_path.open("wb") as buffer:
-                shutil.copyfileobj(nav_file.file, buffer)
-        
-        # Load data from files
-        logger.info(f"Loading weights file: {weights_path}")
-        weights_dict, dates = load_weights_file(str(weights_path))
-        
-        # Start with server-side aggregated NAVs
-        nav_dict = get_aggregated_nav_data()
-        
-        # Merge uploaded NAVs if present (overwriting server data if collision? or vice versa? 
-        # Usually uploaded data is specific, so let's overwrite/update)
-        if nav_path:
-            logger.info(f"Loading NAV file: {nav_path}")
-            uploaded_navs = load_nav_file(str(nav_path))
-            for ticker, dates_data in uploaded_navs.items():
-                if ticker not in nav_dict: nav_dict[ticker] = {}
-                nav_dict[ticker].update(dates_data)
-            
-        # Run analysis
-        return run_portfolio_analysis(weights_dict, nav_dict, dates)
-
-    except Exception as e:
-        logger.error(f"Error processing analysis: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
-        
-    finally:
-        # Cleanup
-        if weights_path.exists():
-            weights_path.unlink()
-        if nav_path and nav_path.exists():
-            nav_path.unlink()
-        if temp_dir.exists():
-            shutil.rmtree(temp_dir, ignore_errors=True)
 
 class ManualAnalysisRequest(BaseModel):
     items: List[PortfolioItem]
@@ -196,27 +144,42 @@ async def analyze_manual(request: ManualAnalysisRequest):
         dates = sorted(list(dates_set))
         if not dates:
              raise HTTPException(status_code=400, detail="No valid dates found in data")
-             
+        
+        # Automatically add 'Today' if the last date is in the past
+        # This ensures the Attribution tab shows current data for the latest positions
+        latest_date = dates[-1]
+        now = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        if latest_date < now:
+            dates.append(now)
+            # Propagate the latest weights to the 'Today' period
+            for ticker in weights_dict:
+                if latest_date in weights_dict[ticker]:
+                    weights_dict[ticker][now] = weights_dict[ticker][latest_date]
+        
+        
         # Load all available NAV data
         nav_dict = get_aggregated_nav_data()
 
-        return run_portfolio_analysis(weights_dict, nav_dict, dates)
+        # Identify which tickers are marked as mutual funds in the request
+        mutual_fund_tickers = {item.ticker.upper().strip() for item in request.items if item.isMutualFund}
+
+        return run_portfolio_analysis(weights_dict, nav_dict, dates, mutual_fund_tickers)
         
     except Exception as e:
         logger.error(f"Error in manual analysis: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
-def run_portfolio_analysis(weights_dict, nav_dict, dates):
+def run_portfolio_analysis(weights_dict, nav_dict, dates, mutual_fund_tickers=None):
     """Core logic shared between file upload and manual entry."""
     cache = load_cache()
     
     logger.info("Fetching market data...")
-    returns, prices = calculate_returns(weights_dict, nav_dict, dates, cache)
+    returns, prices = calculate_returns(weights_dict, nav_dict, dates, cache, mutual_fund_tickers)
     
     save_cache(cache)
     
     logger.info("Building results dataframe...")
-    df, periods = build_results_dataframe(weights_dict, returns, prices, dates, cache)
+    df, periods = build_results_dataframe(weights_dict, returns, prices, dates, cache, mutual_fund_tickers)
     
     result_items = []
     
@@ -251,77 +214,6 @@ def run_portfolio_analysis(weights_dict, nav_dict, dates):
             
     return result_items
 
-@app.post("/generate-pdf")
-async def generate_pdf_endpoint(
-    weights_file: UploadFile = File(...),
-    nav_file: Optional[UploadFile] = File(None)
-):
-    """Generate PDF with Top Contributors/Disruptors tables."""
-    temp_dir = Path("temp_uploads")
-    temp_dir.mkdir(exist_ok=True)
-    
-    weights_path = temp_dir / weights_file.filename
-    nav_path = None
-    
-    try:
-        # Save uploaded files
-        with weights_path.open("wb") as buffer:
-            shutil.copyfileobj(weights_file.file, buffer)
-            
-        if nav_file:
-            nav_path = temp_dir / nav_file.filename
-            with nav_path.open("wb") as buffer:
-                shutil.copyfileobj(nav_file.file, buffer)
-        
-        cache = load_cache()
-        
-        logger.info(f"Loading weights file for PDF: {weights_path}")
-        weights_dict, dates = load_weights_file(str(weights_path))
-        
-        # Use aggregated NAV data
-        nav_dict = get_aggregated_nav_data()
-        
-        if nav_path:
-            uploaded_navs = load_nav_file(str(nav_path))
-            for ticker, dates_data in uploaded_navs.items():
-                if ticker not in nav_dict: nav_dict[ticker] = {}
-                nav_dict[ticker].update(dates_data)
-            
-        logger.info("Fetching market data for PDF...")
-        returns, prices = calculate_returns(weights_dict, nav_dict, dates, cache)
-        
-        save_cache(cache)
-        
-        logger.info("Building results dataframe for PDF...")
-        df, periods = build_results_dataframe(weights_dict, returns, prices, dates, cache)
-        
-        if df.empty:
-            raise HTTPException(status_code=400, detail="No data to generate PDF")
-        
-        logger.info("Generating PDF...")
-        pdf_buffer = generate_pdf(df, periods, dates)
-        
-        # Return PDF as streaming response
-        return StreamingResponse(
-            pdf_buffer,
-            media_type="application/pdf",
-            headers={
-                "Content-Disposition": "attachment; filename=top_contributors.pdf"
-            }
-        )
-        
-    except Exception as e:
-        logger.error(f"Error generating PDF: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
-        
-    finally:
-        # Cleanup
-        if weights_path.exists():
-            weights_path.unlink()
-        if nav_path and nav_path.exists():
-            nav_path.unlink()
-        if temp_dir.exists():
-            shutil.rmtree(temp_dir, ignore_errors=True)
 
 @app.post("/fetch-sectors")
 async def fetch_sectors(request: dict):
