@@ -205,11 +205,23 @@ export const fetchBetas = async (tickers: string[]): Promise<Record<string, numb
 };
 
 // Dividend yield cache - Initialize from localStorage if available
+// Version 3: Fixed - yfinance returns dividendYield as percentage, not decimal
+const DIVIDEND_CACHE_VERSION = 3;
 let dividendCache: Record<string, number> = {};
 try {
-    const cached = localStorage.getItem('dividendCache');
-    if (cached) {
-        dividendCache = JSON.parse(cached);
+    const cachedVersion = localStorage.getItem('dividendCacheVersion');
+    const currentVersion = String(DIVIDEND_CACHE_VERSION);
+
+    if (cachedVersion === currentVersion) {
+        const cached = localStorage.getItem('dividendCache');
+        if (cached) {
+            dividendCache = JSON.parse(cached);
+        }
+    } else {
+        // Cache version mismatch - clear old cache
+        localStorage.removeItem('dividendCache');
+        localStorage.setItem('dividendCacheVersion', currentVersion);
+        console.log('Dividend cache invalidated due to version update');
     }
 } catch (e) {
     console.warn("Failed to load dividend cache from localStorage", e);

@@ -1435,11 +1435,20 @@ export const ManualEntryModal: React.FC<ManualEntryModalProps> = ({ isOpen, onCl
 
         periods.forEach(period => {
             tickers.forEach(t => {
-                const weight = parseFloat(period.weights[t.ticker] || '0');
+                const rawWeight = period.weights[t.ticker] || '0';
+                let weight = parseFloat(rawWeight.replace('%', ''));
+
+                // If the original string contained '%', the user intended this as a percentage value
+                // (e.g., "0.50%" means 0.50%, not 50%). Divide by 100 to get the correct value
+                // that the backend will interpret correctly.
+                if (rawWeight.includes('%')) {
+                    weight = weight / 100; // e.g., "0.50%" -> 0.005 -> backend sees as 0.50%
+                }
+
                 if (weight > 0) {
                     flatItems.push({
                         ticker: t.ticker,
-                        weight: weight, // Send whole numbers (50.55), backend/UploadView handles it
+                        weight: weight, // Send numeric value; backend handles conversion
                         date: period.startDate,
                         // No return/contribution data for manual entry initially
                     });
@@ -1468,12 +1477,12 @@ export const ManualEntryModal: React.FC<ManualEntryModalProps> = ({ isOpen, onCl
                     </button>
                 </div>
 
-                {/* Content - Scrollable */}
-                <div className="flex-1 overflow-auto p-6">
-                    <div className="flex gap-8 min-w-max">
+                {/* Content - Shared scroll container for vertical and horizontal scrolling */}
+                <div className="flex-1 overflow-auto">
+                    <div className="flex items-start p-6 min-w-max relative">
 
-                        {/* Ticker Column */}
-                        <div className="w-64 flex-shrink-0 pt-[120px]"> {/* Adjusted Padding to align with new taller headers */}
+                        {/* Ticker Column - Sticky left to stay visible during horizontal scroll */}
+                        <div className="w-64 flex-shrink-0 pt-[120px] bg-white border-r border-gray-200 sticky left-0 z-10">
                             {tickers.map((t) => (
                                 <div key={t.ticker} className="h-16 flex items-center justify-between group border-b border-gray-50 px-2">
                                     <div>
@@ -1510,7 +1519,7 @@ export const ManualEntryModal: React.FC<ManualEntryModalProps> = ({ isOpen, onCl
                         </div>
 
                         {/* Allocation Periods */}
-                        <div className="flex gap-4">
+                        <div className="flex-1 flex gap-4 pl-4">
                             {periods.map((period, idx) => {
                                 const total = calculateTotal(period);
                                 const isTotalValid = Math.abs(total - 100) < 0.1;
@@ -1521,7 +1530,7 @@ export const ManualEntryModal: React.FC<ManualEntryModalProps> = ({ isOpen, onCl
                                 const displayRange = `${period.startDate} - ${nextStartDate}`;
 
                                 return (
-                                    <div key={period.id} className="w-64 bg-white border border-gray-200 rounded-xl shadow-sm flex flex-col">
+                                    <div key={period.id} className="w-64 bg-white border border-gray-200 rounded-xl shadow-sm flex flex-col flex-shrink-0">
                                         {/* Header - Fixed Height 120px */}
                                         <div className="h-[120px] p-4 border-b border-gray-200 bg-slate-50 rounded-t-xl flex flex-col justify-between">
                                             <div className="flex items-center justify-between">
@@ -1595,7 +1604,7 @@ export const ManualEntryModal: React.FC<ManualEntryModalProps> = ({ isOpen, onCl
                             })}
 
                             {/* New Allocation Button */}
-                            <div className="pt-4">
+                            <div className="pt-4 flex-shrink-0">
                                 <button
                                     onClick={handleAddPeriod}
                                     className="flex items-center gap-2 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg font-semibold text-sm transition-colors whitespace-nowrap"
