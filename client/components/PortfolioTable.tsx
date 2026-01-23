@@ -76,6 +76,8 @@ export const PortfolioTable: React.FC<PortfolioTableProps> = ({ currentHoldings,
 
     // International funds
     if (t.includes('BIP791') || t.includes('DJT03868')) return 'INTL';
+    // International ETFs (iShares XEF = Developed Markets, XEC = Emerging Markets)
+    if (t === 'XEF.TO' || t === 'XEC.TO') return 'INTL';
 
     // Canadian-listed stocks/funds
     if (t.endsWith('.TO') || t.endsWith('.V') || t.startsWith('TDB')) return 'CA';
@@ -225,10 +227,14 @@ export const PortfolioTable: React.FC<PortfolioTableProps> = ({ currentHoldings,
             <tr>
               <th className="px-3 py-3 w-12 text-center sticky left-0 bg-wallstreet-100 z-10">#</th>
               <th className="px-3 py-3 min-w-[140px] sticky left-12 bg-wallstreet-100 z-10">Ticker</th>
+              {/* Gap 1 - Equal spacing */}
+              <th className="min-w-[60px]"></th>
               <th className="px-3 py-3 text-right min-w-[80px]">Weight</th>
               <th className="px-3 py-3 text-center min-w-[60px]">Loc</th>
               <th className="px-3 py-3 text-center min-w-[50px]">Beta</th>
               <th className="px-3 py-3 text-center min-w-[60px]">Div %</th>
+              {/* Gap 2 - Equal spacing */}
+              <th className="min-w-[60px]"></th>
               {GICS_SECTORS.map(sector => (
                 <th key={sector} className="px-2 py-3 text-center min-w-[70px] text-[10px]">
                   {sector.replace('Consumer ', 'Cons. ').replace('Communication ', 'Comm. ').replace('Health Care', 'Health')}
@@ -258,10 +264,14 @@ export const PortfolioTable: React.FC<PortfolioTableProps> = ({ currentHoldings,
                     <td className={`px-3 py-2 font-bold sticky left-12 z-10 ${color}`} colSpan={1}>
                       {label} ({items.length})
                     </td>
+                    {/* Gap 1 */}
+                    <td className="min-w-[60px]"></td>
+                    {/* Weight */}
                     <td className="px-3 py-2 text-right font-bold">
                       {geoTotal.toFixed(2)}%
                     </td>
-                    <td colSpan={3 + GICS_SECTORS.length + 1} className="px-3 py-2"></td>
+                    {/* Stats + Gap 2 + Sectors + Total */}
+                    <td colSpan={3 + 1 + GICS_SECTORS.length + 1} className="px-3 py-2"></td>
                   </tr>
 
                   {/* Holdings Rows */}
@@ -290,6 +300,8 @@ export const PortfolioTable: React.FC<PortfolioTableProps> = ({ currentHoldings,
                             <span className="truncate max-w-[100px]">{item.ticker}</span>
                           </div>
                         </td>
+                        {/* Gap 1 */}
+                        <td className="min-w-[60px]"></td>
                         <td className="px-3 py-3 text-right text-wallstreet-text font-bold">
                           {item.weight.toFixed(2)}%
                         </td>
@@ -315,6 +327,8 @@ export const PortfolioTable: React.FC<PortfolioTableProps> = ({ currentHoldings,
                             );
                           })()}
                         </td>
+                        {/* Gap 2 */}
+                        <td className="min-w-[60px]"></td>
                         {GICS_SECTORS.map(sector => {
                           const val = sectorExposure[sector];
                           return (
@@ -346,12 +360,16 @@ export const PortfolioTable: React.FC<PortfolioTableProps> = ({ currentHoldings,
             <tr className="bg-wallstreet-200 border-t-2 border-wallstreet-400 font-bold">
               <td className="px-3 py-3 text-center sticky left-0 bg-wallstreet-200 z-10"></td>
               <td className="px-3 py-3 text-wallstreet-text sticky left-12 bg-wallstreet-200 z-10">TOTAL</td>
+              {/* Gap 1 */}
+              <td className="min-w-[60px]"></td>
               <td className="px-3 py-3 text-right text-wallstreet-text">
                 {currentHoldings.reduce((sum, item) => sum + item.weight, 0).toFixed(2)}%
               </td>
               <td className="px-3 py-3"></td>
               <td className="px-3 py-3"></td>
               <td className="px-3 py-3"></td>
+              {/* Gap 2 */}
+              <td className="min-w-[60px]"></td>
               {GICS_SECTORS.map(sector => (
                 <td key={sector} className="px-2 py-3 text-center text-xs">
                   {sectorTotals[sector] > 0 ? (

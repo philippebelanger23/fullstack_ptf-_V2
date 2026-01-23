@@ -1,4 +1,4 @@
-import React, { useState, Component, ErrorInfo } from 'react';
+import React, { useState, Component, ErrorInfo, useEffect } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { UploadView } from './views/UploadView';
 import { DashboardView } from './views/DashboardView';
@@ -8,6 +8,7 @@ import { AttributionView } from './views/AttributionView';
 import { IndexView } from './views/IndexView';
 import { PerformanceView } from './views/PerformanceView';
 import { PortfolioItem, ViewState } from './types';
+import { loadPortfolioConfig, analyzeManualPortfolio, convertConfigToItems } from './services/api';
 
 class GlobalErrorBoundary extends Component<{ children: React.ReactNode }, { hasError: boolean, error: Error | null, errorInfo: ErrorInfo | null }> {
   constructor(props: any) {
@@ -70,7 +71,30 @@ function App() {
   const [correlationStatus, setCorrelationStatus] = useState<'idle' | 'analyzing' | 'complete' | 'error'>('idle');
 
   // Shared state for year selection
-  const [selectedYear, setSelectedYear] = useState<2025 | 2026>(2025);
+  const [selectedYear, setSelectedYear] = useState<2025 | 2026>(2026);
+
+  // Auto-load persisted manual configuration on reach
+  useEffect(() => {
+    const autoLoad = async () => {
+      try {
+        const config = await loadPortfolioConfig();
+        if (config.tickers && config.tickers.length > 0 && config.periods && config.periods.length > 0) {
+          // Convert the grid state into a flat list of items per the backend requirement
+          const flatItems = convertConfigToItems(config.tickers, config.periods);
+
+          if (flatItems.length > 0) {
+            console.log("Auto-loading saved portfolio...");
+            const results = await analyzeManualPortfolio(flatItems);
+            handleDataLoaded(results, { name: "Manual Entry", count: results.length });
+          }
+        }
+      } catch (err) {
+        console.error("Auto-load failed:", err);
+      }
+    };
+
+    autoLoad();
+  }, []);
 
   const handleDataLoaded = (data: PortfolioItem[], fileInfo?: { name: string, count: number }) => {
     setPortfolioData(data);

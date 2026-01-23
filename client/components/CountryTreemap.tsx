@@ -61,11 +61,15 @@ const CustomizedContent = (props: any) => {
     // --- SMART LABEL LOGIC ---
     let displayName = name;
 
+    // Handle Others - allow it to display normally as "Others"
+    if (name === 'Others') {
+        displayName = 'Others';
+    }
+
     // Aggressive aliases for smaller boxes
-    if (adjW < 120 || adjH < 50) {
+    if (name !== 'United States' && (adjW < 120 || adjH < 50)) {
         const aliases: Record<string, string> = {
             'United Kingdom': 'UK',
-            'United States': 'USA',
             'Korea (South)': 'S. Korea',
             'Switzerland': 'Switz',
             'Australia': 'Aus',
@@ -80,7 +84,7 @@ const CustomizedContent = (props: any) => {
     }
 
     // Hide text if box is excessively small - slightly more permissive now
-    const showText = adjW > 24 && adjH > 24;
+    const showText = displayName !== '' && adjW > 24 && adjH > 24;
 
     // Font Sizing Calculation
     // Base it primarily on width, but clamp it reasonable.
@@ -95,7 +99,7 @@ const CustomizedContent = (props: any) => {
     // 10px per char is roughly 14px font. 
     // Let's ensure the name fits in 90% of width.
     const charCount = displayName.length;
-    let computedFontSize = (adjW * 0.9) / (charCount * 0.7); // 0.7 aspect ratio approx
+    let computedFontSize = (adjW * 0.9) / (Math.max(charCount, 1) * 0.7); // 0.7 aspect ratio approx
 
     // Clamp
     let fontSize = Math.min(Math.max(computedFontSize, minFontSize), maxFontSize);
@@ -169,9 +173,12 @@ const CustomizedContent = (props: any) => {
 const CustomTooltip = ({ active, payload }: any) => {
     if (active && payload && payload.length) {
         const data = payload[0].payload;
+        let displayName = data.name;
+        if (displayName.startsWith('Others')) displayName = 'Other Markets';
+
         return (
             <div className="bg-white/95 backdrop-blur-sm p-3 border border-slate-200 rounded-lg shadow-lg">
-                <p className="text-slate-800 font-bold text-sm mb-1">{data.name}</p>
+                <p className="text-slate-800 font-bold text-sm mb-1">{displayName}</p>
                 <div className="flex items-center justify-between gap-4">
                     <span className="text-slate-500 text-xs text-nowrap">Weight</span>
                     <span className={`font-mono font-bold text-sm ${data.name === 'United States' ? 'text-blue-600' :
@@ -190,7 +197,7 @@ const CustomTooltip = ({ active, payload }: any) => {
 
 export const CountryTreemap: React.FC<CountryTreemapProps> = ({ data, width = "100%", height = "100%" }) => {
     return (
-        <ResponsiveContainer width={width} height={height}>
+        <ResponsiveContainer width={width as any} height={height as any}>
             <Treemap
                 data={data}
                 dataKey="value"

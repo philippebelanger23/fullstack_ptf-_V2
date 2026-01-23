@@ -43,6 +43,20 @@ class PortfolioItem(BaseModel):
     contribution: Optional[float] = None
     isMutualFund: Optional[bool] = None  # Flag for mutual funds requiring CSV NAV data
 
+class TickerRow(BaseModel):
+    ticker: str
+    isMutualFund: bool = False
+
+class AllocationPeriod(BaseModel):
+    id: str
+    startDate: str
+    endDate: str
+    weights: dict
+
+class PortfolioConfig(BaseModel):
+    tickers: List[TickerRow]
+    periods: List[AllocationPeriod]
+
 # --- Helper for NAV Loading ---
 def get_aggregated_nav_data():
     """
@@ -395,10 +409,16 @@ async def fetch_performance(request: dict):
 async def get_index_exposure():
     try:
         import json
+        # Try absolute path if relative fails
         data_path = Path("data/index_exposure.json")
         if not data_path.exists():
-            logger.error(f"index_exposure.json not found at {data_path.absolute()}")
-            return {"sectors": [], "geography": []}
+            # Try exploring parent or common locations if needed, but for now let's just log
+            logger.warning(f"Relative path {data_path} not found, checking absolute...")
+            data_path = Path(__file__).parent / "data" / "index_exposure.json"
+            
+        if not data_path.exists():
+            logger.error(f"index_exposure.json not found even at {data_path}")
+            return {"sectors": [], "geography": [], "last_updated": ""}
             
         with open(data_path, "r") as f:
             raw_data = json.load(f)
@@ -443,10 +463,16 @@ async def get_index_exposure():
                 })
                 
         geo_list.sort(key=lambda x: x["weight"], reverse=True)
-            
+        
+        # Extract date from scraped data if available
+        scraped_date = acwi.get("as_of_date", "")
+        if not scraped_date:
+            scraped_date = raw_data.get("scraped_at", "")[:10] # Fallback to scrape time
+
         return {
             "sectors": sector_list,
             "geography": geo_list,
+            "last_scraped": scraped_date,
             "raw": {
                 "ACWI": {"Geography": acwi.get("Geography", {})},
                 "TSX": {"Geography": tsx.get("Geography", {})}
@@ -619,28 +645,26 @@ async def fetch_dividends(request: dict):
                         
                     info = found_ticker.info
                     
-                    # dividendYield from yfinance is returned as a percentage value
-                    # e.g., 1.26 for 1.26% dividend yield (NOT as decimal 0.0126)
-                    # Use the value directly without multiplication
-                    div_yield = info.get('dividendYield')
-                    if div_yield is not None:
-                        # Normalize: yfinance often returns values like 1.26 to mean 1.26%
-                        # Applying / 100 as requested to bring 1.26 to 0.0126
-                        # Wait, if I do 1.26 / 100 = 0.0126, then app shows 0.01%.
-                        # User wants 1.26%. So app needs 1.26.
-                        # Maybe they mean yfinance returns 126?
-                        # I'll use a logic that ensures it's in a reasonable percentage range (0-20)
-                        div_yield_pct = float(div_yield)
-                        if div_yield_pct > 20: 
-                             div_yield_pct /= 100.0
-                    else:
-                        div_yield = info.get('trailingAnnualDividendYield')
-                        if div_yield is not None:
-                            div_yield_pct = float(div_yield) * 100
-                            if div_yield_pct > 20:
-                                div_yield_pct /= 100.0
-                        else:
-                            div_yield_pct = 0.0
+                    def normalize_yield(val):
+                        if val is None: return 0.0
+                        try:
+                            v = float(val)
+                            # Logic:
+                            # 1. If v < 0.20 (e.g. 0.0126), it's likely a decimal. Multiply by 100 -> 1.26%
+                            # 2. If 0.20 <= v < 20 (e.g. 1.26), it's likely already a percentage. Keep as is -> 1.26%
+                            # 3. If v >= 20 (e.g. 126.0), it's likely double-multiplied or a rare high-yield outlier.
+                            #    We divide by 100 to be safe, as yields over 20% are extremely rare for standard equities.
+                            if v < 0.20:
+                                return v * 100.0
+                            elif v >= 20.0:
+                                return v / 100.0
+                            return v
+                        except:
+                            return 0.0
+
+                    div_yield_pct = normalize_yield(info.get('dividendYield'))
+                    if div_yield_pct == 0:
+                        div_yield_pct = normalize_yield(info.get('trailingAnnualDividendYield'))
                     
                     results[ticker] = div_yield_pct
                     server_cache[ticker] = div_yield_pct
@@ -799,6 +823,32 @@ async def refresh_navs(request: dict):
         logger.error(f"Error in refresh-navs: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.post("/save-portfolio-config")
+async def save_portfolio_config(config: PortfolioConfig):
+    import json
+    try:
+        config_path = Path("data/portfolio_config.json")
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(config_path, "w") as f:
+            json.dump(config.dict(), f)
+        return {"success": True}
+    except Exception as e:
+        logger.error(f"Error saving portfolio config: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/load-portfolio-config")
+async def load_portfolio_config():
+    import json
+    try:
+        config_path = Path("data/portfolio_config.json")
+        if not config_path.exists():
+            return {"tickers": [], "periods": []}
+        with open(config_path, "r") as f:
+            return json.load(f)
+    except Exception as e:
+        logger.error(f"Error loading portfolio config: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 if __name__ == "__main__":
     import uvicorn
     import sys
@@ -808,4 +858,4 @@ if __name__ == "__main__":
     if sys.platform == 'win32':
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
-    uvicorn.run(app, host="0.0.0.0", port=8000, loop="asyncio")
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)

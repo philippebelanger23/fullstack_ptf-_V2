@@ -7,11 +7,12 @@ import { ClevelandDotPlot } from '../components/ClevelandDotPlot';
 import { IndexPerformanceChart } from '../components/IndexPerformanceChart';
 
 export const IndexView: React.FC = () => {
-    const [exposure, setExposure] = useState<{ sectors: any[], geography: any[], raw?: any }>({ sectors: [], geography: [] });
+    const [exposure, setExposure] = useState<{ sectors: any[], geography: any[], raw?: any, last_scraped?: string }>({ sectors: [], geography: [] });
     const [currencyPerf, setCurrencyPerf] = useState<Record<string, Record<string, number>>>({});
     const [indexHistory, setIndexHistory] = useState<Record<string, { date: string, value: number }[]>>({});
     const [loading, setLoading] = useState(true);
     const [activeTab, setActiveTab] = useState<'regional' | 'currency'>('regional');
+    const [lastUpdated, setLastUpdated] = useState<string>('');
 
     useEffect(() => {
         const load = async () => {
@@ -26,6 +27,11 @@ export const IndexView: React.FC = () => {
             // Fetch index history
             const history = await fetchIndexHistory();
             setIndexHistory(history);
+
+            if (history["ACWI"] && history["ACWI"].length > 0) {
+                const lastPoint = history["ACWI"][history["ACWI"].length - 1];
+                setLastUpdated(lastPoint.date);
+            }
 
             setLoading(false);
         };
@@ -104,13 +110,25 @@ export const IndexView: React.FC = () => {
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
 
                 {/* Top Left: Index Performance Graph */}
-                <div className="bg-white p-6 rounded-xl border border-wallstreet-700 shadow-sm flex flex-col h-[600px]">
+                <div className="bg-white p-6 rounded-xl border border-wallstreet-700 shadow-sm flex flex-col h-full min-h-[600px]">
                     <div className="flex justify-between items-center mb-2">
                         <h3 className="text-lg font-bold font-mono text-wallstreet-text flex items-center gap-2">
                             <TrendingUp size={20} className="text-wallstreet-accent" />
                             Index Performance
                         </h3>
-                        <p className="text-xs text-wallstreet-400 font-mono">All values in CAD</p>
+                        {lastUpdated && (
+                            <div className="text-red-500 font-mono font-bold text-sm">
+                                last updated : {(() => {
+                                    // Format YYYY-MM-DD
+                                    const parts = lastUpdated.split('-');
+                                    if (parts.length === 3) {
+                                        const [y, m, d] = parts;
+                                        return `${d} / ${m} / ${y}`;
+                                    }
+                                    return lastUpdated;
+                                })()}
+                            </div>
+                        )}
                     </div>
                     <div className="flex-1 w-full min-h-0">
                         <IndexPerformanceChart data={indexHistory} />
@@ -118,15 +136,24 @@ export const IndexView: React.FC = () => {
                 </div>
 
                 {/* Top Right: Sector Exposure */}
-                <div className="bg-white p-6 rounded-xl border border-wallstreet-700 shadow-sm flex flex-col h-[600px]">
+                <div className="bg-white p-6 rounded-xl border border-wallstreet-700 shadow-sm flex flex-col h-full min-h-[600px]">
                     <div className="flex justify-between items-center mb-6">
-                        <div>
-                            <h3 className="text-lg font-bold font-mono text-wallstreet-text flex items-center gap-2">
-                                <PieChart size={20} className="text-wallstreet-accent" />
-                                Sector Exposure
-                            </h3>
-                            <p className="text-xs text-wallstreet-500">Real allocation data scraped from iShares/BlackRock (as of Dec 30, 2025).</p>
-                        </div>
+                        <h3 className="text-lg font-bold font-mono text-wallstreet-text flex items-center gap-2">
+                            <PieChart size={20} className="text-wallstreet-accent" />
+                            Sector Exposure
+                        </h3>
+                        {exposure.last_scraped && (
+                            <div className="text-red-500 font-mono font-bold text-sm">
+                                last updated : {(() => {
+                                    const parts = exposure.last_scraped.split('-');
+                                    if (parts.length === 3) {
+                                        const [y, m, d] = parts;
+                                        return `${d} / ${m} / ${y}`;
+                                    }
+                                    return exposure.last_scraped;
+                                })()}
+                            </div>
+                        )}
                     </div>
                     <div className="flex-1 w-full min-h-0">
                         <ClevelandDotPlot data={exposure.sectors} />
@@ -134,159 +161,146 @@ export const IndexView: React.FC = () => {
                 </div>
 
                 {/* Bottom Left: Exposure Analysis (Tabs) */}
-                <div className="bg-white p-6 rounded-xl border border-wallstreet-700 shadow-sm flex flex-col h-[600px]">
-                    <div className="mb-4 flex flex-col sm:flex-row justify-between items-center border-b border-wallstreet-100 pb-2">
+                <div className="bg-white p-6 rounded-xl border border-wallstreet-700 shadow-sm flex flex-col h-full min-h-[600px]">
+                    <div className="mb-4 flex justify-between items-center border-b border-wallstreet-100 pb-2">
                         <h3 className="text-lg font-bold font-mono text-wallstreet-text flex items-center gap-2">
-                            <Zap size={20} className="text-wallstreet-accent" />
-                            Exposure Analysis
+                            <DollarSign size={20} className="text-wallstreet-accent" />
+                            Currency Exposure
                         </h3>
-                        <div className="relative flex bg-slate-100 p-1 rounded-lg mt-2 sm:mt-0 w-fit">
-                            <div
-                                className={`absolute left-1 top-1 bottom-1 w-[calc(50%-4px)] bg-wallstreet-accent rounded-md shadow-sm transition-transform duration-300 ease-in-out ${activeTab === 'currency' ? 'translate-x-full' : 'translate-x-0'
-                                    }`}
-                            ></div>
-                            <button
-                                onClick={() => setActiveTab('regional')}
-                                className={`relative z-10 px-4 py-1.5 text-sm font-bold transition-colors duration-300 rounded-md flex items-center justify-center gap-2 min-w-[120px] ${activeTab === 'regional' ? 'text-white' : 'text-slate-500 hover:text-slate-900'
-                                    }`}
-                            >
-                                <MapIcon size={14} /> Regional
-                            </button>
-                            <button
-                                onClick={() => setActiveTab('currency')}
-                                className={`relative z-10 px-4 py-1.5 text-sm font-bold transition-colors duration-300 rounded-md flex items-center justify-center gap-2 min-w-[120px] ${activeTab === 'currency' ? 'text-white' : 'text-slate-500 hover:text-slate-900'
-                                    }`}
-                            >
-                                <DollarSign size={14} /> Currency
-                            </button>
-                        </div>
-                    </div>
-
-                    <div className="flex-1 overflow-auto">
-                        {activeTab === 'regional' ? (
-                            <div className="flex flex-col h-full">
-                                <div className="mb-2">
-                                    <p className="text-xs text-wallstreet-400">Composite geographic exposure.</p>
-                                </div>
-                                <table className="w-full text-sm font-mono">
-                                    <thead className="bg-wallstreet-50 text-wallstreet-500 text-xs uppercase">
-                                        <tr>
-                                            <th className="p-2 text-left">Region</th>
-                                            <th className="p-2 text-right">Exposure</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {(() => {
-                                            const geoData = [...exposure.geography];
-                                            const total = geoData.reduce((sum, item) => sum + item.weight, 0);
-                                            if (total < 99.9) {
-                                                geoData.push({ region: 'Others', weight: 100 - total });
-                                            }
-                                            return geoData.map((g, i) => (
-                                                <tr key={i} className={`border-b border-wallstreet-100 hover:bg-wallstreet-50 ${g.region === 'Others' ? 'text-slate-400' : ''}`}>
-                                                    <td className="py-1.5 px-2 font-medium">{g.region}</td>
-                                                    <td className={`py-1.5 px-2 text-right ${g.region === 'Others' ? 'font-normal' : 'font-bold'}`}>{g.weight.toFixed(1)}%</td>
-                                                </tr>
-                                            ));
-                                        })()}
-                                    </tbody>
-                                </table>
-                            </div>
-                        ) : (
-                            <div className="flex flex-col h-full">
-                                <div className="mb-2">
-                                    <p className="text-xs text-wallstreet-400">Derived from geographic allocation.</p>
-                                </div>
-                                <table className="w-full text-sm font-mono table-fixed">
-                                    <thead className="bg-wallstreet-50 text-wallstreet-500 text-xs uppercase">
-                                        <tr>
-                                            <th className="p-2 text-left w-[15%]">Curr</th>
-                                            <th className="p-2 text-center w-[25%]">Exp</th>
-                                            <th className="p-2 text-center text-xs text-wallstreet-400 w-[15%]">YTD</th>
-                                            <th className="p-2 text-center text-xs text-wallstreet-400 w-[15%]">3M</th>
-                                            <th className="p-2 text-center text-xs text-wallstreet-400 w-[15%]">6M</th>
-                                            <th className="p-2 text-center text-xs text-wallstreet-400 w-[15%]">1Y</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {(() => {
-                                            const totalCurrency = currencyExposure.reduce((sum, c) => sum + c.weight, 0);
-                                            let finalCurrency = [...currencyExposure];
-
-                                            if (totalCurrency < 99.9) {
-                                                const diff = 100 - totalCurrency;
-                                                const otherIndex = finalCurrency.findIndex(c => c.code === 'Other');
-                                                if (otherIndex >= 0) {
-                                                    finalCurrency[otherIndex].weight += diff;
-                                                } else {
-                                                    finalCurrency.push({ code: 'Other', weight: diff });
-                                                }
-                                            }
-
-                                            const getTicker = (code: string) => {
-                                                if (code === 'USD') return 'USDCAD=X';
-                                                if (code === 'JPY') return 'JPYCAD=X';
-                                                if (code === 'EUR') return 'EURCAD=X';
-                                                if (code === 'CAD') return 'CAD';
-                                                return '';
-                                            };
-
-                                            const formatPerf = (val: number | undefined) => {
-                                                if (val === undefined) return '-';
-                                                const color = val > 0 ? 'text-green-600' : val < 0 ? 'text-red-500' : 'text-slate-400';
-                                                return <span className={color}>{(val * 100).toFixed(1)}%</span>;
-                                            };
-
-                                            return finalCurrency.map((c) => {
-                                                const ticker = getTicker(c.code);
-                                                let perf = currencyPerf[ticker] || {};
-                                                if (ticker === 'CAD') {
-                                                    perf = { YTD: 0, '1Y': 0, '6M': 0, '3M': 0 };
-                                                }
-
-                                                return (
-                                                    <tr key={c.code} className={`border-b border-wallstreet-100 hover:bg-wallstreet-50 ${c.code === 'Other' ? 'text-slate-400' : ''}`}>
-                                                        <td className="py-1.5 px-2 font-medium">{c.code}</td>
-                                                        <td className={`py-1.5 px-2 text-center ${c.code === 'Other' ? 'font-normal' : `font-bold ${c.code === 'USD' ? 'text-blue-700' : c.code === 'CAD' ? 'text-red-700' : 'text-slate-700'}`}`}>
-                                                            {c.weight.toFixed(1)}%
-                                                        </td>
-                                                        {c.code !== 'Other' ? (
-                                                            <>
-                                                                <td className="py-1.5 px-2 text-center">{formatPerf(perf.YTD)}</td>
-                                                                <td className="py-1.5 px-2 text-center">{formatPerf(perf['3M'])}</td>
-                                                                <td className="py-1.5 px-2 text-center">{formatPerf(perf['6M'])}</td>
-                                                                <td className="py-1.5 px-2 text-center">{formatPerf(perf['1Y'])}</td>
-                                                            </>
-                                                        ) : (
-                                                            <td colSpan={4} className="py-1.5 px-2 text-center text-slate-300">-</td>
-                                                        )}
-                                                    </tr>
-                                                )
-                                            });
-                                        })()}
-                                    </tbody>
-                                </table>
+                        {exposure.last_scraped && (
+                            <div className="text-red-500 font-mono font-bold text-sm ml-4">
+                                last updated : {(() => {
+                                    const parts = exposure.last_scraped.split('-');
+                                    if (parts.length === 3) {
+                                        const [y, m, d] = parts;
+                                        return `${d} / ${m} / ${y}`;
+                                    }
+                                    return exposure.last_scraped;
+                                })()}
                             </div>
                         )}
+                    </div>
+
+                    <div className="flex-1">
+                        <div className="flex flex-col h-full">
+                            <div className="mb-2">
+                                <p className="text-xs text-wallstreet-400">Derived from geographic allocation.</p>
+                            </div>
+                            <table className="w-full text-sm font-mono table-fixed">
+                                <thead className="bg-wallstreet-50 text-wallstreet-500 text-xs uppercase">
+                                    <tr>
+                                        <th className="p-2 text-left w-[15%]">Curr</th>
+                                        <th className="p-2 text-center w-[25%]">Exp</th>
+                                        <th className="p-2 text-center text-xs text-wallstreet-400 w-[15%]">YTD</th>
+                                        <th className="p-2 text-center text-xs text-wallstreet-400 w-[15%]">3M</th>
+                                        <th className="p-2 text-center text-xs text-wallstreet-400 w-[15%]">6M</th>
+                                        <th className="p-2 text-center text-xs text-wallstreet-400 w-[15%]">1Y</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {(() => {
+                                        const totalCurrency = currencyExposure.reduce((sum, c) => sum + c.weight, 0);
+                                        let finalCurrency = [...currencyExposure];
+
+                                        if (totalCurrency < 99.9) {
+                                            const diff = 100 - totalCurrency;
+                                            const otherIndex = finalCurrency.findIndex(c => c.code === 'Other');
+                                            if (otherIndex >= 0) {
+                                                finalCurrency[otherIndex].weight += diff;
+                                            } else {
+                                                finalCurrency.push({ code: 'Other', weight: diff });
+                                            }
+                                        }
+
+                                        const getTicker = (code: string) => {
+                                            if (code === 'USD') return 'USDCAD=X';
+                                            if (code === 'JPY') return 'JPYCAD=X';
+                                            if (code === 'EUR') return 'EURCAD=X';
+                                            if (code === 'CAD') return 'CAD';
+                                            return '';
+                                        };
+
+                                        const formatPerf = (val: number | undefined) => {
+                                            if (val === undefined) return '-';
+                                            const color = val > 0 ? 'text-green-600' : val < 0 ? 'text-red-500' : 'text-slate-400';
+                                            return <span className={color}>{(val * 100).toFixed(1)}%</span>;
+                                        };
+
+                                        return finalCurrency.map((c) => {
+                                            const ticker = getTicker(c.code);
+                                            let perf = currencyPerf[ticker] || {};
+                                            if (ticker === 'CAD') {
+                                                perf = { YTD: 0, '1Y': 0, '6M': 0, '3M': 0 };
+                                            }
+
+                                            return (
+                                                <tr key={c.code} className={`border-b border-wallstreet-100 hover:bg-wallstreet-50 ${c.code === 'Other' ? 'text-slate-400' : ''}`}>
+                                                    <td className="py-1.5 px-2 font-medium">{c.code}</td>
+                                                    <td className={`py-1.5 px-2 text-center ${c.code === 'Other' ? 'font-normal' : `font-bold ${c.code === 'USD' ? 'text-blue-700' : c.code === 'CAD' ? 'text-red-700' : 'text-slate-700'}`}`}>
+                                                        {c.weight.toFixed(1)}%
+                                                    </td>
+                                                    {c.code !== 'Other' ? (
+                                                        <>
+                                                            <td className="py-1.5 px-2 text-center">{formatPerf(perf.YTD)}</td>
+                                                            <td className="py-1.5 px-2 text-center">{formatPerf(perf['3M'])}</td>
+                                                            <td className="py-1.5 px-2 text-center">{formatPerf(perf['6M'])}</td>
+                                                            <td className="py-1.5 px-2 text-center">{formatPerf(perf['1Y'])}</td>
+                                                        </>
+                                                    ) : (
+                                                        <td colSpan={4} className="py-1.5 px-2 text-center text-slate-300">-</td>
+                                                    )}
+                                                </tr>
+                                            )
+                                        });
+                                    })()}
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
                 </div>
 
                 {/* Bottom Right: Geographic Breakdown */}
-                <div className="bg-white p-6 rounded-xl border border-wallstreet-700 shadow-sm flex flex-col h-[600px]">
+                <div className="bg-white p-6 rounded-xl border border-wallstreet-700 shadow-sm flex flex-col h-full min-h-[600px]">
                     <div className="flex justify-between items-center mb-6">
                         <h3 className="text-lg font-bold font-mono text-wallstreet-text flex items-center gap-2">
                             <Globe size={20} className="text-wallstreet-accent" />
                             Geographic Breakdown
                         </h3>
+                        {exposure.last_scraped && (
+                            <div className="text-red-500 font-mono font-bold text-sm">
+                                last updated : {(() => {
+                                    const parts = exposure.last_scraped.split('-');
+                                    if (parts.length === 3) {
+                                        const [y, m, d] = parts;
+                                        return `${d} / ${m} / ${y}`;
+                                    }
+                                    return exposure.last_scraped;
+                                })()}
+                            </div>
+                        )}
                     </div>
                     <div className="flex-1 w-full relative min-h-0">
                         <CountryTreemap data={(() => {
-                            const data = exposure.geography.map(g => ({ name: g.region, value: g.weight }));
-                            const total = data.reduce((sum, item) => sum + item.value, 0);
-                            if (total < 99.9) {
-                                data.push({ name: 'Others', value: 100 - total });
+                            let data = exposure.geography.map(g => ({ name: g.region, value: g.weight }));
+                            data.sort((a, b) => b.value - a.value);
+
+                            const top9 = data.slice(0, 9);
+                            const others = data.slice(9);
+
+                            let othersVal = others.reduce((sum, item) => sum + item.value, 0);
+                            const top9Total = top9.reduce((sum, item) => sum + item.value, 0);
+
+                            // Add missing weight to Others if total < 100
+                            if (top9Total + othersVal < 99.9) {
+                                othersVal += (100 - (top9Total + othersVal));
                             }
-                            return data;
+
+                            // Splitting logic REMOVED. Just add Others as a single block.
+                            if (othersVal > 0.01) {
+                                top9.push({ name: 'Others', value: othersVal });
+                            }
+
+                            return top9;
                         })()} />
                     </div>
                 </div>

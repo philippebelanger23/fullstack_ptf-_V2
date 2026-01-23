@@ -82,11 +82,11 @@ export const fetchSectors = async (tickers: string[]): Promise<Record<string, st
     return result;
 };
 
-export const fetchIndexExposure = async (): Promise<{ sectors: any[], geography: any[] }> => {
+export const fetchIndexExposure = async (): Promise<{ sectors: any[], geography: any[], last_scraped?: string }> => {
     // Return cached data if available
-    if (indexExposureCache) {
-        return indexExposureCache;
-    }
+    // if (indexExposureCache) {
+    //     return indexExposureCache;
+    // }
 
     try {
         const response = await fetch(`${API_Base_URL}/index-exposure`);
@@ -180,7 +180,7 @@ export const fetchBetas = async (tickers: string[]): Promise<Record<string, numb
 
 // Dividend yield cache - Initialize from localStorage if available
 // Version 3: Fixed - yfinance returns dividendYield as percentage, not decimal
-const DIVIDEND_CACHE_VERSION = 3;
+const DIVIDEND_CACHE_VERSION = 4;
 let dividendCache: Record<string, number> = {};
 try {
     const cachedVersion = localStorage.getItem('dividendCacheVersion');
@@ -276,5 +276,59 @@ export const fetchIndexHistory = async (): Promise<Record<string, { date: string
         console.error("Error fetching index history:", error);
         return { "ACWI": [], "XIU.TO": [], "Index": [] };
     }
+};
+
+export const savePortfolioConfig = async (config: { tickers: any[], periods: any[] }): Promise<void> => {
+    try {
+        const response = await fetch(`${API_Base_URL}/save-portfolio-config`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(config),
+        });
+
+        if (!response.ok) {
+            throw new Error(`Failed to save portfolio config: ${response.statusText}`);
+        }
+    } catch (error) {
+        console.error("Error saving portfolio config:", error);
+        throw error;
+    }
+};
+
+export const loadPortfolioConfig = async (): Promise<{ tickers: any[], periods: any[] }> => {
+    try {
+        const response = await fetch(`${API_Base_URL}/load-portfolio-config`);
+        if (!response.ok) {
+            throw new Error(`Failed to load portfolio config: ${response.statusText}`);
+        }
+        return await response.json();
+    } catch (error) {
+        console.error("Error loading portfolio config:", error);
+        return { tickers: [], periods: [] };
+    }
+};
+
+export const convertConfigToItems = (tickers: any[], periods: any[]): PortfolioItem[] => {
+    const flatItems: PortfolioItem[] = [];
+    periods.forEach(period => {
+        tickers.forEach(t => {
+            const rawWeight = period.weights[t.ticker] || '0';
+            // All weights in config are stored as percentages (e.g., "10.00" means 10%, "0.50%" also means 0.5%)
+            // Just strip the % sign if present and parse as a number
+            const weight = parseFloat(rawWeight.toString().replace('%', ''));
+
+            if (weight > 0) {
+                flatItems.push({
+                    ticker: t.ticker,
+                    weight: weight,  // Pass as percentage value (e.g., 10.00 for 10%)
+                    date: period.startDate,
+                    isMutualFund: t.isMutualFund || false,
+                });
+            }
+        });
+    });
+    return flatItems;
 };
 

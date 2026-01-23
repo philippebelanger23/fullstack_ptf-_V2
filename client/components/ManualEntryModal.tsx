@@ -1,6 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { X, Plus, Trash2, Calendar, AlertCircle, Save } from 'lucide-react';
+import { X, Plus, Trash2, Calendar, AlertCircle, Save, Loader2, CheckCircle } from 'lucide-react';
+import { Dropdown } from './Dropdown';
+
 import { PortfolioItem } from '../types';
+import { loadPortfolioConfig, savePortfolioConfig, convertConfigToItems } from '../services/api';
 
 interface ManualEntryModalProps {
     isOpen: boolean;
@@ -1324,8 +1327,31 @@ export const ManualEntryModal: React.FC<ManualEntryModalProps> = ({ isOpen, onCl
 
     const [periods, setPeriods] = useState<AllocationPeriod[]>(DEFAULT_PERIODS);
 
-    const [newTickerInput, setNewTickerInput] = useState('');
-    const [hideZeros, setHideZeros] = useState(false);
+    const [isInitialLoading, setIsInitialLoading] = useState(true);
+
+    // Load saved configuration or fall back to defaults
+    useEffect(() => {
+        const fetchConfig = async () => {
+            setIsInitialLoading(true);
+            try {
+                const config = await loadPortfolioConfig();
+                if (config.tickers && config.tickers.length > 0) {
+                    setTickers(config.tickers);
+                }
+                if (config.periods && config.periods.length > 0) {
+                    setPeriods(config.periods);
+                }
+            } catch (err) {
+                console.error("Failed to load portfolio config:", err);
+            } finally {
+                setIsInitialLoading(false);
+            }
+        };
+
+        if (isOpen) {
+            fetchConfig();
+        }
+    }, [isOpen]);
 
     // Reset or load data when modal opens
     useEffect(() => {
@@ -1436,47 +1462,37 @@ export const ManualEntryModal: React.FC<ManualEntryModalProps> = ({ isOpen, onCl
         return total;
     };
 
-    const handleSubmit = () => {
-        // Convert the grid state into a flat list of items per the backend requirement
-        // Logic: 
-        // Backend expects specific dates.
-        // We have "Periods" (Start -> End).
-        // The backend in 'main.py' iterates through dates provided in the upload.
-        // To mimic this, we should generate PortfolioItems.
-        // 
-        // IF the user defines multiple periods, we need to send "snapshots" of rebalancing.
-        // The simplest way to integrate with the current system is to send a "rebalance" entry
-        // for every Start Date defined.
+    const [isSaving, setIsSaving] = useState(false);
+    const [savedSuccess, setSavedSuccess] = useState(false);
 
-        const flatItems: PortfolioItem[] = [];
+    const handleSubmit = async () => {
+        setIsSaving(true);
+        const flatItems = convertConfigToItems(tickers, periods);
 
-        periods.forEach(period => {
-            tickers.forEach(t => {
-                const rawWeight = period.weights[t.ticker] || '0';
-                let weight = parseFloat(rawWeight.replace('%', ''));
+        try {
+            // Persist the configuration to the server
+            await savePortfolioConfig({ tickers, periods });
+            setSavedSuccess(true);
 
-                // If the original string contained '%', the user intended this as a percentage value
-                // (e.g., "0.50%" means 0.50%, not 50%). Divide by 100 to get the correct value
-                // that the backend will interpret correctly.
-                if (rawWeight.includes('%')) {
-                    weight = weight / 100; // e.g., "0.50%" -> 0.005 -> backend sees as 0.50%
-                }
-
-                if (weight > 0) {
-                    flatItems.push({
-                        ticker: t.ticker,
-                        weight: weight, // Send numeric value; backend handles conversion
-                        date: period.startDate,
-                        isMutualFund: t.isMutualFund || false,
-                        // No return/contribution data for manual entry initially
-                    });
-                }
-            });
-        });
-
-        onSubmit(flatItems);
-        onClose();
+            // Wait a moment for the user to see the success message
+            setTimeout(() => {
+                onSubmit(flatItems);
+                onClose();
+            }, 1500);
+        } catch (err) {
+            console.error("Failed to save portfolio config on submit:", err);
+            // Even if save fails, we might want to proceed or show error
+            // For now, let's proceed but maybe log it? 
+            // Or should we block? The user wants to analyze.
+            // Let's assume we proceed after a short delay so they don't get stuck.
+            setIsSaving(false);
+            onSubmit(flatItems);
+            onClose();
+        }
     };
+
+    const [newTickerInput, setNewTickerInput] = useState('');
+
 
     const filteredPeriods = periods.filter(p => {
         if (selectedYear === 2025) {
@@ -1486,17 +1502,51 @@ export const ManualEntryModal: React.FC<ManualEntryModalProps> = ({ isOpen, onCl
         }
     });
 
-    const displayTickers = hideZeros
-        ? tickers.filter(t => {
-            // Keep if any period in the filtered view has non-zero weight
+    // Sort tickers so those with 0% in the most recent period appear at the bottom
+    const sortedTickers = [...tickers].sort((a, b) => {
+        const mostRecentPeriod = filteredPeriods[filteredPeriods.length - 1];
+        if (!mostRecentPeriod) return 0;
+
+        const weightA = parseFloat(mostRecentPeriod.weights[a.ticker] || '0');
+        const weightB = parseFloat(mostRecentPeriod.weights[b.ticker] || '0');
+
+        // Push 0% positions to the bottom
+        if (weightA === 0 && weightB !== 0) return 1;
+        if (weightA !== 0 && weightB === 0) return -1;
+        return 0; // Keep original order for same category
+    });
+
+    const displayTickers = sortedTickers.filter(t => {
+        // Check if ANY period (across ALL periods, not just filtered) has non-zero weight
+        const hasAnyWeight = periods.some(p => {
+            const weight = parseFloat(p.weights[t.ticker] || '0');
+            return weight !== 0;
+        });
+
+        // If ticker has weight in any period, check if it has weight in filtered periods
+        if (hasAnyWeight) {
             return filteredPeriods.some(p => {
                 const weight = parseFloat(p.weights[t.ticker] || '0');
                 return weight !== 0;
             });
-        })
-        : tickers;
+        }
+
+        // If ticker has NO weight in ANY period, it's newly added - always show it
+        return true;
+    });
 
     if (!isOpen) return null;
+
+    if (isInitialLoading) {
+        return (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+                <div className="bg-white rounded-xl shadow-2xl p-12 flex flex-col items-center gap-4">
+                    <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
+                    <p className="text-slate-600 font-semibold text-lg">Loading portfolio configuration...</p>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
@@ -1511,31 +1561,15 @@ export const ManualEntryModal: React.FC<ManualEntryModalProps> = ({ isOpen, onCl
                         </div>
 
                         {/* Year Selector in Editor Header */}
-                        <div className="flex items-center gap-3 bg-slate-50 border border-slate-200 p-1.5 rounded-xl shadow-sm">
-                            <span className="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-widest pl-3">Year</span>
-                            <select
-                                value={selectedYear}
-                                onChange={(e) => setSelectedYear(Number(e.target.value) as 2025 | 2026)}
-                                className="px-4 py-1.5 bg-wallstreet-accent text-white font-mono font-bold text-sm rounded-lg shadow-sm cursor-pointer hover:bg-blue-600 transition-all focus:outline-none border-none"
-                            >
-                                <option value={2025}>2025</option>
-                                <option value={2026}>2026</option>
-                            </select>
-                        </div>
-
-                        {/* Hide Zeros Toggle */}
-                        <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 p-1.5 rounded-xl shadow-sm px-3">
-                            <input
-                                type="checkbox"
-                                id="hideZeros"
-                                checked={hideZeros}
-                                onChange={(e) => setHideZeros(e.target.checked)}
-                                className="w-4 h-4 accent-blue-600 cursor-pointer rounded"
-                            />
-                            <label htmlFor="hideZeros" className="text-xs font-bold text-slate-500 uppercase tracking-wider cursor-pointer select-none">
-                                Hide 0%
-                            </label>
-                        </div>
+                        <Dropdown
+                            labelPrefix="Year"
+                            value={selectedYear}
+                            onChange={(val) => setSelectedYear(Number(val) as 2025 | 2026)}
+                            options={[
+                                { value: 2025, label: 2025 },
+                                { value: 2026, label: 2026 }
+                            ]}
+                        />
                     </div>
                     <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded-full transition-colors">
                         <X size={24} className="text-slate-400" />
@@ -1581,7 +1615,7 @@ export const ManualEntryModal: React.FC<ManualEntryModalProps> = ({ isOpen, onCl
                                         onChange={(e) => setNewTickerInput(e.target.value)}
                                         onKeyDown={(e) => e.key === 'Enter' && handleAddTicker()}
                                         placeholder="+ Add ticker"
-                                        className="bg-slate-50 border border-slate-200 rounded px-2.5 py-1.5 text-sm w-full focus:outline-none focus:ring-1 focus:ring-blue-400 uppercase font-semibold text-slate-600 placeholder:font-normal placeholder:normal-case placeholder:text-slate-400"
+                                        className="bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-sm w-full focus:outline-none focus:ring-1 focus:ring-blue-400 uppercase font-semibold text-slate-600 placeholder:font-normal placeholder:normal-case placeholder:text-slate-400"
                                     />
                                     {newTickerInput && (
                                         <button onClick={handleAddTicker} className="bg-blue-600 text-white p-1.5 rounded hover:bg-blue-700 flex-shrink-0">
@@ -1666,7 +1700,7 @@ export const ManualEntryModal: React.FC<ManualEntryModalProps> = ({ isOpen, onCl
                                                                 value={period.weights[t.ticker] || ''}
                                                                 onChange={(e) => handleWeightChange(period.id, t.ticker, e.target.value)}
                                                                 onBlur={(e) => handleWeightBlur(period.id, t.ticker, e.target.value)}
-                                                                className={`w-full text-right pr-5 pl-2 py-1.5 text-sm ${bgClass} border ${borderClass} rounded font-mono font-medium focus:ring-1 focus:ring-blue-400 focus:outline-none transition-colors`}
+                                                                className={`w-full text-right pr-5 pl-2 py-1.5 text-sm ${bgClass} border ${borderClass} rounded-lg font-mono font-medium focus:ring-1 focus:ring-blue-400 focus:outline-none transition-colors`}
                                                                 placeholder="0.00"
                                                             />
                                                             <span className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 text-[10px] font-bold">%</span>
@@ -1697,16 +1731,30 @@ export const ManualEntryModal: React.FC<ManualEntryModalProps> = ({ isOpen, onCl
                     <div className="text-sm text-slate-500">
                         <span className="font-bold text-slate-700">{tickers.length}</span> tickers across <span className="font-bold text-slate-700">{periods.length}</span> rebalancing periods.
                     </div>
-                    <div className="flex gap-4">
-                        <button onClick={onClose} className="px-6 py-2.5 rounded-lg text-slate-600 font-semibold hover:bg-slate-200 transition-colors">
-                            Cancel
-                        </button>
-                        <button
-                            onClick={handleSubmit}
-                            className="px-6 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-bold shadow-lg shadow-blue-200 flex items-center gap-2 transition-all transform hover:-translate-y-0.5"
-                        >
-                            <Save size={18} /> Analyze Portfolio
-                        </button>
+                    <div className="flex gap-4 items-center">
+                        {isSaving ? (
+                            <div className="flex items-center gap-3 px-6 py-2.5 bg-blue-50 text-blue-700 rounded-lg font-semibold animate-pulse">
+                                <Loader2 size={18} className="animate-spin" />
+                                <span>Saving Configuration...</span>
+                            </div>
+                        ) : savedSuccess ? (
+                            <div className="flex items-center gap-3 px-6 py-2.5 bg-green-50 text-green-700 rounded-lg font-bold border border-green-200 animate-in fade-in slide-in-from-bottom-2">
+                                <CheckCircle size={18} />
+                                <span>Changes have been saved</span>
+                            </div>
+                        ) : (
+                            <>
+                                <button onClick={onClose} className="px-6 py-2.5 rounded-lg text-slate-600 font-semibold hover:bg-slate-200 transition-colors">
+                                    Cancel
+                                </button>
+                                <button
+                                    onClick={handleSubmit}
+                                    className="px-6 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-bold shadow-lg shadow-blue-200 flex items-center gap-2 transition-all transform hover:-translate-y-0.5"
+                                >
+                                    <Save size={18} /> Analyze Portfolio
+                                </button>
+                            </>
+                        )}
                     </div>
                 </div>
             </div>

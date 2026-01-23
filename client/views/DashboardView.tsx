@@ -10,7 +10,12 @@ interface DashboardViewProps {
   data: PortfolioItem[];
 }
 
-const COLORS = ['#2563eb', '#ea580c', '#16a34a', '#9333ea', '#dc2626', '#0891b2', '#ca8a04', '#db2777', '#4f46e5', '#0d9488'];
+const COLORS = [
+  '#2563eb', '#ea580c', '#16a34a', '#9333ea', '#dc2626',
+  '#0891b2', '#ca8a04', '#db2777', '#4f46e5', '#0d9488',
+  '#1d4ed8', '#c2410c', '#15803d', '#7e22ce', '#b91c1c',
+  '#0e7490', '#a16207', '#be185d', '#4338ca', '#0f766e'
+];
 
 export const DashboardView: React.FC<DashboardViewProps> = ({ data }) => {
   const { dates, latestDate, currentHoldings, totalWeight } = useMemo(() => {
@@ -22,15 +27,29 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ data }) => {
   }, [data]);
 
   const { topHoldings, top10TotalWeight, topTickers } = useMemo(() => {
-    const topHoldings = [...currentHoldings]
+    // Current top 10 for the Pie Chart and KPI
+    const currentTopHoldings = [...currentHoldings]
       .sort((a, b) => b.weight - a.weight)
       .slice(0, 10)
       .map(item => ({ name: item.ticker, value: item.weight }));
 
-    const top10TotalWeight = topHoldings.reduce((sum, item) => sum + item.value, 0);
-    const topTickers = topHoldings.map(t => t.name);
-    return { topHoldings, top10TotalWeight, topTickers };
-  }, [currentHoldings]);
+    const top10TotalWeight = currentTopHoldings.reduce((sum, item) => sum + item.value, 0);
+
+    // Global top tickers for the Evolution Chart (union of top 10 at each date)
+    const globalTopTickersSet = new Set<string>();
+    dates.forEach(date => {
+      const holdingsAtDate = data.filter(d => d.date === date);
+      const topAtDate = [...holdingsAtDate]
+        .sort((a, b) => b.weight - a.weight)
+        .slice(0, 10)
+        .map(h => h.ticker);
+      topAtDate.forEach(ticker => globalTopTickersSet.add(ticker));
+    });
+
+    const topTickers = Array.from(globalTopTickersSet);
+
+    return { topHoldings: currentTopHoldings, top10TotalWeight, topTickers };
+  }, [currentHoldings, data, dates]);
 
   const areaChartData = useMemo(() => {
     const historyDataMap = new Map<string, any>();
@@ -195,7 +214,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ data }) => {
           currentHoldings.forEach(item => {
             const t = item.ticker.toUpperCase();
             let region = 'US';
-            if (t.includes('BIP791') || t.includes('DJT03868') || t.endsWith('.PA') || t.endsWith('.L') || t.endsWith('.DE') || t.endsWith('.HK')) {
+            // International funds and ETFs
+            if (t.includes('BIP791') || t.includes('DJT03868') || t === 'XEF.TO' || t === 'XEC.TO' || t.endsWith('.PA') || t.endsWith('.L') || t.endsWith('.DE') || t.endsWith('.HK')) {
               region = 'INTL';
             } else if (t.endsWith('.TO') || t.endsWith('.V') || t.startsWith('TDB') || t.startsWith('DYN')) {
               region = 'CA';
@@ -273,7 +293,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ data }) => {
         />
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 h-auto lg:h-[450px]">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 min-h-[450px] mb-8">
         <ConcentrationPieChart data={topHoldings} colors={COLORS} />
         <PortfolioEvolutionChart data={areaChartData} topTickers={topTickers} dates={dates} colors={COLORS} />
       </div>

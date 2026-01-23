@@ -164,7 +164,11 @@ def build_results_dataframe(weights_dict, returns, prices, dates, cache, mutual_
         
         for period_idx, period in enumerate(periods):
             start_date, end_date = period
-            weight = weights_dict.get(ticker, {}).get(start_date, 0.0)
+            # Weights are keyed by their startDate in the config, which corresponds to the end_date of the analysis period.
+            # If end_date weight not found, fall back to start_date weight for backwards compatibility.
+            weight = weights_dict.get(ticker, {}).get(end_date, 0.0)
+            if weight == 0.0:
+                weight = weights_dict.get(ticker, {}).get(start_date, 0.0)
             period_return = returns.get(ticker, {}).get(period, 0.0)
             contribution = weight * period_return
             

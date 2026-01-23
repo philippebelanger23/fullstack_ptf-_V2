@@ -261,12 +261,12 @@ export const IndexPerformanceChart: React.FC<IndexPerformanceChartProps> = ({ da
             {/* Period Selector & Performance Summary */}
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-4">
                 {/* Period Selector Pills */}
-                <div className="flex bg-slate-100 p-1 rounded-lg">
+                <div className="flex bg-slate-100 p-1 rounded-xl">
                     {(['YTD', '3M', '6M', '1Y', '3Y', '5Y'] as Period[]).map((period) => (
                         <button
                             key={period}
                             onClick={() => setSelectedPeriod(period)}
-                            className={`px-3 py-1.5 text-xs font-bold rounded-md transition-all duration-200 ${selectedPeriod === period
+                            className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all duration-200 ${selectedPeriod === period
                                 ? 'bg-wallstreet-accent text-white shadow-sm'
                                 : 'text-slate-500 hover:text-slate-800 hover:bg-slate-200'
                                 }`}

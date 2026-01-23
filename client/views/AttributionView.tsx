@@ -35,6 +35,7 @@ class ErrorBoundary extends Component<{ children: React.ReactNode }, { hasError:
 
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, LabelList, ReferenceLine, ScatterChart, Scatter, ZAxis, ComposedChart, Line, ReferenceArea } from 'recharts';
 import { KPICard } from '../components/KPICard';
+import { Dropdown } from '../components/Dropdown';
 import { TrendingUp, Target, AlertTriangle, Calendar, Grid, Activity, Percent, Layers, Zap, Scale, Info, Printer, Download, Loader2, ArrowUpRight, ArrowDownRight } from 'lucide-react';
 interface AttributionViewProps {
     data: PortfolioItem[];
@@ -690,17 +691,18 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
                 </div>
                 <div className="flex items-center gap-4">
                     {/* Year Selector */}
-                    <select
+                    <Dropdown
                         value={selectedYear}
-                        onChange={(e) => setSelectedYear(Number(e.target.value) as 2025 | 2026)}
-                        className="px-3 py-2 bg-white border border-wallstreet-700 rounded-lg text-xs font-mono font-bold text-wallstreet-text shadow-sm cursor-pointer hover:bg-slate-50 transition-colors"
-                    >
-                        <option value={2025}>2025</option>
-                        <option value={2026}>2026</option>
-                    </select>
-                    <div className="flex p-1 bg-wallstreet-200 rounded-lg">
-                        <button onClick={() => setViewMode('OVERVIEW')} className={`px-4 py-2 rounded-md text-xs font-bold font-mono transition-all flex items-center gap-2 ${viewMode === 'OVERVIEW' ? 'bg-white text-wallstreet-accent shadow-sm' : 'text-wallstreet-500 hover:text-wallstreet-text'}`}><Grid size={14} /> Overview</button>
-                        <button onClick={() => setViewMode('TABLES')} className={`px-4 py-2 rounded-md text-xs font-bold font-mono transition-all flex items-center gap-2 ${viewMode === 'TABLES' ? 'bg-white text-wallstreet-accent shadow-sm' : 'text-wallstreet-500 hover:text-wallstreet-text'}`}><Layers size={14} /> Tables</button>
+                        onChange={(val) => setSelectedYear(Number(val) as 2025 | 2026)}
+                        options={[
+                            { value: 2025, label: 2025 },
+                            { value: 2026, label: 2026 }
+                        ]}
+                        className="min-w-[100px]"
+                    />
+                    <div className="flex p-1 bg-wallstreet-200 rounded-xl">
+                        <button onClick={() => setViewMode('OVERVIEW')} className={`px-4 py-2 rounded-lg text-xs font-bold font-mono transition-all flex items-center gap-2 ${viewMode === 'OVERVIEW' ? 'bg-white text-wallstreet-accent shadow-sm' : 'text-wallstreet-500 hover:text-wallstreet-text'}`}><Grid size={14} /> Overview</button>
+                        <button onClick={() => setViewMode('TABLES')} className={`px-4 py-2 rounded-lg text-xs font-bold font-mono transition-all flex items-center gap-2 ${viewMode === 'TABLES' ? 'bg-white text-wallstreet-accent shadow-sm' : 'text-wallstreet-500 hover:text-wallstreet-text'}`}><Layers size={14} /> Tables</button>
                     </div>
                     {/* Time Range Selector - Only visible in Overview */}
                     {viewMode === 'OVERVIEW' && (
@@ -739,7 +741,7 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
                     <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 h-auto lg:h-[500px]">
                         <div className="lg:col-span-5 bg-white p-6 rounded-xl border border-wallstreet-700 shadow-sm flex flex-col">
                             <div className="mb-4">
-                                <h3 className="font-mono font-bold text-wallstreet-text uppercase tracking-wider text-sm flex items-center gap-2"><TrendingUp size={16} className="text-wallstreet-500" /> Return Waterfall </h3>
+                                <h3 className="font-mono font-bold text-wallstreet-text uppercase tracking-wider text-sm flex items-center gap-2"><TrendingUp size={16} className="text-wallstreet-500" /> Return Waterfall (Top 10)</h3>
                             </div>
                             <div className="flex-1 w-full min-h-[300px]">
                                 <ResponsiveContainer width="100%" height="100%">

@@ -182,3 +182,36 @@
     color: #fff !important;
   }
 }
+
+/* === CUSTOM SCROLLBARS === */
+/* Makes interactive areas "round and smooth" */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  /* slate-300 level for a light, professional look */
+  border-radius: 10px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+  /* slate-400 */
+  background-clip: content-box;
+}
+
+/* Smooth transitions for interactive elements */
+button,
+select,
+input,
+.cursor-pointer {
+  transition: all 0.2s ease-in-out;
+}
