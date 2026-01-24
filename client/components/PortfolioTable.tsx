@@ -6,6 +6,7 @@ interface PortfolioTableProps {
   allData: PortfolioItem[];
   betaMap?: Record<string, number>;
   divYieldMap?: Record<string, number>;
+  assetGeo?: Record<string, string>;
 }
 
 // The 11 GICS Sectors
@@ -55,7 +56,7 @@ const GEO_SECTIONS = [
   { key: 'CA', label: 'Canada', color: 'bg-red-50 text-red-700 border-red-300' },
 ] as const;
 
-export const PortfolioTable: React.FC<PortfolioTableProps> = ({ currentHoldings, betaMap, divYieldMap }) => {
+export const PortfolioTable: React.FC<PortfolioTableProps> = ({ currentHoldings, betaMap, divYieldMap, assetGeo }) => {
   // Collapse state for each geography section
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
 
@@ -63,45 +64,49 @@ export const PortfolioTable: React.FC<PortfolioTableProps> = ({ currentHoldings,
     setCollapsed(prev => ({ ...prev, [geo]: !prev[geo] }));
   };
 
-  // Helper to determine Region based on underlying exposure (not listing currency)
-  const getRegion = (ticker: string) => {
-    const t = ticker.toUpperCase();
-
-    // Cash has no region
-    if (t === '$CASH$' || t.includes('CASH')) return 'CASH';
-
-    // Specific ETF/MF overrides based on underlying exposure
-    if (t === 'XUS.TO') return 'US';
-    if (t.startsWith('DYN')) return 'US';
-
-    // International funds
-    if (t.includes('BIP791') || t.includes('DJT03868')) return 'INTL';
-    // International ETFs (iShares XEF = Developed Markets, XEC = Emerging Markets)
-    if (t === 'XEF.TO' || t === 'XEC.TO') return 'INTL';
-
-    // Canadian-listed stocks/funds
-    if (t.endsWith('.TO') || t.endsWith('.V') || t.startsWith('TDB')) return 'CA';
-
-    // International markets
-    if (t.endsWith('.PA') || t.endsWith('.L') || t.endsWith('.DE') || t.endsWith('.HK')) return 'INTL';
-
-    return 'US';
-  };
-
   // Helper to determine if ticker is ETF/MF
   const isETFOrMF = (item: PortfolioItem) => {
+    // Keep basic checks for now if we don't have perfect flags, assuming passed items have flags
+    // If we only rely on flags from UploadView:
+    if (item.isEtf || item.isMutualFund) return true;
+
+    // Fallback logic if flags missing (legacy safety, but ideally we trust flags)
     const t = item.ticker.toUpperCase();
-    if (t.includes('BIP791') || t.includes('DJT03868')) return true;
     if (t.startsWith('TDB') || t.startsWith('DYN') || t.startsWith('MFC')) return true;
     if (item.sector === 'Mixed') return true;
     if (t.match(/^X[A-Z]{2,3}\.TO$/)) return true;
+
     return false;
+  };
+
+  // Helper to determine Region based on underlying exposure (not listing currency)
+  const getRegion = (item: PortfolioItem) => {
+    const t = item.ticker.toUpperCase();
+
+    // Cash has no region
+    if (t === '*cash*' || t.includes('CASH')) return 'CASH';
+
+    // If ETF or Mutual Fund, use manual override from UploadView (assetGeo)
+    if (isETFOrMF(item)) {
+      // Default to US if not specified, or INTL/CA if mapped
+      if (assetGeo && assetGeo[item.ticker]) {
+        return assetGeo[item.ticker];
+      }
+      // Fallback default for Funds if no manual setting? Default to US as per user implicit preference or safe default
+      return 'US';
+    }
+
+    // For plain stocks: Check suffix
+    if (t.endsWith('.TO')) return 'CA';
+
+    // Default everything else to US
+    return 'US';
   };
 
   // Check if ticker is Cash
   const isCash = (ticker: string) => {
     const t = ticker.toUpperCase();
-    return t === '$CASH$' || t.includes('CASH');
+    return t === '*cash*' || t.includes('CASH');
   };
 
   // Normalize sector to standard GICS sector
@@ -128,7 +133,7 @@ export const PortfolioTable: React.FC<PortfolioTableProps> = ({ currentHoldings,
     };
 
     currentHoldings.forEach(item => {
-      const geo = getRegion(item.ticker);
+      const geo = getRegion(item);
       if (groups[geo]) {
         groups[geo].push(item);
       }
@@ -155,42 +160,6 @@ export const PortfolioTable: React.FC<PortfolioTableProps> = ({ currentHoldings,
 
     return groups;
   }, [currentHoldings]);
-
-  // Calculate sector totals
-  const sectorTotals = useMemo(() => {
-    const totals: Record<string, number> = {};
-    GICS_SECTORS.forEach(s => totals[s] = 0);
-
-    currentHoldings.forEach(item => {
-      if (isCash(item.ticker)) return;
-      if (isETFOrMF(item)) return;
-
-      const normalizedSector = normalizeToGICS(item.sector);
-      if (normalizedSector && totals[normalizedSector] !== undefined) {
-        totals[normalizedSector] += item.weight;
-      }
-    });
-
-    return totals;
-  }, [currentHoldings]);
-
-  // Calculate total weight per geography
-  const geoTotals = useMemo(() => {
-    const totals: Record<string, number> = {};
-    Object.entries(groupedData).forEach(([geo, items]) => {
-      totals[geo] = items.reduce((sum, item) => sum + item.weight, 0);
-    });
-    return totals;
-  }, [groupedData]);
-
-  const getRegionColor = (region: string) => {
-    switch (region) {
-      case 'US': return 'text-blue-600 bg-blue-50 border-blue-200';
-      case 'CA': return 'text-red-600 bg-red-50 border-red-200';
-      case 'INTL': return 'text-purple-600 bg-purple-50 border-purple-200';
-      default: return 'text-slate-600 bg-slate-50 border-slate-200';
-    }
-  };
 
   // Get sector exposure for a single holding
   const getSectorExposure = (item: PortfolioItem): Record<string, number | string> => {
@@ -219,6 +188,47 @@ export const PortfolioTable: React.FC<PortfolioTableProps> = ({ currentHoldings,
 
     return exposure;
   };
+
+  // Calculate sector totals
+  const sectorTotals = useMemo(() => {
+    const totals: Record<string, number> = {};
+    GICS_SECTORS.forEach(s => totals[s] = 0);
+
+    currentHoldings.forEach(item => {
+      if (isCash(item.ticker)) return;
+
+      const sectorExposure = getSectorExposure(item);
+
+      GICS_SECTORS.forEach(sector => {
+        const exposureVal = sectorExposure[sector];
+        if (typeof exposureVal === 'number') {
+          // Weighted contribution: Item Weight * (Sector Exposure / 100)
+          totals[sector] += item.weight * (exposureVal / 100);
+        }
+      });
+    });
+
+    return totals;
+  }, [currentHoldings]);
+
+  // Calculate total weight per geography
+  const geoTotals = useMemo(() => {
+    const totals: Record<string, number> = {};
+    Object.entries(groupedData).forEach(([geo, items]) => {
+      totals[geo] = items.reduce((sum, item) => sum + item.weight, 0);
+    });
+    return totals;
+  }, [groupedData]);
+
+  const getRegionColor = (region: string) => {
+    switch (region) {
+      case 'US': return 'text-blue-600 bg-blue-50 border-blue-200';
+      case 'CA': return 'text-red-600 bg-red-50 border-red-200';
+      case 'INTL': return 'text-purple-600 bg-purple-50 border-purple-200';
+      default: return 'text-slate-600 bg-slate-50 border-slate-200';
+    }
+  };
+
 
   let globalIndex = 0;
 
@@ -256,42 +266,43 @@ export const PortfolioTable: React.FC<PortfolioTableProps> = ({ currentHoldings,
 
               const isCollapsed = collapsed[geo];
               const geoTotal = geoTotals[geo] || 0;
+              const isCashSection = geo === 'CASH';
 
               return (
                 <React.Fragment key={geo}>
                   {/* Geography Header Row */}
-                  <tr
-                    className={`cursor-pointer hover:opacity-80 transition-opacity border-t-2 border-wallstreet-300 ${color}`}
-                    onClick={() => toggleCollapse(geo)}
-                  >
-                    <td className={`px-3 py-2 text-center sticky left-0 z-10 ${color}`}>
-                      <span className="text-lg">{isCollapsed ? '▶' : '▼'}</span>
-                    </td>
-                    <td className={`px-3 py-2 font-bold sticky left-12 z-10 ${color}`} colSpan={1}>
-                      {label} ({items.length})
-                    </td>
-                    {/* Gap 1 */}
-                    <td className="min-w-[60px]"></td>
-                    {/* Weight */}
-                    <td className="px-3 py-2 text-right font-bold">
-                      {geoTotal.toFixed(2)}%
-                    </td>
-                    {/* Stats + Gap 2 + Sectors + Total */}
-                    <td colSpan={3 + 1 + GICS_SECTORS.length + 1} className="px-3 py-2"></td>
-                  </tr>
+                  {!isCashSection && (
+                    <tr
+                      className={`cursor-pointer hover:opacity-80 transition-opacity border-t-2 border-wallstreet-300 ${color}`}
+                      onClick={() => toggleCollapse(geo)}
+                    >
+                      <td className={`px-3 py-2 text-center sticky left-0 z-10 ${color}`}>
+                        <span className="text-lg">{isCollapsed ? '▶' : '▼'}</span>
+                      </td>
+                      <td className={`px-3 py-2 font-bold sticky left-12 z-10 ${color}`} colSpan={1}>
+                        {label} ({items.length})
+                      </td>
+                      {/* Gap 1 */}
+                      <td className="min-w-[60px]"></td>
+                      {/* Weight */}
+                      <td className="px-3 py-2 text-right font-bold">
+                        {geoTotal.toFixed(2)}%
+                      </td>
+                      {/* Stats + Gap 2 + Sectors + Total */}
+                      <td colSpan={3 + 1 + GICS_SECTORS.length + 1} className="px-3 py-2"></td>
+                    </tr>
+                  )}
 
                   {/* Holdings Rows */}
-                  {!isCollapsed && items.map((item) => {
+                  {(!isCollapsed || isCashSection) && items.map((item) => {
                     globalIndex++;
-                    const region = getRegion(item.ticker);
+                    const region = getRegion(item);
                     const beta = betaMap && betaMap[item.ticker] !== undefined ? betaMap[item.ticker] : (isCash(item.ticker) ? 0 : 1);
                     const sectorExposure = getSectorExposure(item);
 
                     const rowTotal = isCash(item.ticker)
                       ? ''
-                      : isETFOrMF(item)
-                        ? 'N/A'
-                        : GICS_SECTORS.reduce((sum, s) => sum + (typeof sectorExposure[s] === 'number' ? sectorExposure[s] as number : 0), 0);
+                      : GICS_SECTORS.reduce((sum, s) => sum + (typeof sectorExposure[s] === 'number' ? sectorExposure[s] as number : 0), 0);
 
                     return (
                       <tr key={item.ticker} className="hover:bg-blue-50/30 transition-colors group">
@@ -319,7 +330,7 @@ export const PortfolioTable: React.FC<PortfolioTableProps> = ({ currentHoldings,
                           )}
                         </td>
                         <td className="px-3 py-3 text-center font-mono text-wallstreet-text">
-                          <span className={`font-bold text-xs ${beta > 1 ? 'text-red-600' : beta < 1 ? 'text-green-600' : 'text-slate-600'}`}>
+                          <span className="font-bold text-xs text-wallstreet-text">
                             {beta.toFixed(2)}
                           </span>
                         </td>
@@ -327,7 +338,7 @@ export const PortfolioTable: React.FC<PortfolioTableProps> = ({ currentHoldings,
                           {(() => {
                             const divYield = divYieldMap && divYieldMap[item.ticker] !== undefined ? divYieldMap[item.ticker] : 0;
                             return (
-                              <span className={`font-bold text-xs ${divYield > 3 ? 'text-green-600' : divYield > 0 ? 'text-wallstreet-text' : 'text-slate-400'}`}>
+                              <span className={`font-bold text-xs ${divYield > 0 ? 'text-wallstreet-text' : 'text-slate-400'}`}>
                                 {divYield > 0 ? divYield.toFixed(2) + '%' : '-'}
                               </span>
                             );
@@ -341,8 +352,6 @@ export const PortfolioTable: React.FC<PortfolioTableProps> = ({ currentHoldings,
                             <td key={sector} className="px-2 py-3 text-center text-xs">
                               {val === 'N/A' ? (
                                 <span className="text-slate-400 italic text-[10px]">N/A</span>
-                              ) : val === 100 ? (
-                                <span className="text-green-700 font-bold bg-green-50 px-1.5 py-0.5 rounded">100%</span>
                               ) : val !== '' ? (
                                 <span>{val}%</span>
                               ) : null}
@@ -350,10 +359,8 @@ export const PortfolioTable: React.FC<PortfolioTableProps> = ({ currentHoldings,
                           );
                         })}
                         <td className="px-3 py-3 text-center font-bold text-xs bg-wallstreet-50">
-                          {rowTotal === 'N/A' ? (
-                            <span className="text-slate-400 italic text-[10px]">N/A</span>
-                          ) : rowTotal !== '' ? (
-                            <span className="text-wallstreet-text">{rowTotal}%</span>
+                          {rowTotal !== '' ? (
+                            <span className="text-wallstreet-text">{typeof rowTotal === 'number' ? rowTotal.toFixed(0) : rowTotal}%</span>
                           ) : null}
                         </td>
                       </tr>

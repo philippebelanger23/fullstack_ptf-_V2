@@ -8,6 +8,8 @@ import { Wallet, Layers, PieChart as PieChartIcon, Wallet2Icon, WalletIcon } fro
 
 interface DashboardViewProps {
   data: PortfolioItem[];
+  customSectors?: Record<string, Record<string, number>>;
+  assetGeo?: Record<string, string>;
 }
 
 const COLORS = [
@@ -17,7 +19,7 @@ const COLORS = [
   '#0e7490', '#a16207', '#be185d', '#4338ca', '#0f766e'
 ];
 
-export const DashboardView: React.FC<DashboardViewProps> = ({ data }) => {
+export const DashboardView: React.FC<DashboardViewProps> = ({ data, customSectors, assetGeo }) => {
   const { dates, latestDate, currentHoldings, totalWeight } = useMemo(() => {
     const dates = Array.from(new Set(data.map(d => d.date))).sort() as string[];
     const latestDate = dates[dates.length - 1];
@@ -74,6 +76,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ data }) => {
   // Separate state for sector map - persists independently of data changes
   const [sectorMap, setSectorMap] = React.useState<Record<string, string>>({});
 
+  // Local state fallbacks if props not provided (though App.tsx should provide them)
+  const [localCustomSectorWeights, setLocalCustomSectorWeights] = React.useState<Record<string, Record<string, number>>>({});
+  const [localAssetGeo, setLocalAssetGeo] = React.useState<Record<string, string>>({});
+
+  const effectiveCustomSectors = customSectors || localCustomSectorWeights;
+  const effectiveAssetGeo = assetGeo || localAssetGeo;
+
   const [betaMap, setBetaMap] = React.useState<Record<string, number>>({});
   const [divYieldMap, setDivYieldMap] = React.useState<Record<string, number>>({});
 
@@ -92,14 +101,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ data }) => {
       if (tickersToFetch.length === 0) return;
 
       try {
-        const { fetchSectors, fetchBetas, fetchDividends } = await import('../services/api');
+        const { fetchSectors, fetchBetas, fetchDividends, loadSectorWeights, loadAssetGeo } = await import('../services/api');
 
         // Fetch Sectors
-        // We optimize by checking if we need to fetch, but api.ts handles some caching too.
-        // However, for betaMap, we don't have a persisted cache yet in api.ts so we fetch here.
-        // Ideally we check if we already have it in state, but simpler to just fetch all unique for now.
-        // (Optimization: only fetch missing)
-
         const sectors = await fetchSectors(tickersToFetch);
         if (Object.keys(sectors).length > 0) {
           setSectorMap(prev => ({ ...prev, ...sectors }));
@@ -115,6 +119,21 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ data }) => {
           setDivYieldMap(dividends);
         }
 
+        // Only fetch if props are missing
+        if (!customSectors) {
+          const loadedWeights = await loadSectorWeights();
+          if (Object.keys(loadedWeights).length > 0) {
+            setLocalCustomSectorWeights(loadedWeights);
+          }
+        }
+
+        if (!assetGeo) {
+          const loadedGeo = await loadAssetGeo();
+          if (Object.keys(loadedGeo).length > 0) {
+            setLocalAssetGeo(loadedGeo);
+          }
+        }
+
       } catch (error) {
         console.error("Error fetching data:", error);
       }
@@ -123,7 +142,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ data }) => {
     if (data.length > 0) {
       fetchData();
     }
-  }, [data]);
+  }, [data, customSectors, assetGeo]);
 
   // Derive enrichedCurrentHoldings by merging sectorMap at render time
   const enrichedCurrentHoldings = useMemo(() => {
@@ -132,13 +151,18 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ data }) => {
       let sector = sectorMap[cleanTicker] || sectorMap[item.ticker] || item.sector;
 
       // Explicitly set sector for Cash
-      if (cleanTicker === '$CASH$') {
+      if (cleanTicker === '*cash*') {
         sector = 'CASH';
       }
 
-      return sector ? { ...item, sector } : item;
+      // Attach custom sector weights if available
+      const sectorWeights = effectiveCustomSectors[cleanTicker] || effectiveCustomSectors[item.ticker];
+
+      return sectorWeights
+        ? { ...item, sector, sectorWeights }
+        : sector ? { ...item, sector } : item;
     });
-  }, [currentHoldings, sectorMap]);
+  }, [currentHoldings, sectorMap, effectiveCustomSectors]);
 
 
   return (
@@ -213,12 +237,22 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ data }) => {
           // Helper logic duplicated from PortfolioTable (ideal to refactor later but inline for now)
           currentHoldings.forEach(item => {
             const t = item.ticker.toUpperCase();
+
+            // New Logic for manual/suffix based check
             let region = 'US';
-            // International funds and ETFs
-            if (t.includes('BIP791') || t.includes('DJT03868') || t === 'XEF.TO' || t === 'XEC.TO' || t.endsWith('.PA') || t.endsWith('.L') || t.endsWith('.DE') || t.endsWith('.HK')) {
-              region = 'INTL';
-            } else if (t.endsWith('.TO') || t.endsWith('.V') || t.startsWith('TDB') || t.startsWith('DYN')) {
-              region = 'CA';
+
+            if (item.isEtf || item.isMutualFund) {
+              // Use manual setting if available, otherwise default to US or maybe infer from suffix?
+              // But user said: if ETF/MF use manual.
+              // We need to pass assetGeo here too effectively, but for now I'll use the suffix fallback
+              // IF assetGeo isn't available in this scope easily without refactoring the KPI calculation to separate function.
+              // Since we have assetGeo in state, let's use it.
+              // Since we have assetGeo in state/props using effectiveAssetGeo (which handles fallbacks), let's use it.
+              const manualGeo = effectiveAssetGeo[item.ticker];
+              if (manualGeo) region = manualGeo;
+            } else {
+              if (t.endsWith('.TO')) region = 'CA';
+              else region = 'US';
             }
 
             if (region === 'US') usWeight += item.weight;
@@ -298,7 +332,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ data }) => {
         <PortfolioEvolutionChart data={areaChartData} topTickers={topTickers} dates={dates} colors={COLORS} />
       </div>
 
-      <PortfolioTable currentHoldings={enrichedCurrentHoldings} allData={data} betaMap={betaMap} divYieldMap={divYieldMap} />
+      <PortfolioTable
+        currentHoldings={enrichedCurrentHoldings}
+        allData={data}
+        betaMap={betaMap}
+        divYieldMap={divYieldMap}
+        assetGeo={assetGeo}
+      />
     </div>
   );
 };

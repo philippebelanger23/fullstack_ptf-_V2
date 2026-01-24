@@ -17,7 +17,7 @@ BENCHMARK_TICKERS = {
 BENCHMARK_ORDER = ["USD/CAD", "S&P 500", "Dow Jones", "Nasdaq", "ACWI", "TSX60"]
 
 # Special tickers
-CASH_TICKER = "$CASH$"
+CASH_TICKER = "*cash*"
 BASE_CURRENCY = "CAD"
 FX_TICKER = "CAD=X"
 

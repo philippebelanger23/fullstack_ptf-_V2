@@ -75,7 +75,11 @@ export const UploadView: React.FC<UploadViewProps> = ({
     try {
       setError(null);
       await uploadNav(ticker, file);
-      await runLagCheck(currentData);
+
+      // Proactively re-analyze and refresh lag check
+      const analyzedData = await analyzeManualPortfolio(currentData);
+      onDataLoaded(analyzedData, { name: "Manual Entry (Updated)", count: analyzedData.length });
+      await runLagCheck(analyzedData);
     } catch (err: any) {
       setError(`Upload failed for ${ticker}: ${err.message}`);
     }
@@ -108,21 +112,30 @@ export const UploadView: React.FC<UploadViewProps> = ({
     }
   };
 
+  const globalLatestDate = currentData.length > 0
+    ? currentData.reduce((max, item) => (item.date > max ? item.date : max), '')
+    : '';
+
   const activeTickersData = Array.from(new Set(currentData.filter(i => i.isEtf || i.isMutualFund).map(i => i.ticker)))
     .filter(ticker => {
       const tickerData = currentData.filter(d => d.ticker === ticker);
       if (tickerData.length === 0) return false;
       const latestRecord = tickerData.reduce((prev, curr) => (curr.date > prev.date) ? curr : prev);
-      return latestRecord.weight > 0;
+      // Only show in "Manage Asset Specifications" if it's active in the latest period
+      return latestRecord.date === globalLatestDate && latestRecord.weight > 0;
     })
     .map(ticker => {
       const item = currentData.find(i => i.ticker === ticker);
+      const tickerData = currentData.filter(d => d.ticker === ticker);
+      const latestRecord = tickerData.reduce((prev, curr) => (curr.date > prev.date) ? curr : prev);
+
       return {
         ticker,
         isEtf: item?.isEtf,
         isMutualFund: item?.isMutualFund,
         isComplete: !!customSectors[ticker],
-        geo: assetGeo[ticker] || ''
+        geo: assetGeo[ticker] || '',
+        weight: latestRecord.weight
       };
     });
 
@@ -197,17 +210,37 @@ export const UploadView: React.FC<UploadViewProps> = ({
                     <p className="text-xs text-slate-400 uppercase font-black tracking-widest mb-2">Data Recency</p>
                     <div className="flex items-center gap-2">
                       <span className={`text-2xl font-black ${anyLagging ? 'text-amber-600' : 'text-green-600'}`}>
-                        {anyLagging ? 'Alert' : 'Optimal'}
+                        {anyLagging ? 'Lagging' : 'Optimal'}
                       </span>
                     </div>
-                    {anyLagging ?
-                      <div className="mt-2 flex items-center gap-1 text-amber-600 font-bold text-xs bg-amber-50 px-2.5 py-1 rounded-full uppercase">
-                        <RefreshCw size={12} className="animate-spin-slow" /> Lagging
-                      </div> :
+                    {anyLagging ? (
+                      <div className="flex flex-col items-center gap-1 mt-2">
+                        <button
+                          onClick={() => runLagCheck(currentData)}
+                          className="flex items-center gap-1 text-amber-600 font-bold text-xs bg-amber-50 px-2.5 py-1 rounded-full uppercase hover:bg-amber-100 transition-colors"
+                        >
+                          <RefreshCw size={12} className={isCheckingLag ? "animate-spin" : ""} />
+                          {isCheckingLag ? 'Checking...' : 'Refresh'}
+                        </button>
+                        {(() => {
+                          // Find first lagging item to show dates
+                          const laggingEntries = Object.values(lagStatus).filter(s => s.lagging);
+                          if (laggingEntries.length > 0) {
+                            const first = laggingEntries[0];
+                            return (
+                              <p className="text-[10px] text-slate-500 font-mono mt-1">
+                                NAV: {first.last_nav} <br /> MKT: {first.last_market}
+                              </p>
+                            );
+                          }
+                          return null;
+                        })()}
+                      </div>
+                    ) : (
                       <div className="mt-2 flex items-center gap-1 text-green-600 font-bold text-xs bg-green-50 px-2.5 py-1 rounded-full uppercase">
                         <CheckCircle2 size={12} /> Current
                       </div>
-                    }
+                    )}
                   </div>
                 </div>
               ) : (
@@ -236,13 +269,9 @@ export const UploadView: React.FC<UploadViewProps> = ({
         {/* --- NEW SECTION: Asset Details Expansion --- */}
         {totalAssets > 0 && isAssetSectionOpen && (
           <div className="bg-white/80 backdrop-blur-2xl rounded-2xl border border-white shadow-xl overflow-hidden animate-in slide-in-from-top-4 duration-500">
-            <div className="bg-gradient-to-r from-[#9033e7] to-[#2563eb] p-4 flex items-center justify-between text-white">
+            <div className="bg-gradient-to-r from-[#9033e7] to-[#2563eb] p-4 flex items-center justify-center text-white">
               <div className="flex items-center gap-3">
                 <h2 className="text-lg font-black uppercase tracking-tighter">Manage Asset Specifications</h2>
-              </div>
-              <div className="flex gap-2">
-                <span className="bg-white/20 px-2.5 py-1 rounded text-xs font-bold border border-white/30">{activeEtfs.length} ETFs</span>
-                <span className="bg-white/20 px-2.5 py-1 rounded text-xs font-bold border border-white/30">{activeMfs.length} MFs</span>
               </div>
             </div>
 
@@ -358,9 +387,6 @@ const AssetCard: React.FC<AssetCardProps> = ({ asset, lagStatus, onEditSector, o
           <div>
             <div className="flex items-center gap-2">
               <h4 className="text-base font-bold text-slate-800">{asset.ticker}</h4>
-              <span className={`text-xs font-bold px-2 py-0.5 rounded-full uppercase tracking-tighter ${asset.isEtf ? 'bg-blue-100 text-blue-700 border border-blue-200' : 'bg-purple-100 text-purple-700 border border-purple-200'}`}>
-                {asset.isEtf ? 'ETF' : 'Mutual Fund'}
-              </span>
             </div>
             <div className="flex items-center gap-3 mt-1">
               <div className="flex items-center gap-1">
@@ -400,19 +426,19 @@ const AssetCard: React.FC<AssetCardProps> = ({ asset, lagStatus, onEditSector, o
               : 'bg-purple-600 text-white shadow-purple-100 hover:bg-purple-700'
               }`}
           >
-            <PieChart size={16} /> {asset.isComplete ? 'Configure Sectors' : 'Configure Sectors'}
+            <PieChart size={16} /> {asset.isComplete ? 'Configure' : 'Configure'}
           </button>
         </div>
       </div>
 
       {asset.isMutualFund && (
-        <div className={`p-3 rounded-xl border flex items-center justify-between gap-4 transition-all ${isLagging ? 'bg-amber-50 border-amber-200 shadow-sm' : 'bg-green-50/40 border-green-200 opacity-60'}`}>
+        <div className={`p-3 rounded-xl border flex items-center justify-between gap-4 transition-all ${isLagging ? 'bg-amber-50 border-amber-200 shadow-sm' : 'bg-slate-50 border-slate-200'}`}>
           <div className="flex gap-2">
-            <div className={`w-7 h-7 rounded-lg flex items-center justify-center ${isLagging ? 'bg-amber-200 text-amber-700' : 'bg-green-200 text-green-700'}`}>
+            <div className={`w-7 h-7 rounded-lg flex items-center justify-center ${isLagging ? 'bg-amber-200 text-amber-700' : 'bg-slate-200 text-slate-500'}`}>
               <RefreshCw size={12} className={isLagging ? 'animate-pulse' : ''} />
             </div>
             <div>
-              <p className={`text-xs font-bold leading-tight ${isLagging ? 'text-amber-800' : 'text-green-800'}`}>
+              <p className={`text-xs font-bold leading-tight ${isLagging ? 'text-amber-800' : 'text-slate-700'}`}>
                 {isLagging ? 'Update Required' : 'NAV is Current'}
               </p>
               {status && (

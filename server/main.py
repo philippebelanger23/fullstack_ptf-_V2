@@ -14,7 +14,6 @@ from data_loader import load_historic_nav_csvs
 from market_data import calculate_returns, build_results_dataframe, get_ticker_performance
 from cache_manager import load_cache, save_cache
 from constants import CASH_TICKER, FX_TICKER
-from nav_scraper import NAVScraper
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -85,20 +84,6 @@ def get_aggregated_nav_data():
         except Exception as e:
             logger.warning(f"Failed to load manual_navs.json: {e}")
 
-    # 2. Load scraped NAVs
-    scraped_nav_path = Path("data/scraped_navs.json")
-    if scraped_nav_path.exists():
-        try:
-            import json
-            import datetime
-            with open(scraped_nav_path, "r") as f:
-                scraped_navs = json.load(f)
-                for ticker, dates_data in scraped_navs.items():
-                    if ticker not in nav_dict: nav_dict[ticker] = {}
-                    for d, v in dates_data.items():
-                        nav_dict[ticker][datetime.datetime.strptime(d, "%Y-%m-%d")] = v
-        except Exception as e:
-            logger.warning(f"Failed to load scraped_navs.json: {e}")
 
     # 3. Load historical CSV NAVs
     try:
@@ -832,19 +817,7 @@ async def get_index_history():
         return {"ACWI": [], "XIU.TO": [], "Index": []}
 
 
-@app.post("/refresh-navs")
-async def refresh_navs(request: dict):
-    url = request.get("url")
-    if not url:
-        raise HTTPException(status_code=400, detail="URL is required")
-        
-    try:
-        scraper = NAVScraper(storage_path="data/scraped_navs.json")
-        success = scraper.update_navs(url)
-        return {"success": success, "message": "Scraping complete" if success else "No data extracted"}
-    except Exception as e:
-        logger.error(f"Error in refresh-navs: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+# Removed refresh-navs endpoint as scraping is no longer supported.
 
 @app.post("/save-portfolio-config")
 async def save_portfolio_config(config: PortfolioConfig):
@@ -971,8 +944,9 @@ async def check_nav_lag(request: dict):
             last_market_date = hist.index[-1].date()
             
             # 3. Compare. If NAV is older than Market, it lags.
-            # Allow 1 day buffer as NAVs are often released late evening
-            is_lagging = last_nav_date < last_market_date
+            # Allow 1 day buffer as NAVs are often released late evening (so yesterday's NAV is current for today)
+            days_diff = (last_market_date - last_nav_date).days
+            is_lagging = days_diff > 1
             
             results[ticker] = {
                 "lagging": is_lagging,

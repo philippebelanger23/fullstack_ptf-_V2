@@ -179,7 +179,7 @@ function App() {
           />
         );
       case ViewState.DASHBOARD:
-        return <DashboardView data={portfolioData} />;
+        return <DashboardView data={portfolioData} customSectors={customSectors} assetGeo={assetGeo} />;
       case ViewState.INDEX:
         return <IndexView />;
       case ViewState.ANALYSIS:

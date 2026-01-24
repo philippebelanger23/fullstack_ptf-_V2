@@ -30,7 +30,7 @@ interface TickerRow {
 
 const DEFAULT_TICKERS: TickerRow[] = [
     {
-        "ticker": "$CASH$"
+        "ticker": "*cash*"
     },
     {
         "ticker": "MKB.TO"
@@ -156,7 +156,7 @@ const DEFAULT_PERIODS: AllocationPeriod[] = [
         "startDate": "2024-12-31",
         "endDate": "Present",
         "weights": {
-            "$CASH$": "0.50%",
+            "*cash*": "0.50%",
             "MKB.TO": "9.20",
             "BIP791": "12.50",
             "DJT03868": "12.50",
@@ -201,7 +201,7 @@ const DEFAULT_PERIODS: AllocationPeriod[] = [
         "startDate": "2025-01-31",
         "endDate": "Present",
         "weights": {
-            "$CASH$": "0.50%",
+            "*cash*": "0.50%",
             "MKB.TO": "9.20",
             "BIP791": "12.50",
             "DJT03868": "12.50",
@@ -246,7 +246,7 @@ const DEFAULT_PERIODS: AllocationPeriod[] = [
         "startDate": "2025-02-20",
         "endDate": "Present",
         "weights": {
-            "$CASH$": "0.50%",
+            "*cash*": "0.50%",
             "MKB.TO": "9.20",
             "BIP791": "12.50",
             "DJT03868": "12.50",
@@ -291,7 +291,7 @@ const DEFAULT_PERIODS: AllocationPeriod[] = [
         "startDate": "2025-02-26",
         "endDate": "Present",
         "weights": {
-            "$CASH$": "2.25",
+            "*cash*": "2.25",
             "MKB.TO": "9.20",
             "BIP791": "12.50",
             "DJT03868": "12.50",
@@ -336,7 +336,7 @@ const DEFAULT_PERIODS: AllocationPeriod[] = [
         "startDate": "2025-02-28",
         "endDate": "Present",
         "weights": {
-            "$CASH$": "2.25",
+            "*cash*": "2.25",
             "MKB.TO": "9.20",
             "BIP791": "12.50",
             "DJT03868": "12.50",
@@ -381,7 +381,7 @@ const DEFAULT_PERIODS: AllocationPeriod[] = [
         "startDate": "2025-03-31",
         "endDate": "Present",
         "weights": {
-            "$CASH$": "2.25",
+            "*cash*": "2.25",
             "MKB.TO": "9.20",
             "BIP791": "12.50",
             "DJT03868": "12.50",
@@ -426,7 +426,7 @@ const DEFAULT_PERIODS: AllocationPeriod[] = [
         "startDate": "2025-04-30",
         "endDate": "Present",
         "weights": {
-            "$CASH$": "2.25",
+            "*cash*": "2.25",
             "MKB.TO": "9.20",
             "BIP791": "12.50",
             "DJT03868": "12.50",
@@ -471,7 +471,7 @@ const DEFAULT_PERIODS: AllocationPeriod[] = [
         "startDate": "2025-05-31",
         "endDate": "Present",
         "weights": {
-            "$CASH$": "2.25",
+            "*cash*": "2.25",
             "MKB.TO": "9.20",
             "BIP791": "12.50",
             "DJT03868": "12.50",
@@ -516,7 +516,7 @@ const DEFAULT_PERIODS: AllocationPeriod[] = [
         "startDate": "2025-06-25",
         "endDate": "Present",
         "weights": {
-            "$CASH$": "0.50%",
+            "*cash*": "0.50%",
             "MKB.TO": "9.20",
             "BIP791": "12.50",
             "DJT03868": "12.50",
@@ -561,7 +561,7 @@ const DEFAULT_PERIODS: AllocationPeriod[] = [
         "startDate": "2025-06-30",
         "endDate": "Present",
         "weights": {
-            "$CASH$": "0.50%",
+            "*cash*": "0.50%",
             "MKB.TO": "9.20",
             "BIP791": "12.50",
             "DJT03868": "12.50",
@@ -606,7 +606,7 @@ const DEFAULT_PERIODS: AllocationPeriod[] = [
         "startDate": "2025-07-31",
         "endDate": "Present",
         "weights": {
-            "$CASH$": "0.50%",
+            "*cash*": "0.50%",
             "MKB.TO": "9.20",
             "BIP791": "12.50",
             "DJT03868": "12.50",
@@ -651,7 +651,7 @@ const DEFAULT_PERIODS: AllocationPeriod[] = [
         "startDate": "2025-08-27",
         "endDate": "Present",
         "weights": {
-            "$CASH$": "0.50%",
+            "*cash*": "0.50%",
             "MKB.TO": "3.20",
             "BIP791": "12.50",
             "DJT03868": "12.50",
@@ -696,7 +696,7 @@ const DEFAULT_PERIODS: AllocationPeriod[] = [
         "startDate": "2025-08-31",
         "endDate": "Present",
         "weights": {
-            "$CASH$": "0.50%",
+            "*cash*": "0.50%",
             "MKB.TO": "3.20",
             "BIP791": "12.50",
             "DJT03868": "12.50",
@@ -741,7 +741,7 @@ const DEFAULT_PERIODS: AllocationPeriod[] = [
         "startDate": "2025-09-03",
         "endDate": "Present",
         "weights": {
-            "$CASH$": "0.50%",
+            "*cash*": "0.50%",
             "MKB.TO": "1.20",
             "BIP791": "12.50",
             "DJT03868": "12.50",
@@ -786,7 +786,7 @@ const DEFAULT_PERIODS: AllocationPeriod[] = [
         "startDate": "2025-09-10",
         "endDate": "Present",
         "weights": {
-            "$CASH$": "0.50%",
+            "*cash*": "0.50%",
             "MKB.TO": "1.20",
             "BIP791": "12.50",
             "DJT03868": "12.50",
@@ -831,7 +831,7 @@ const DEFAULT_PERIODS: AllocationPeriod[] = [
         "startDate": "2025-09-30",
         "endDate": "Present",
         "weights": {
-            "$CASH$": "0.50%",
+            "*cash*": "0.50%",
             "MKB.TO": "1.20",
             "BIP791": "12.50",
             "DJT03868": "12.50",
@@ -876,7 +876,7 @@ const DEFAULT_PERIODS: AllocationPeriod[] = [
         "startDate": "2025-10-15",
         "endDate": "Present",
         "weights": {
-            "$CASH$": "0.50%",
+            "*cash*": "0.50%",
             "MKB.TO": "0.00",
             "BIP791": "12.50",
             "DJT03868": "12.50",
@@ -921,7 +921,7 @@ const DEFAULT_PERIODS: AllocationPeriod[] = [
         "startDate": "2025-10-27",
         "endDate": "Present",
         "weights": {
-            "$CASH$": "0.50%",
+            "*cash*": "0.50%",
             "MKB.TO": "0.00",
             "BIP791": "12.50",
             "DJT03868": "12.50",
@@ -966,7 +966,7 @@ const DEFAULT_PERIODS: AllocationPeriod[] = [
         "startDate": "2025-10-31",
         "endDate": "Present",
         "weights": {
-            "$CASH$": "0.50%",
+            "*cash*": "0.50%",
             "MKB.TO": "0.00",
             "BIP791": "12.50",
             "DJT03868": "12.50",
@@ -1011,7 +1011,7 @@ const DEFAULT_PERIODS: AllocationPeriod[] = [
         "startDate": "2025-11-17",
         "endDate": "Present",
         "weights": {
-            "$CASH$": "0.50",
+            "*cash*": "0.50",
             "MKB.TO": "0.00",
             "BIP791": "12.50",
             "DJT03868": "12.50",
@@ -1056,7 +1056,7 @@ const DEFAULT_PERIODS: AllocationPeriod[] = [
         "startDate": "2025-11-25",
         "endDate": "Present",
         "weights": {
-            "$CASH$": "0.50",
+            "*cash*": "0.50",
             "MKB.TO": "0.00",
             "BIP791": "12.50",
             "DJT03868": "12.50",
@@ -1101,7 +1101,7 @@ const DEFAULT_PERIODS: AllocationPeriod[] = [
         "startDate": "2025-11-26",
         "endDate": "Present",
         "weights": {
-            "$CASH$": "0.50",
+            "*cash*": "0.50",
             "MKB.TO": "0.00",
             "BIP791": "12.50",
             "DJT03868": "12.50",
@@ -1146,7 +1146,7 @@ const DEFAULT_PERIODS: AllocationPeriod[] = [
         "startDate": "2025-11-30",
         "endDate": "Present",
         "weights": {
-            "$CASH$": "0.50",
+            "*cash*": "0.50",
             "MKB.TO": "0.00",
             "BIP791": "12.50",
             "DJT03868": "12.50",
@@ -1191,7 +1191,7 @@ const DEFAULT_PERIODS: AllocationPeriod[] = [
         "startDate": "2025-12-04",
         "endDate": "Present",
         "weights": {
-            "$CASH$": "0.50",
+            "*cash*": "0.50",
             "MKB.TO": "0.00",
             "BIP791": "12.50",
             "DJT03868": "12.50",
@@ -1236,7 +1236,7 @@ const DEFAULT_PERIODS: AllocationPeriod[] = [
         "startDate": "2025-12-17",
         "endDate": "Present",
         "weights": {
-            "$CASH$": "0.50",
+            "*cash*": "0.50",
             "MKB.TO": "0.00",
             "BIP791": "12.50",
             "DJT03868": "12.50",
@@ -1281,7 +1281,7 @@ const DEFAULT_PERIODS: AllocationPeriod[] = [
         "startDate": "2025-12-31",
         "endDate": "Present",
         "weights": {
-            "$CASH$": "0.50",
+            "*cash*": "0.50",
             "MKB.TO": "0.00",
             "BIP791": "12.50",
             "DJT03868": "12.50",
