@@ -8,6 +8,8 @@ export interface PortfolioItem {
   returnPct?: number;
   contribution?: number;
   isMutualFund?: boolean; // Flag for mutual funds requiring CSV NAV data
+  isEtf?: boolean; // Flag for ETFs
+  sectorWeights?: Record<string, number>; // Custom sector breakdown percentage
 }
 
 export interface AnalysisState {

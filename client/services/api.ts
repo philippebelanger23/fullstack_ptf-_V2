@@ -310,6 +310,91 @@ export const loadPortfolioConfig = async (): Promise<{ tickers: any[], periods: 
     }
 };
 
+export const saveSectorWeights = async (weights: Record<string, Record<string, number>>): Promise<void> => {
+    try {
+        const response = await fetch(`${API_Base_URL}/save-sector-weights`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ weights }),
+        });
+        if (!response.ok) throw new Error("Failed to save sector weights");
+    } catch (error) {
+        console.error("Error saving sector weights:", error);
+        throw error;
+    }
+};
+
+export const loadSectorWeights = async (): Promise<Record<string, Record<string, number>>> => {
+    try {
+        const response = await fetch(`${API_Base_URL}/load-sector-weights`);
+        if (!response.ok) return {};
+        return await response.json();
+    } catch (error) {
+        console.error("Error loading sector weights:", error);
+        return {};
+    }
+};
+
+export const saveAssetGeo = async (geo: Record<string, string>): Promise<void> => {
+    try {
+        const response = await fetch(`${API_Base_URL}/save-asset-geo`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ geo }),
+        });
+        if (!response.ok) throw new Error("Failed to save asset geography");
+    } catch (error) {
+        console.error("Error saving asset geography:", error);
+        throw error;
+    }
+};
+
+export const loadAssetGeo = async (): Promise<Record<string, string>> => {
+    try {
+        const response = await fetch(`${API_Base_URL}/load-asset-geo`);
+        if (!response.ok) return {};
+        return await response.json();
+    } catch (error) {
+        console.error("Error loading asset geography:", error);
+        return {};
+    }
+};
+
+export const checkNavLag = async (tickers: string[]): Promise<Record<string, any>> => {
+    try {
+        const response = await fetch(`${API_Base_URL}/check-nav-lag`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ tickers, _t: Date.now() }),
+        });
+        if (!response.ok) return {};
+        return await response.json();
+    } catch (error) {
+        console.error("Error checking NAV lag:", error);
+        return {};
+    }
+};
+
+export const uploadNav = async (ticker: string, file: File): Promise<void> => {
+    try {
+        const formData = new FormData();
+        formData.append('file', file);
+
+        const response = await fetch(`${API_Base_URL}/upload-nav/${ticker}`, {
+            method: 'POST',
+            body: formData,
+        });
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Failed to upload NAV: ${errorText}`);
+        }
+    } catch (error) {
+        console.error(`Error uploading NAV for ${ticker}:`, error);
+        throw error;
+    }
+};
+
 export const convertConfigToItems = (tickers: any[], periods: any[]): PortfolioItem[] => {
     const flatItems: PortfolioItem[] = [];
     periods.forEach(period => {
@@ -325,6 +410,7 @@ export const convertConfigToItems = (tickers: any[], periods: any[]): PortfolioI
                     weight: weight,  // Pass as percentage value (e.g., 10.00 for 10%)
                     date: period.startDate,
                     isMutualFund: t.isMutualFund || false,
+                    isEtf: t.isEtf || false,
                 });
             }
         });

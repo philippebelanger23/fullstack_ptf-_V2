@@ -27,7 +27,12 @@ def get_price_on_date(ticker, date, cache):
         cache[cache_key] = price
         return price
     except Exception as e:
-        raise ValueError(f"Error fetching price for {ticker} on {date}: {str(e)}")
+        # Instead of crashing, return a default price and log a warning.
+        # This prevents invalid tickers from breaking the entire analysis.
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.warning(f"Error fetching price for {ticker} on {date}: {str(e)}. Defaulting to 1.0")
+        return 1.0
 
 
 def get_fx_return(start_date, end_date, cache):
@@ -78,9 +83,11 @@ def calculate_returns(weights_dict, nav_dict, dates, cache, mutual_fund_tickers=
                         try:
                              prices[ticker][date_val] = get_price_on_date(ticker, date_val, cache)
                         except Exception:
-                             # If both fail, raise a clear error or default to 0?
-                             # Raising error is better than 500.
-                             raise ValueError(f"No pricing data available for {ticker} on {date_val} (and no history found)")
+                             # Default to 1.0 to prevent crash
+                             import logging
+                             logger = logging.getLogger(__name__)
+                             logger.warning(f"No pricing data available for {ticker} on {date_val}. Defaulting to 1.0")
+                             prices[ticker][date_val] = 1.0
             else:
                 # Standard Yahoo Finance lookup
                 prices[ticker][date_val] = get_price_on_date(ticker, date_val, cache)
@@ -141,7 +148,7 @@ def calculate_benchmark_returns(dates, cache):
     return benchmark_returns
 
 
-def build_results_dataframe(weights_dict, returns, prices, dates, cache, mutual_fund_tickers=None):
+def build_results_dataframe(weights_dict, returns, prices, dates, cache, mutual_fund_tickers=None, custom_sectors=None):
     """Build the results DataFrame with all periods and YTD."""
     from constants import CASH_TICKER, FX_TICKER
     if mutual_fund_tickers is None:

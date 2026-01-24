@@ -42,10 +42,13 @@ class PortfolioItem(BaseModel):
     returnPct: Optional[float] = None
     contribution: Optional[float] = None
     isMutualFund: Optional[bool] = None  # Flag for mutual funds requiring CSV NAV data
+    isEtf: Optional[bool] = None # Flag for ETFs
+    sectorWeights: Optional[dict] = None # Custom sector breakdowns percentage (e.g. {"Technology": 10.0})
 
 class TickerRow(BaseModel):
     ticker: str
     isMutualFund: bool = False
+    isEtf: bool = False
 
 class AllocationPeriod(BaseModel):
     id: str
@@ -174,26 +177,39 @@ async def analyze_manual(request: ManualAnalysisRequest):
         # Load all available NAV data
         nav_dict = get_aggregated_nav_data()
 
-        # Identify which tickers are marked as mutual funds in the request
+        # Identify which tickers are marked as mutual funds or ETFs in the request
         mutual_fund_tickers = {item.ticker.upper().strip() for item in request.items if item.isMutualFund}
+        etf_tickers = {item.ticker.upper().strip() for item in request.items if item.isEtf}
 
-        return run_portfolio_analysis(weights_dict, nav_dict, dates, mutual_fund_tickers)
+        return run_portfolio_analysis(weights_dict, nav_dict, dates, mutual_fund_tickers, etf_tickers)
         
     except Exception as e:
         logger.error(f"Error in manual analysis: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
-def run_portfolio_analysis(weights_dict, nav_dict, dates, mutual_fund_tickers=None):
+def run_portfolio_analysis(weights_dict, nav_dict, dates, mutual_fund_tickers=None, etf_tickers=None):
     """Core logic shared between file upload and manual entry."""
     cache = load_cache()
+    if mutual_fund_tickers is None: mutual_fund_tickers = set()
+    if etf_tickers is None: etf_tickers = set()
     
     logger.info("Fetching market data...")
     returns, prices = calculate_returns(weights_dict, nav_dict, dates, cache, mutual_fund_tickers)
     
     save_cache(cache)
     
+    # Load custom sector weights if available
+    custom_sectors = {}
+    sector_path = Path("data/custom_sectors.json")
+    if sector_path.exists():
+        try:
+            import json
+            with open(sector_path, "r") as f:
+                custom_sectors = json.load(f)
+        except: pass
+
     logger.info("Building results dataframe...")
-    df, periods = build_results_dataframe(weights_dict, returns, prices, dates, cache, mutual_fund_tickers)
+    df, periods = build_results_dataframe(weights_dict, returns, prices, dates, cache, mutual_fund_tickers, custom_sectors)
     
     result_items = []
     
@@ -207,11 +223,15 @@ def run_portfolio_analysis(weights_dict, nav_dict, dates, mutual_fund_tickers=No
         
         for _, row in df.iterrows():
             ticker = row['Ticker']
+            t_upper = ticker.upper().strip()
             
             # Extract values for this specific period
             weight = row.get(f'Weight_{i}', 0.0)
             ret = row.get(f'Return_{i}', 0.0)
             contrib = row.get(f'Contrib_{i}', 0.0)
+            
+            # Determine if we have custom sector weights
+            ticker_custom_sectors = custom_sectors.get(ticker)
             
             item = PortfolioItem(
                 ticker=ticker,
@@ -221,8 +241,11 @@ def run_portfolio_analysis(weights_dict, nav_dict, dates, mutual_fund_tickers=No
                 contribution=float(contrib),
                 # Optional fields
                 companyName=None,
-                sector=None, 
-                notes=None
+                sector='Mixed' if ticker_custom_sectors else None, 
+                notes=None,
+                isMutualFund=t_upper in mutual_fund_tickers,
+                isEtf=t_upper in etf_tickers,
+                sectorWeights=ticker_custom_sectors
             )
             result_items.append(item)
             
@@ -847,6 +870,141 @@ async def load_portfolio_config():
             return json.load(f)
     except Exception as e:
         logger.error(f"Error loading portfolio config: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/save-sector-weights")
+async def save_sector_weights(request: dict):
+    """Save custom sector weight breakdowns (e.g. for ETFs/MFs)"""
+    import json
+    try:
+        weights = request.get("weights", {})
+        path = Path("data/custom_sectors.json")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "w") as f:
+            json.dump(weights, f)
+        return {"success": True}
+    except Exception as e:
+        logger.error(f"Error saving sector weights: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/load-sector-weights")
+async def load_sector_weights():
+    import json
+    try:
+        path = Path("data/custom_sectors.json")
+        if not path.exists():
+            return {}
+        with open(path, "r") as f:
+            return json.load(f)
+    except Exception as e:
+        logger.error(f"Error loading sector weights: {e}")
+        return {}
+
+@app.post("/save-asset-geo")
+async def save_asset_geo(request: dict):
+    """Save custom geographical classifications (e.g. CA, US, INTL)"""
+    import json
+    try:
+        geo = request.get("geo", {})
+        path = Path("data/custom_geography.json")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "w") as f:
+            json.dump(geo, f)
+        return {"success": True}
+    except Exception as e:
+        logger.error(f"Error saving asset geography: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/load-asset-geo")
+async def load_asset_geo():
+    import json
+    try:
+        path = Path("data/custom_geography.json")
+        if not path.exists():
+            return {}
+        with open(path, "r") as f:
+            return json.load(f)
+    except Exception as e:
+        logger.error(f"Error loading asset geography: {e}")
+        return {}
+
+@app.post("/check-nav-lag")
+async def check_nav_lag(request: dict):
+    """
+    Compare last NAV date on file with last yfinance date for a set of tickers.
+    If NAV date is behind yfinance (usually > 1-2 days lag), flag it.
+    """
+    import yfinance as yf
+    import datetime
+    from pathlib import Path
+    
+    tickers = request.get("tickers", [])
+    if not tickers:
+        return {}
+        
+    results = {}
+    nav_data = get_aggregated_nav_data() # dict[ticker, dict[date, val]]
+    
+    for ticker in tickers:
+        try:
+            # 1. Get last available NAV date
+            ticker_navs = nav_data.get(ticker, {})
+            if not ticker_navs:
+                results[ticker] = {"lagging": True, "reason": "No NAV data found"}
+                continue
+            
+            last_nav_date = max(ticker_navs.keys()).date() if ticker_navs else None
+            
+            # 2. Get last market date from yfinance (using a proxy ticker like SPY or the ticker itself if valid)
+            # Fetching the ticker itself is better to see actual market lag
+            yf_ticker = yf.Ticker(ticker)
+            hist = yf_ticker.history(period="1d")
+            
+            if hist.empty:
+                 # Try a benchmark ticker if the MF ticker itself isn't in yf (common for MFs)
+                 hist = yf.Ticker("SPY").history(period="1d")
+            
+            if hist.empty:
+                results[ticker] = {"lagging": False, "reason": "No market data to compare"}
+                continue
+                
+            last_market_date = hist.index[-1].date()
+            
+            # 3. Compare. If NAV is older than Market, it lags.
+            # Allow 1 day buffer as NAVs are often released late evening
+            is_lagging = last_nav_date < last_market_date
+            
+            results[ticker] = {
+                "lagging": is_lagging,
+                "last_nav": last_nav_date.strftime("%Y-%m-%d") if last_nav_date else None,
+                "last_market": last_market_date.strftime("%Y-%m-%d"),
+                "days_diff": (last_market_date - last_nav_date).days if last_nav_date else 999
+            }
+        except Exception as e:
+            logger.warning(f"Error checking lag for {ticker}: {e}")
+            results[ticker] = {"lagging": False, "error": str(e)}
+            
+    return results
+
+@app.post("/upload-nav/{ticker}")
+async def upload_nav(ticker: str, file: UploadFile = File(...)):
+    """Upload a CSV NAV file for a specific mutual fund ticker."""
+    try:
+        ticker = ticker.upper()
+        # Create directory if not exists
+        path = Path("data/historic_navs")
+        path.mkdir(parents=True, exist_ok=True)
+        
+        file_path = path / f"{ticker}.csv"
+        
+        # Save the file
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+            
+        logger.info(f"Successfully uploaded NAV CSV for {ticker}")
+        return {"success": True, "ticker": ticker}
+    except Exception as e:
+        logger.error(f"Error uploading NAV for {ticker}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":

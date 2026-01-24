@@ -8,7 +8,7 @@ import { AttributionView } from './views/AttributionView';
 import { IndexView } from './views/IndexView';
 import { PerformanceView } from './views/PerformanceView';
 import { PortfolioItem, ViewState } from './types';
-import { loadPortfolioConfig, analyzeManualPortfolio, convertConfigToItems } from './services/api';
+import { loadPortfolioConfig, analyzeManualPortfolio, convertConfigToItems, loadSectorWeights, loadAssetGeo } from './services/api';
 
 class GlobalErrorBoundary extends Component<{ children: React.ReactNode }, { hasError: boolean, error: Error | null, errorInfo: ErrorInfo | null }> {
   constructor(props: any) {
@@ -73,10 +73,51 @@ function App() {
   // Shared state for year selection
   const [selectedYear, setSelectedYear] = useState<2025 | 2026>(2026);
 
+  // Asset Completion & Persistence State
+  const [customSectors, setCustomSectors] = useState<Record<string, Record<string, number>>>({});
+  const [assetGeo, setAssetGeo] = useState<Record<string, string>>({});
+  const [lagStatus, setLagStatus] = useState<Record<string, any>>({});
+
+  // Logic to determine if all active ETFs/MFs have sector data and no lags
+  const getIsAssetSpecsComplete = () => {
+    if (portfolioData.length === 0) return true; // No data = nothing to complete
+
+    // Identify active ETFs/MFs (non-zero weight in latest period)
+    const activeTickers = Array.from(new Set(portfolioData.filter(i => i.isEtf || i.isMutualFund).map(i => i.ticker)))
+      .filter(ticker => {
+        const tickerData = portfolioData.filter(d => d.ticker === ticker);
+        const latestRecord = tickerData.reduce((prev, curr) => (curr.date > prev.date) ? curr : prev);
+        return latestRecord.weight > 0;
+      });
+
+    if (activeTickers.length === 0) return true;
+
+    // Must have sector data for all
+    const allSectorsDone = activeTickers.every(t => !!customSectors[t]);
+
+    // Must have no lagging NAVs for MFs
+    const anyLagging = activeTickers.some(t => {
+      const item = portfolioData.find(i => i.ticker === t);
+      return item?.isMutualFund && lagStatus[t]?.lagging;
+    });
+
+    return allSectorsDone && !anyLagging;
+  };
+
+  const isAssetSpecsComplete = getIsAssetSpecsComplete();
+
   // Auto-load persisted manual configuration on reach
   useEffect(() => {
     const autoLoad = async () => {
       try {
+        // Load custom sectors first so they are available for the analysis
+        const [sectors, geo] = await Promise.all([
+          loadSectorWeights(),
+          loadAssetGeo(),
+        ]);
+        setCustomSectors(sectors);
+        setAssetGeo(geo);
+
         const config = await loadPortfolioConfig();
         if (config.tickers && config.tickers.length > 0 && config.periods && config.periods.length > 0) {
           // Convert the grid state into a flat list of items per the backend requirement
@@ -84,12 +125,18 @@ function App() {
 
           if (flatItems.length > 0) {
             console.log("Auto-loading saved portfolio...");
-            const results = await analyzeManualPortfolio(flatItems);
-            handleDataLoaded(results, { name: "Manual Entry", count: results.length });
+            try {
+              const results = await analyzeManualPortfolio(flatItems);
+              handleDataLoaded(results, { name: "Manual Entry", count: results.length });
+            } catch (analysisErr) {
+              console.error("Backend analysis failed during auto-load, falling back to basic data:", analysisErr);
+              // Fallback: Create basic items so the UI can still show the management list
+              handleDataLoaded(flatItems, { name: "Manual Entry (Basic)", count: flatItems.length });
+            }
           }
         }
       } catch (err) {
-        console.error("Auto-load failed:", err);
+        console.error("Auto-load failed totally:", err);
       }
     };
 
@@ -123,6 +170,12 @@ function App() {
             currentData={portfolioData}
             selectedYear={selectedYear}
             setSelectedYear={setSelectedYear}
+            customSectors={customSectors}
+            setCustomSectors={setCustomSectors}
+            assetGeo={assetGeo}
+            setAssetGeo={setAssetGeo}
+            lagStatus={lagStatus}
+            setLagStatus={setLagStatus}
           />
         );
       case ViewState.DASHBOARD:
@@ -153,6 +206,12 @@ function App() {
             currentData={portfolioData}
             selectedYear={selectedYear}
             setSelectedYear={setSelectedYear}
+            customSectors={customSectors}
+            setCustomSectors={setCustomSectors}
+            assetGeo={assetGeo}
+            setAssetGeo={setAssetGeo}
+            lagStatus={lagStatus}
+            setLagStatus={setLagStatus}
           />
         );
     }
@@ -165,6 +224,7 @@ function App() {
           currentView={currentView}
           setView={setCurrentView}
           hasData={portfolioData.length > 0}
+          isAssetSpecsComplete={isAssetSpecsComplete}
         />
 
         <main className="flex-1 overflow-y-auto max-h-screen relative">

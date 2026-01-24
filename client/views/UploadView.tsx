@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
-import { AlertCircle, ArrowRight, Trash2, Database, Edit, FileSpreadsheet } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { AlertCircle, ArrowRight, Trash2, Database, Edit, FileSpreadsheet, CheckCircle2, AlertTriangle, Upload, PieChart, RefreshCw, Layers, ChevronDown, ChevronUp } from 'lucide-react';
 import { PortfolioItem } from '../types';
-import { analyzeManualPortfolio } from '../services/api';
+import { analyzeManualPortfolio, checkNavLag, loadSectorWeights, saveSectorWeights, uploadNav, saveAssetGeo } from '../services/api';
 import { ManualEntryModal } from '../components/ManualEntryModal';
+import { SectorWeightsModal } from '../components/SectorWeightsModal';
 
 interface UploadViewProps {
   onDataLoaded: (data: PortfolioItem[], fileInfo?: { name: string, count: number }, files?: { weightsFile: File | null, navFile: File | null }) => void;
@@ -11,120 +12,299 @@ interface UploadViewProps {
   fileHistory?: { name: string, count: number }[];
   selectedYear: 2025 | 2026;
   setSelectedYear: (year: 2025 | 2026) => void;
+  customSectors: Record<string, Record<string, number>>;
+  setCustomSectors: React.Dispatch<React.SetStateAction<Record<string, Record<string, number>>>>;
+  assetGeo: Record<string, string>;
+  setAssetGeo: React.Dispatch<React.SetStateAction<Record<string, string>>>;
+  lagStatus: Record<string, any>;
+  setLagStatus: React.Dispatch<React.SetStateAction<Record<string, any>>>;
 }
 
-export const UploadView: React.FC<UploadViewProps> = ({ onDataLoaded, onProceed, currentData, selectedYear, setSelectedYear }) => {
+export const UploadView: React.FC<UploadViewProps> = ({
+  onDataLoaded, onProceed, currentData, selectedYear, setSelectedYear,
+  customSectors, setCustomSectors, assetGeo, setAssetGeo, lagStatus, setLagStatus
+}) => {
   const [error, setError] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [isCheckingLag, setIsCheckingLag] = useState(false);
+
+
+  // UI State
+  const [isAssetSectionOpen, setIsAssetSectionOpen] = useState(true); // Default to open if data exists
 
   // Manual Entry State
   const [isManualModalOpen, setIsManualModalOpen] = useState(false);
+  const [isSectorModalOpen, setIsSectorModalOpen] = useState(false);
+  const [selectedTickerForSector, setSelectedTickerForSector] = useState<string>('');
+
+  const runLagCheck = async (items: PortfolioItem[]) => {
+    const mfTickers = Array.from(new Set(items.filter(i => i.isMutualFund).map(i => i.ticker)));
+    if (mfTickers.length > 0) {
+      setIsCheckingLag(true);
+      try {
+        const lagResults = await checkNavLag(mfTickers);
+        setLagStatus(lagResults);
+      } catch (err) {
+        console.error("Lag check failed", err);
+      } finally {
+        setIsCheckingLag(false);
+      }
+    }
+  };
 
   const handleManualSubmit = async (items: PortfolioItem[]) => {
     setIsAnalyzing(true);
     setError(null);
     try {
       const results = await analyzeManualPortfolio(items);
-      // Replace entirely - only most recent manual entry populates the app
       onDataLoaded(results, { name: "Manual Entry", count: results.length });
+      await runLagCheck(results);
+      setIsAssetSectionOpen(true); // Open section automatically after entry
     } catch (err: any) {
-      console.error(err);
-      setError(err.message || "Manual analysis failed.");
+      console.error("Manual analysis failed, falling back to basic data:", err);
+      // Fallback: Still load the basic data so the user can see and fix the error
+      onDataLoaded(items, { name: "Manual Entry (Basic)", count: items.length });
+      setIsAssetSectionOpen(true);
+      setError("Analysis failed: " + (err.message || "Unknown error") + ". Showing basic list for correction.");
     } finally {
       setIsAnalyzing(false);
     }
   };
 
+  const handleNavUpload = async (ticker: string, file: File) => {
+    try {
+      setError(null);
+      await uploadNav(ticker, file);
+      await runLagCheck(currentData);
+    } catch (err: any) {
+      setError(`Upload failed for ${ticker}: ${err.message}`);
+    }
+  };
 
+  const handleSaveSectorWeights = async (ticker: string, weights: Record<string, number>) => {
+    // Calculate new state immediately
+    const updated = { ...customSectors, [ticker]: weights };
 
+    // Update local/lifted state
+    setCustomSectors(updated);
 
+    // Persist to backend
+    try {
+      await saveSectorWeights(updated);
+    } catch (err) {
+      console.error("Failed to persist sector weights to backend:", err);
+      setError("Warning: Changes saved in browser but failed to persist to server.");
+    }
+  };
+
+  const handleSaveAssetGeo = async (ticker: string, geo: string) => {
+    const updated = { ...assetGeo, [ticker]: geo };
+    setAssetGeo(updated);
+    try {
+      await saveAssetGeo(updated);
+    } catch (err: any) {
+      console.error("Failed to persist asset geography", err);
+      setError(`Warning: Failed to save geography for ${ticker}.`);
+    }
+  };
+
+  const activeTickersData = Array.from(new Set(currentData.filter(i => i.isEtf || i.isMutualFund).map(i => i.ticker)))
+    .filter(ticker => {
+      const tickerData = currentData.filter(d => d.ticker === ticker);
+      if (tickerData.length === 0) return false;
+      const latestRecord = tickerData.reduce((prev, curr) => (curr.date > prev.date) ? curr : prev);
+      return latestRecord.weight > 0;
+    })
+    .map(ticker => {
+      const item = currentData.find(i => i.ticker === ticker);
+      return {
+        ticker,
+        isEtf: item?.isEtf,
+        isMutualFund: item?.isMutualFund,
+        isComplete: !!customSectors[ticker],
+        geo: assetGeo[ticker] || ''
+      };
+    });
+
+  const activeEtfs = activeTickersData.filter(a => a.isEtf);
+  const activeMfs = activeTickersData.filter(a => a.isMutualFund);
+
+  const totalCompletedSectors = activeTickersData.filter(a => a.isComplete).length;
+  const totalAssets = activeTickersData.length;
+  const anyLagging = Object.values(lagStatus).some(s => s.lagging);
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center p-8 relative overflow-hidden">
+    <div className="min-h-screen flex flex-col items-center justify-start pt-8 p-8 relative overflow-hidden">
       {/* Gradient background */}
       <div className="absolute inset-0 bg-gradient-to-br from-slate-50 via-blue-50/30 to-indigo-50/40 -z-10" />
-      <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-gradient-to-bl from-blue-100/40 to-transparent rounded-full blur-3xl -z-10" />
-      <div className="absolute bottom-0 left-0 w-[400px] h-[400px] bg-gradient-to-tr from-indigo-100/30 to-transparent rounded-full blur-3xl -z-10" />
 
-      <div className="max-w-xl w-full">
-        {/* Hero Section */}
-        <div className="text-center mb-10">
-          <div className="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-br from-wallstreet-accent to-blue-600 rounded-2xl shadow-lg shadow-blue-200/50 mb-6">
-            <Database size={28} className="text-white" />
-          </div>
-          <h1 className="text-4xl font-bold text-wallstreet-text tracking-tight mb-3">
-            Portfolio Deep Dive
-          </h1>
-          <p className="text-wallstreet-500 text-lg">
-            Configure and analyze your investment portfolio
-          </p>
+      <div className="max-w-[1400px] w-full space-y-6 mx-auto">
 
-        </div>
-
-        {/* Manual Entry Card - Glassmorphism */}
-        <div className="bg-white/70 backdrop-blur-xl rounded-2xl border border-white/80 shadow-xl shadow-slate-200/50 p-8 mb-8 hover:shadow-2xl hover:shadow-slate-300/50 transition-all duration-300">
-          <div className="flex items-center gap-4 mb-6">
-            <div className="w-12 h-12 bg-gradient-to-br from-slate-800 to-slate-900 rounded-xl flex items-center justify-center shadow-lg">
-              <Edit size={22} className="text-white" />
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-stretch">
+          {/* Left Column: Weights & Periods */}
+          <div className="bg-white/70 backdrop-blur-xl rounded-2xl border border-white shadow-lg p-5 hover:shadow-xl transition-all flex flex-col">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center shadow-lg">
+                <Edit size={20} className="text-white" />
+              </div>
+              <div>
+                <h3 className="text-lg font-black text-slate-800 uppercase tracking-tight">1. Weights & Periods</h3>
+                <p className="text-xs text-slate-500 font-bold">REBALANCING HISTORY</p>
+              </div>
             </div>
-            <div>
-              <h3 className="text-xl font-bold text-wallstreet-text">Manual Entry</h3>
-              <p className="text-sm text-wallstreet-400">Type in weights & allocation periods</p>
+
+            <div className="flex-1 flex flex-col items-center justify-center">
+              <button
+                onClick={() => setIsManualModalOpen(true)}
+                className="w-full max-w-[200px] py-3 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 transition-all flex items-center justify-center gap-2 shadow-lg shadow-blue-100"
+              >
+                <Edit size={18} /> Open Editor
+              </button>
             </div>
           </div>
 
-          <p className="text-sm text-wallstreet-500 mb-6 leading-relaxed">
-            Configure tickers, weights, and rebalancing dates using the spreadsheet-style editor.
-          </p>
+          {/* Right Column: Centered Summary Status Card */}
+          <div className="bg-white/70 backdrop-blur-xl rounded-2xl border border-white shadow-lg p-5 hover:shadow-xl transition-all flex flex-col items-center justify-center text-center">
+            <div className="flex flex-col items-center mb-3">
+              <div className="w-12 h-12 bg-gradient-to-br from-purple-600 to-indigo-600 rounded-2xl flex items-center justify-center shadow-xl mb-2">
+                <Layers size={22} className="text-white" />
+              </div>
+              <h3 className="text-lg font-black text-slate-800 uppercase tracking-tight">2. Asset Completion</h3>
+              <p className="text-xs text-slate-500 font-bold">SECTORS & PRICING</p>
+            </div>
 
-          <button
-            onClick={() => setIsManualModalOpen(true)}
-            className="w-full py-3.5 bg-gradient-to-r from-wallstreet-accent to-blue-600 text-white font-bold rounded-xl hover:from-blue-700 hover:to-blue-800 transition-all duration-200 flex items-center justify-center gap-2 shadow-lg shadow-blue-200/50 hover:shadow-blue-300/60 hover:-translate-y-0.5"
-          >
-            <Edit size={18} /> Open Editor
-          </button>
+            <div className="w-full space-y-3">
+              {totalAssets > 0 ? (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="p-5 bg-white rounded-2xl border border-slate-100 flex flex-col items-center justify-center shadow-sm hover:shadow-md transition-shadow">
+                    <p className="text-xs text-slate-400 uppercase font-black tracking-widest mb-2">Sector Weights</p>
+                    <div className="flex items-center gap-2">
+                      <span className={`text-3xl font-black ${totalCompletedSectors === totalAssets ? 'text-green-600' : 'text-slate-800'}`}>
+                        {totalCompletedSectors}<span className="text-slate-300 mx-1">/</span>{totalAssets}
+                      </span>
+                    </div>
+                    {totalCompletedSectors === totalAssets ?
+                      <div className="mt-2 flex items-center gap-1 text-green-600 font-bold text-xs bg-green-50 px-2.5 py-1 rounded-full uppercase">
+                        <CheckCircle2 size={12} /> Complete
+                      </div> :
+                      <div className="mt-2 flex items-center gap-1 text-amber-600 font-bold text-xs bg-amber-50 px-2.5 py-1 rounded-full uppercase">
+                        <AlertTriangle size={12} /> Missing Data
+                      </div>
+                    }
+                  </div>
+
+                  <div className="p-5 bg-white rounded-2xl border border-slate-100 flex flex-col items-center justify-center shadow-sm hover:shadow-md transition-shadow">
+                    <p className="text-xs text-slate-400 uppercase font-black tracking-widest mb-2">Data Recency</p>
+                    <div className="flex items-center gap-2">
+                      <span className={`text-2xl font-black ${anyLagging ? 'text-amber-600' : 'text-green-600'}`}>
+                        {anyLagging ? 'Alert' : 'Optimal'}
+                      </span>
+                    </div>
+                    {anyLagging ?
+                      <div className="mt-2 flex items-center gap-1 text-amber-600 font-bold text-xs bg-amber-50 px-2.5 py-1 rounded-full uppercase">
+                        <RefreshCw size={12} className="animate-spin-slow" /> Lagging
+                      </div> :
+                      <div className="mt-2 flex items-center gap-1 text-green-600 font-bold text-xs bg-green-50 px-2.5 py-1 rounded-full uppercase">
+                        <CheckCircle2 size={12} /> Current
+                      </div>
+                    }
+                  </div>
+                </div>
+              ) : (
+                <div className="flex flex-col items-center justify-center h-full text-center py-12">
+                  <PieChart size={48} className="text-slate-200 mb-4" />
+                  <p className="text-slate-400 font-medium max-w-[240px]">Tickers with 'ETF' or 'MF' checked in step 1 will prompt for details here.</p>
+                </div>
+              )}
+            </div>
+
+            {totalAssets > 0 && (
+              <button
+                onClick={() => setIsAssetSectionOpen(!isAssetSectionOpen)}
+                className={`mt-6 w-full py-4 rounded-xl font-bold flex items-center justify-center gap-2 transition-all ${isAssetSectionOpen
+                  ? 'bg-purple-50 text-purple-700 border border-purple-200 shadow-inner'
+                  : 'bg-purple-600 text-white shadow-lg shadow-purple-200 hover:bg-purple-700'
+                  }`}
+              >
+                {isAssetSectionOpen ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+                {isAssetSectionOpen ? 'Hide Asset Details Section' : 'Manage Sector Weights and NAVs'}
+              </button>
+            )}
+          </div>
         </div>
 
-        {/* Error display */}
-        {error && (
-          <div className="mb-6 p-4 bg-red-50/80 backdrop-blur border border-red-200 rounded-xl text-red-600 text-sm flex items-start gap-3">
-            <AlertCircle size={18} className="mt-0.5 flex-shrink-0" />
-            <div>
-              <p className="font-bold">Error</p>
-              <p>{error}</p>
+        {/* --- NEW SECTION: Asset Details Expansion --- */}
+        {totalAssets > 0 && isAssetSectionOpen && (
+          <div className="bg-white/80 backdrop-blur-2xl rounded-2xl border border-white shadow-xl overflow-hidden animate-in slide-in-from-top-4 duration-500">
+            <div className="bg-gradient-to-r from-[#9033e7] to-[#2563eb] p-4 flex items-center justify-between text-white">
+              <div className="flex items-center gap-3">
+                <h2 className="text-lg font-black uppercase tracking-tighter">Manage Asset Specifications</h2>
+              </div>
+              <div className="flex gap-2">
+                <span className="bg-white/20 px-2.5 py-1 rounded text-xs font-bold border border-white/30">{activeEtfs.length} ETFs</span>
+                <span className="bg-white/20 px-2.5 py-1 rounded text-xs font-bold border border-white/30">{activeMfs.length} MFs</span>
+              </div>
+            </div>
+
+            <div className="p-5 grid grid-cols-1 md:grid-cols-2 gap-8">
+              {/* Mutual Funds Section */}
+              <div className={activeMfs.length === 0 ? 'opacity-20' : ''}>
+                <div className="flex items-center gap-2 mb-3 border-b border-slate-100 pb-1">
+                  <Database size={16} className="text-purple-600" />
+                  <h3 className="text-sm font-black text-slate-800 uppercase tracking-widest">Mutual Funds</h3>
+                </div>
+                <div className="space-y-3">
+                  {activeMfs.length > 0 ? activeMfs.map(asset => (
+                    <AssetCard
+                      key={asset.ticker}
+                      asset={asset}
+                      lagStatus={lagStatus}
+                      onEditSector={() => { setSelectedTickerForSector(asset.ticker); setIsSectorModalOpen(true); }}
+                      onAssetGeoChange={(geo) => handleSaveAssetGeo(asset.ticker, geo)}
+                      onUploadNav={handleNavUpload}
+                    />
+                  )) : (
+                    <div className="h-full flex flex-col items-center justify-center py-12 border-2 border-dashed border-slate-100 rounded-2xl">
+                      <p className="text-slate-300 text-sm font-bold uppercase tracking-widest">No MFs Active</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* ETFs Section */}
+              <div className={activeEtfs.length === 0 ? 'opacity-20' : ''}>
+                <div className="flex items-center gap-2 mb-3 border-b border-slate-100 pb-1">
+                  <Layers size={16} className="text-blue-600" />
+                  <h3 className="text-sm font-black text-slate-800 uppercase tracking-widest">ETFs</h3>
+                </div>
+                <div className="space-y-3">
+                  {activeEtfs.length > 0 ? activeEtfs.map(asset => (
+                    <AssetCard
+                      key={asset.ticker}
+                      asset={asset}
+                      lagStatus={lagStatus}
+                      onEditSector={() => { setSelectedTickerForSector(asset.ticker); setIsSectorModalOpen(true); }}
+                      onAssetGeoChange={(geo) => handleSaveAssetGeo(asset.ticker, geo)}
+                      onUploadNav={handleNavUpload}
+                    />
+                  )) : (
+                    <div className="h-full flex flex-col items-center justify-center py-12 border-2 border-dashed border-slate-100 rounded-2xl">
+                      <p className="text-slate-300 text-sm font-bold uppercase tracking-widest">No ETFs Active</p>
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
           </div>
         )}
 
-        {/* Success Panel */}
-        {currentData.length > 0 && (
-          <div className="bg-gradient-to-br from-emerald-50 to-green-50/80 backdrop-blur rounded-2xl border border-green-200 shadow-lg p-6 animate-in fade-in slide-in-from-bottom-4 duration-300">
-            <div className="flex items-center justify-between">
-              <div className="flex items-start gap-4">
-                <div className="w-12 h-12 bg-gradient-to-br from-green-500 to-emerald-600 rounded-xl flex items-center justify-center shadow-lg shadow-green-200">
-                  <Database size={22} className="text-white" />
-                </div>
-                <div>
-                  <h3 className="text-lg font-bold text-green-800">Ready to Analyze</h3>
-                  <p className="text-sm text-green-600 font-medium">{currentData.length} records loaded</p>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-3">
-                <button
-                  onClick={() => onDataLoaded([])}
-                  className="p-2.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                  title="Clear Data"
-                >
-                  <Trash2 size={18} />
-                </button>
-                <button
-                  onClick={onProceed}
-                  className="px-6 py-3 bg-gradient-to-r from-green-600 to-emerald-600 text-white font-bold rounded-xl hover:from-green-700 hover:to-emerald-700 transition-all duration-200 flex items-center gap-2 shadow-lg shadow-green-200/50 hover:shadow-green-300/60 hover:-translate-y-0.5"
-                >
-                  Proceed <ArrowRight size={18} />
-                </button>
-              </div>
+        {/* Error display */}
+        {error && (
+          <div className="mt-4 p-4 bg-red-50/80 backdrop-blur border border-red-200 rounded-xl text-red-600 text-sm flex items-start gap-3 animate-in fade-in slide-in-from-top-4">
+            <AlertCircle size={18} className="mt-0.5 flex-shrink-0" />
+            <div>
+              <p className="font-bold">Error</p>
+              <p>{error}</p>
             </div>
           </div>
         )}
@@ -139,7 +319,129 @@ export const UploadView: React.FC<UploadViewProps> = ({ onDataLoaded, onProceed,
         selectedYear={selectedYear}
         setSelectedYear={setSelectedYear}
       />
+
+      {/* Sector Weights Modal */}
+      <SectorWeightsModal
+        isOpen={isSectorModalOpen}
+        onClose={() => setIsSectorModalOpen(false)}
+        ticker={selectedTickerForSector}
+        initialWeights={customSectors[selectedTickerForSector]}
+        onSave={handleSaveSectorWeights}
+      />
     </div>
   );
 };
 
+// --- Sub-Components ---
+
+interface AssetCardProps {
+  asset: any;
+  lagStatus: Record<string, any>;
+  onEditSector: () => void;
+  onAssetGeoChange: (geo: string) => void;
+  onUploadNav: (ticker: string, file: File) => void;
+}
+
+const AssetCard: React.FC<AssetCardProps> = ({ asset, lagStatus, onEditSector, onAssetGeoChange, onUploadNav }) => {
+  const status = lagStatus[asset.ticker];
+  const isLagging = status?.lagging;
+
+  const geoTypes = ['CA', 'US', 'INTL'];
+
+  return (
+    <div className="bg-slate-50/50 rounded-2xl border border-slate-100 p-4 flex flex-col gap-3 hover:border-purple-300 hover:bg-white transition-all group shadow-sm hover:shadow-md">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className={`w-9 h-9 rounded-xl flex items-center justify-center shadow-sm ${asset.isEtf ? 'bg-blue-600 text-white' : 'bg-purple-600 text-white'}`}>
+            {asset.isEtf ? <Layers size={16} /> : <Database size={16} />}
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <h4 className="text-base font-bold text-slate-800">{asset.ticker}</h4>
+              <span className={`text-xs font-bold px-2 py-0.5 rounded-full uppercase tracking-tighter ${asset.isEtf ? 'bg-blue-100 text-blue-700 border border-blue-200' : 'bg-purple-100 text-purple-700 border border-purple-200'}`}>
+                {asset.isEtf ? 'ETF' : 'Mutual Fund'}
+              </span>
+            </div>
+            <div className="flex items-center gap-3 mt-1">
+              <div className="flex items-center gap-1">
+                {asset.isComplete ? <CheckCircle2 size={12} className="text-green-500" /> : <AlertTriangle size={12} className="text-amber-500" />}
+                <span className="text-xs font-medium text-slate-500">{asset.isComplete ? 'Sectors Defined' : 'Sectors Missing'}</span>
+              </div>
+              {asset.isMutualFund && (
+                <div className="flex items-center gap-1">
+                  {isLagging ? <AlertTriangle size={12} className="text-amber-500" /> : <CheckCircle2 size={12} className="text-green-500" />}
+                  <span className="text-xs font-medium text-slate-500">{isLagging ? 'Lagging' : 'Optimal'}</span>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-4">
+          <div className="flex items-center bg-slate-100/50 rounded-lg p-1 border border-slate-200">
+            {geoTypes.map(g => (
+              <button
+                key={g}
+                onClick={() => onAssetGeoChange(g)}
+                className={`px-3 py-1 rounded-md text-[10px] font-black transition-all ${asset.geo === g
+                  ? 'bg-white text-slate-800 shadow-sm border border-slate-200'
+                  : 'text-slate-400 hover:text-slate-600'
+                  }`}
+              >
+                {g}
+              </button>
+            ))}
+          </div>
+
+          <button
+            onClick={onEditSector}
+            className={`px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 transition-all shadow-lg hover:-translate-y-0.5 ${asset.isEtf
+              ? 'bg-[#2563eb] text-white shadow-blue-100 hover:bg-[#1d4ed8]'
+              : 'bg-purple-600 text-white shadow-purple-100 hover:bg-purple-700'
+              }`}
+          >
+            <PieChart size={16} /> {asset.isComplete ? 'Configure Sectors' : 'Configure Sectors'}
+          </button>
+        </div>
+      </div>
+
+      {asset.isMutualFund && (
+        <div className={`p-3 rounded-xl border flex items-center justify-between gap-4 transition-all ${isLagging ? 'bg-amber-50 border-amber-200 shadow-sm' : 'bg-green-50/40 border-green-200 opacity-60'}`}>
+          <div className="flex gap-2">
+            <div className={`w-7 h-7 rounded-lg flex items-center justify-center ${isLagging ? 'bg-amber-200 text-amber-700' : 'bg-green-200 text-green-700'}`}>
+              <RefreshCw size={12} className={isLagging ? 'animate-pulse' : ''} />
+            </div>
+            <div>
+              <p className={`text-xs font-bold leading-tight ${isLagging ? 'text-amber-800' : 'text-green-800'}`}>
+                {isLagging ? 'Update Required' : 'NAV is Current'}
+              </p>
+              {status && (
+                <p className="text-[11px] text-slate-500 mt-1">
+                  Last: <span className="font-mono font-bold text-slate-700">{status.last_nav || 'N/A'}</span>
+                  <span className="mx-1 text-slate-300">|</span>
+                  Mkt: <span className="font-mono font-bold text-slate-700">{status.last_market}</span>
+                </p>
+              )}
+            </div>
+          </div>
+
+          <label className={`cursor-pointer group/upload px-3 py-2 rounded-lg border shadow-sm transition-all flex items-center gap-1.5 ${isLagging ? 'bg-white border-amber-300 text-amber-700 hover:bg-amber-100' : 'bg-white border-slate-200 text-slate-400 hover:bg-slate-50'}`}>
+            <Upload size={14} className="group-hover/upload:-translate-y-0.5 transition-transform" />
+            <span className="text-xs font-bold uppercase tracking-tighter">Upload CSV</span>
+            <input
+              type="file"
+              className="hidden"
+              accept=".csv"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) onUploadNav(asset.ticker, file);
+              }}
+            />
+          </label>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default UploadView;

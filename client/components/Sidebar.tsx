@@ -5,14 +5,18 @@ interface SidebarProps {
   currentView: ViewState;
   setView: (view: ViewState) => void;
   hasData: boolean;
+  isAssetSpecsComplete: boolean;
 }
 
-export const Sidebar: React.FC<SidebarProps> = ({ currentView, setView, hasData }) => {
+export const Sidebar: React.FC<SidebarProps> = ({ currentView, setView, hasData, isAssetSpecsComplete }) => {
   const navItemClass = (view: ViewState, disabled: boolean) => `
     flex items-center gap-3 px-4 py-3 rounded-lg transition-all duration-200
-    ${disabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer hover:bg-wallstreet-700 hover:text-wallstreet-text'}
+    ${disabled ? 'opacity-30 cursor-not-allowed grayscale pointer-events-none' : 'cursor-pointer hover:bg-wallstreet-700 hover:text-wallstreet-text'}
     ${currentView === view ? 'bg-wallstreet-700 text-wallstreet-accent border-l-4 border-wallstreet-accent' : 'text-wallstreet-500'}
   `;
+
+  // Determine if non-upload tabs should be locked
+  const isLocked = !isAssetSpecsComplete;
 
   return (
     <div className="w-64 h-screen bg-wallstreet-900 border-r border-wallstreet-700 flex flex-col sticky top-0 shadow-sm print-hide">
@@ -29,27 +33,27 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, setView, hasData 
           <span className="font-medium">Data Import</span>
         </div>
 
-        <div onClick={() => hasData && setView(ViewState.DASHBOARD)} className={navItemClass(ViewState.DASHBOARD, !hasData)}>
+        <div onClick={() => hasData && !isLocked && setView(ViewState.DASHBOARD)} className={navItemClass(ViewState.DASHBOARD, !hasData || isLocked)}>
           <PieChart size={20} />
           <span className="font-medium">Holdings </span>
         </div>
 
-        <div onClick={() => setView(ViewState.INDEX)} className={navItemClass(ViewState.INDEX, false)}>
+        <div onClick={() => !isLocked && setView(ViewState.INDEX)} className={navItemClass(ViewState.INDEX, isLocked)}>
           <Globe size={20} />
           <span className="font-medium">Index Breakdown</span>
         </div>
 
-        <div onClick={() => hasData && setView(ViewState.ATTRIBUTION)} className={navItemClass(ViewState.ATTRIBUTION, !hasData)}>
+        <div onClick={() => hasData && !isLocked && setView(ViewState.ATTRIBUTION)} className={navItemClass(ViewState.ATTRIBUTION, !hasData || isLocked)}>
           <BarChart2 size={20} />
           <span className="font-medium">Attribution</span>
         </div>
 
-        <div onClick={() => hasData && setView(ViewState.PERFORMANCE)} className={navItemClass(ViewState.PERFORMANCE, !hasData)}>
+        <div onClick={() => hasData && !isLocked && setView(ViewState.PERFORMANCE)} className={navItemClass(ViewState.PERFORMANCE, !hasData || isLocked)}>
           <TrendingUp size={20} />
           <span className="font-medium">Performance</span>
         </div>
 
-        <div onClick={() => hasData && setView(ViewState.CORRELATION)} className={navItemClass(ViewState.CORRELATION, !hasData)}>
+        <div onClick={() => hasData && !isLocked && setView(ViewState.CORRELATION)} className={navItemClass(ViewState.CORRELATION, !hasData || isLocked)}>
           <Network size={20} />
           <span className="font-medium">Correlation Matrix</span>
         </div>

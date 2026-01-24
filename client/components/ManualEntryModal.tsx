@@ -25,6 +25,7 @@ interface TickerRow {
     ticker: string;
     name?: string; // Optional company name
     isMutualFund?: boolean; // Flag for mutual funds that require CSV NAV data
+    isEtf?: boolean; // Flag for ETFs
 }
 
 const DEFAULT_TICKERS: TickerRow[] = [
@@ -1390,6 +1391,14 @@ export const ManualEntryModal: React.FC<ManualEntryModalProps> = ({ isOpen, onCl
         ));
     };
 
+    const handleToggleEtf = (ticker: string) => {
+        setTickers(tickers.map(t =>
+            t.ticker === ticker
+                ? { ...t, isEtf: !t.isEtf }
+                : t
+        ));
+    };
+
     const handleWeightChange = (periodId: string, ticker: string, val: string) => {
         // Allow dots and numbers
         if (!/^\d*\.?\d*$/.test(val)) return;
@@ -1581,25 +1590,54 @@ export const ManualEntryModal: React.FC<ManualEntryModalProps> = ({ isOpen, onCl
                     <div className="flex items-start p-6 min-w-max relative">
 
                         {/* Ticker Column - Sticky left to stay visible during horizontal scroll */}
-                        <div className="w-56 flex-shrink-0 pt-[120px] bg-white border-r border-gray-100 sticky left-0 z-10">
+                        <div className="w-72 flex-shrink-0 bg-white border-r border-gray-100 sticky left-0 z-10 flex flex-col shadow-[4px_0_24px_-4px_rgba(0,0,0,0.1)] clip-r">
+                            {/* Header matching the 120px height of period headers */}
+                            <div className="h-[120px] px-3 py-4 border-b border-gray-200 bg-slate-50 flex items-end pb-2">
+                                <div className="flex items-center justify-between w-full mr-2">
+                                    <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Ticker</span>
+                                    <div className="flex gap-3">
+                                        <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider w-8 text-center text-purple-600" title="Mutual Fund">MF</span>
+                                        <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider w-8 text-center text-blue-600" title="ETF">ETF</span>
+                                    </div>
+                                </div>
+                            </div>
+
                             {displayTickers.map((t) => (
-                                <div key={t.ticker} className="h-11 flex items-center justify-between group hover:bg-slate-50/50 px-3">
-                                    <div className="flex items-center gap-2">
-                                        <input
-                                            type="checkbox"
-                                            checked={t.isMutualFund || false}
-                                            onChange={() => handleToggleMutualFund(t.ticker)}
-                                            title="Mutual Fund"
-                                            className="w-3 h-3 accent-purple-600 cursor-pointer rounded-sm flex-shrink-0"
-                                        />
-                                        <span className={`text-sm font-semibold ${t.isMutualFund ? 'text-purple-700' : 'text-slate-700'}`}>
-                                            {t.ticker}
-                                            {t.isMutualFund && <span className="ml-1.5 text-[9px] bg-purple-100/80 text-purple-500 px-1 py-0.5 rounded font-medium align-middle">MF</span>}
-                                        </span>
+                                <div key={t.ticker} className="h-11 flex items-center justify-between group hover:bg-slate-50/50 px-3 border-b border-gray-50/50">
+                                    <div className="flex items-center justify-between w-full mr-2">
+                                        <div className="flex items-center gap-2 overflow-hidden">
+                                            <span className={`text-sm font-semibold truncate ${t.isMutualFund ? 'text-purple-700' : t.isEtf ? 'text-blue-700' : 'text-slate-700'}`}>
+                                                {t.ticker}
+                                            </span>
+                                        </div>
+
+                                        <div className="flex items-center gap-3">
+                                            {/* MF Checkbox */}
+                                            <div className="w-8 flex justify-center">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={t.isMutualFund || false}
+                                                    onChange={() => handleToggleMutualFund(t.ticker)}
+                                                    title="Mutual Fund"
+                                                    className="w-4 h-4 accent-purple-600 cursor-pointer rounded-sm"
+                                                />
+                                            </div>
+
+                                            {/* ETF Checkbox */}
+                                            <div className="w-8 flex justify-center">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={t.isEtf || false}
+                                                    onChange={() => handleToggleEtf(t.ticker)}
+                                                    title="ETF"
+                                                    className="w-4 h-4 accent-blue-600 cursor-pointer rounded-sm"
+                                                />
+                                            </div>
+                                        </div>
                                     </div>
                                     <button
                                         onClick={() => handleRemoveTicker(t.ticker)}
-                                        className="opacity-0 group-hover:opacity-100 p-1 text-red-300 hover:text-red-500 rounded transition-all"
+                                        className="opacity-0 group-hover:opacity-100 p-1 text-red-300 hover:text-red-500 rounded transition-all flex-shrink-0"
                                     >
                                         <Trash2 size={14} />
                                     </button>
@@ -1751,7 +1789,7 @@ export const ManualEntryModal: React.FC<ManualEntryModalProps> = ({ isOpen, onCl
                                     onClick={handleSubmit}
                                     className="px-6 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-bold shadow-lg shadow-blue-200 flex items-center gap-2 transition-all transform hover:-translate-y-0.5"
                                 >
-                                    <Save size={18} /> Analyze Portfolio
+                                    <Save size={18} /> Save Configuration
                                 </button>
                             </>
                         )}

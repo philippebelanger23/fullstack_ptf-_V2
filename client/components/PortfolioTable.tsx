@@ -202,7 +202,13 @@ export const PortfolioTable: React.FC<PortfolioTableProps> = ({ currentHoldings,
     }
 
     if (isETFOrMF(item)) {
-      GICS_SECTORS.forEach(s => exposure[s] = 'N/A');
+      if (item.sectorWeights) {
+        GICS_SECTORS.forEach(s => {
+          exposure[s] = item.sectorWeights?.[s] || '';
+        });
+      } else {
+        GICS_SECTORS.forEach(s => exposure[s] = 'N/A');
+      }
       return exposure;
     }
 
