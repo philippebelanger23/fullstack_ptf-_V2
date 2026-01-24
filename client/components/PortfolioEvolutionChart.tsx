@@ -56,7 +56,7 @@ const CustomAreaTooltip = ({ active, payload, label, dates }: any) => {
 
 export const PortfolioEvolutionChart = memo(({ data, topTickers, dates, colors }: Props) => {
     return (
-        <div className="lg:col-span-7 bg-white p-6 rounded-xl border border-wallstreet-700 shadow-sm flex flex-col">
+        <div className="lg:col-span-4 bg-white p-6 rounded-xl border border-wallstreet-700 shadow-sm flex flex-col">
             <div className="mb-4">
                 <h3 className="font-mono font-bold text-wallstreet-text uppercase tracking-wider text-sm flex items-center gap-2"><TrendingUp size={16} className="text-wallstreet-500" /> Portfolio Evolution (Top 10) </h3>
                 <p className="text-xs text-wallstreet-500 mt-1 text-slate-400">Historical absolute weight allocation of the top 10 positions over time</p>

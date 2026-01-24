@@ -4,6 +4,7 @@ import { PortfolioTable } from '../components/PortfolioTable';
 import { KPICard } from '../components/KPICard';
 import { ConcentrationPieChart } from '../components/ConcentrationPieChart';
 import { PortfolioEvolutionChart } from '../components/PortfolioEvolutionChart';
+import { SectorDeviationCard } from '../components/SectorDeviationCard';
 import { Wallet, Layers, PieChart as PieChartIcon, Wallet2Icon, WalletIcon } from 'lucide-react';
 
 interface DashboardViewProps {
@@ -48,7 +49,23 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ data, customSector
       topAtDate.forEach(ticker => globalTopTickersSet.add(ticker));
     });
 
-    const topTickers = Array.from(globalTopTickersSet);
+    const topTickers = Array.from(globalTopTickersSet).sort((a, b) => {
+      // 1. Sort by Current Weight (Descending)
+      // This puts the biggest current holdings at the bottom of the stack
+      const weightA = currentHoldings.find(h => h.ticker === a)?.weight || 0;
+      const weightB = currentHoldings.find(h => h.ticker === b)?.weight || 0;
+
+      // If there's a significant difference in current weight, use that
+      if (Math.abs(weightA - weightB) > 0.001) {
+        return weightB - weightA;
+      }
+
+      // 2. Fallback: Sort by Max Historical Weight (Descending)
+      // Useful for positions that are currently 0 (exited) but were significant
+      const maxA = Math.max(...data.filter(d => d.ticker === a).map(d => d.weight));
+      const maxB = Math.max(...data.filter(d => d.ticker === b).map(d => d.weight));
+      return maxB - maxA;
+    });
 
     return { topHoldings: currentTopHoldings, top10TotalWeight, topTickers };
   }, [currentHoldings, data, dates]);
@@ -85,6 +102,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ data, customSector
 
   const [betaMap, setBetaMap] = React.useState<Record<string, number>>({});
   const [divYieldMap, setDivYieldMap] = React.useState<Record<string, number>>({});
+  const [benchmarkSectors, setBenchmarkSectors] = React.useState<any[]>([]);
 
   // Fetch Sectors and Betas effect
   React.useEffect(() => {
@@ -101,7 +119,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ data, customSector
       if (tickersToFetch.length === 0) return;
 
       try {
-        const { fetchSectors, fetchBetas, fetchDividends, loadSectorWeights, loadAssetGeo } = await import('../services/api');
+        const { fetchSectors, fetchBetas, fetchDividends, loadSectorWeights, loadAssetGeo, fetchIndexExposure } = await import('../services/api');
 
         // Fetch Sectors
         const sectors = await fetchSectors(tickersToFetch);
@@ -134,6 +152,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ data, customSector
           }
         }
 
+        // Fetch Benchmark Data
+        const exposure = await fetchIndexExposure();
+        if (exposure && exposure.sectors) {
+          setBenchmarkSectors(exposure.sectors);
+        }
+
       } catch (error) {
         console.error("Error fetching data:", error);
       }
@@ -151,7 +175,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ data, customSector
       let sector = sectorMap[cleanTicker] || sectorMap[item.ticker] || item.sector;
 
       // Explicitly set sector for Cash
-      if (cleanTicker === '*cash*') {
+      if (cleanTicker.toLowerCase() === '*cash*' || cleanTicker.toUpperCase().includes('CASH')) {
         sector = 'CASH';
       }
 
@@ -296,13 +320,18 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ data, customSector
                 <span className="text-xl font-bold text-wallstreet-text font-mono">
                   {(() => {
                     let weightedBetaSum = 0;
+                    let totalInvestedWeight = 0;
                     enrichedCurrentHoldings.forEach(item => {
-                      const beta = betaMap[item.ticker] || 1.0;
-                      let effectiveBeta = beta;
-                      if (item.sector === 'CASH') effectiveBeta = 0;
-                      weightedBetaSum += (item.weight * effectiveBeta);
+                      // Exclude Cash
+                      if (item.sector === 'CASH') return;
+
+                      const beta = betaMap[item.ticker] !== undefined ? betaMap[item.ticker] : 1.0;
+                      weightedBetaSum += (item.weight * beta);
+                      totalInvestedWeight += item.weight;
                     });
-                    return (weightedBetaSum / 100).toFixed(2);
+
+                    if (totalInvestedWeight === 0) return "0.00";
+                    return (weightedBetaSum / totalInvestedWeight).toFixed(2);
                   })()}
                 </span>
               </div>
@@ -312,11 +341,18 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ data, customSector
                 <span className="text-xl font-bold text-green-600 font-mono">
                   {(() => {
                     let weightedDivSum = 0;
+                    let totalInvestedWeight = 0;
                     enrichedCurrentHoldings.forEach(item => {
+                      // Exclude Cash
+                      if (item.sector === 'CASH') return;
+
                       const divYield = divYieldMap[item.ticker] || 0;
                       weightedDivSum += (item.weight * divYield);
+                      totalInvestedWeight += item.weight;
                     });
-                    return (weightedDivSum / 100).toFixed(2) + '%';
+
+                    if (totalInvestedWeight === 0) return "0.00%";
+                    return (weightedDivSum / totalInvestedWeight).toFixed(2) + '%';
                   })()}
                 </span>
               </div>
@@ -330,6 +366,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ data, customSector
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 min-h-[450px] mb-8">
         <ConcentrationPieChart data={topHoldings} colors={COLORS} />
         <PortfolioEvolutionChart data={areaChartData} topTickers={topTickers} dates={dates} colors={COLORS} />
+        <SectorDeviationCard currentHoldings={enrichedCurrentHoldings} benchmarkData={benchmarkSectors} />
       </div>
 
       <PortfolioTable

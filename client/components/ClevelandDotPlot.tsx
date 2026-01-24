@@ -36,9 +36,32 @@ export const ClevelandDotPlot: React.FC<DotPlotProps> = ({ data }) => {
             range: [Math.min(item.ACWI, item.TSX), Math.max(item.ACWI, item.TSX)]
         }));
 
-    // Sort by Index weight descending
-    // Ensure we are sorting by 'Index' field (Composite weight)
-    const sortedData = [...chartData].sort((a, b) => (b.Index || 0) - (a.Index || 0));
+    // Sort by specific order requested by user
+    const sortOrder = [
+        "Materials",        // Basic Materials
+        "Cons. Disc.",      // Consumer Cyclical
+        "Financials",       // Financial Services
+        "Real Estate",
+        "Communication",    // Communication Services
+        "Energy",
+        "Industrials",
+        "Technology",
+        "Cons.Staples",     // Consumer Defensive
+        "Health Care",
+        "Utilities"
+    ];
+
+    const sortedData = [...chartData].sort((a, b) => {
+        const indexA = sortOrder.indexOf(a.displaySector);
+        const indexB = sortOrder.indexOf(b.displaySector);
+
+        // Handle items not in the list (put them at the end)
+        if (indexA === -1 && indexB === -1) return 0;
+        if (indexA === -1) return 1;
+        if (indexB === -1) return -1;
+
+        return indexA - indexB;
+    });
 
     return (
         <ResponsiveContainer width="100%" height="100%">

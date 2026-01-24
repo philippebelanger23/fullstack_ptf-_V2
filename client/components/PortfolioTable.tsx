@@ -330,8 +330,8 @@ export const PortfolioTable: React.FC<PortfolioTableProps> = ({ currentHoldings,
                           )}
                         </td>
                         <td className="px-3 py-3 text-center font-mono text-wallstreet-text">
-                          <span className="font-bold text-xs text-wallstreet-text">
-                            {beta.toFixed(2)}
+                          <span className={`font-bold text-xs ${isCash(item.ticker) ? 'text-slate-400' : 'text-wallstreet-text'}`}>
+                            {isCash(item.ticker) ? '-' : beta.toFixed(2)}
                           </span>
                         </td>
                         <td className="px-3 py-3 text-center font-mono text-wallstreet-text">
