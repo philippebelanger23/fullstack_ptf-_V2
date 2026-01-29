@@ -981,6 +981,196 @@ async def upload_nav(ticker: str, file: UploadFile = File(...)):
         logger.error(f"Error uploading NAV for {ticker}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+class BackcastRequest(BaseModel):
+    items: List[PortfolioItem]
+
+@app.post("/portfolio-backcast")
+async def portfolio_backcast(request: BackcastRequest):
+    """
+    Backcast the portfolio: given current weights, calculate daily returns over the past year.
+    Compare to a benchmark (75% ACWI / 25% XIU.TO blend).
+    Returns:
+      - Daily cumulative performance series for Portfolio & Benchmark
+      - Risk metrics: Sharpe, Volatility, Beta, Max Drawdown, Alpha, Total Return
+    """
+    import yfinance as yf
+    import numpy as np
+    from datetime import datetime, timedelta
+    import json
+    
+    items = request.items
+    if not items:
+        return {"error": "No portfolio items provided"}
+    
+    # --- 1. Aggregate weights by ticker (get current weights) ---
+    # Use the most recent period's weights
+    weights_by_ticker: dict[str, float] = {}
+    for item in items:
+        ticker = item.ticker.upper().strip()
+        if not ticker or 'TICKER' in ticker or 'CASH' in ticker.upper():
+            continue
+        w = item.weight / 100.0 if item.weight > 1 else item.weight  # Normalize to decimal
+        if ticker in weights_by_ticker:
+            weights_by_ticker[ticker] = max(weights_by_ticker[ticker], w)  # Take max weight if duplicates
+        else:
+            weights_by_ticker[ticker] = w
+    
+    if not weights_by_ticker:
+        return {"error": "No valid tickers found"}
+    
+    # Normalize weights to sum to 1
+    total_weight = sum(weights_by_ticker.values())
+    if total_weight > 0:
+        weights_by_ticker = {k: v / total_weight for k, v in weights_by_ticker.items()}
+    
+    # --- 2. Fetch 1 year of daily prices for all tickers ---
+    all_tickers = list(weights_by_ticker.keys())
+    benchmark_tickers = ["ACWI", "XIU.TO", "USDCAD=X"]
+    fetch_list = list(set(all_tickers + benchmark_tickers))
+    
+    try:
+        data = yf.download(fetch_list, period="1y", interval="1d", progress=False)
+        if data.empty:
+            return {"error": "Failed to fetch price data"}
+        
+        closes = data['Close'] if 'Close' in data.columns else data
+        closes = closes.ffill().bfill()
+    except Exception as e:
+        logger.error(f"Error downloading prices: {e}")
+        return {"error": str(e)}
+    
+    # --- 3. Calculate daily returns ---
+    returns_df = closes.pct_change().fillna(0)
+    
+    # --- 4. Build portfolio daily returns ---
+    # For each ticker, weight * return
+    portfolio_returns = pd.Series(0.0, index=returns_df.index)
+    missing_tickers = []
+    
+    for ticker, weight in weights_by_ticker.items():
+        if ticker in returns_df.columns:
+            # Apply FX adjustment for USD tickers (not .TO) if USDCAD available
+            if not ticker.endswith('.TO') and "USDCAD=X" in returns_df.columns:
+                fx_ret = returns_df["USDCAD=X"]
+                ticker_ret = (1 + returns_df[ticker]) * (1 + fx_ret) - 1
+            else:
+                ticker_ret = returns_df[ticker]
+            portfolio_returns += weight * ticker_ret
+        else:
+            missing_tickers.append(ticker)
+    
+    # --- 5. Build benchmark daily returns (75% ACWI in CAD + 25% XIU) ---
+    benchmark_returns = pd.Series(0.0, index=returns_df.index)
+    if "ACWI" in returns_df.columns and "XIU.TO" in returns_df.columns and "USDCAD=X" in returns_df.columns:
+        acwi_cad_ret = (1 + returns_df["ACWI"]) * (1 + returns_df["USDCAD=X"]) - 1
+        benchmark_returns = 0.75 * acwi_cad_ret + 0.25 * returns_df["XIU.TO"]
+    
+    # --- 6. Calculate cumulative performance (indexed to 100) ---
+    portfolio_cumulative = (1 + portfolio_returns).cumprod() * 100
+    benchmark_cumulative = (1 + benchmark_returns).cumprod() * 100
+    
+    # --- 7. Calculate risk metrics ---
+    # Use valid data only (skip first row since pct_change produces NaN)
+    ptf_rets = portfolio_returns.iloc[1:].values
+    bmk_rets = benchmark_returns.iloc[1:].values
+    
+    # Sharpe Ratio (annualized, assuming 0% risk-free rate for simplicity)
+    mean_daily_ret = np.mean(ptf_rets)
+    std_daily_ret = np.std(ptf_rets)
+    sharpe_ratio = (mean_daily_ret / std_daily_ret) * np.sqrt(252) if std_daily_ret > 0 else 0.0
+    
+    # Sortino Ratio (uses downside deviation instead of total std dev)
+    negative_rets = ptf_rets[ptf_rets < 0]
+    downside_std = np.std(negative_rets) if len(negative_rets) > 0 else std_daily_ret
+    sortino_ratio = (mean_daily_ret / downside_std) * np.sqrt(252) if downside_std > 0 else 0.0
+    
+    # Volatility (annualized)
+    volatility = std_daily_ret * np.sqrt(252)
+    
+    # Beta
+    if np.var(bmk_rets) > 0:
+        beta = np.cov(ptf_rets, bmk_rets)[0, 1] / np.var(bmk_rets)
+    else:
+        beta = 1.0
+    
+    # Max Drawdown - Portfolio
+    cumulative_series = (1 + portfolio_returns).cumprod()
+    running_max = cumulative_series.cummax()
+    drawdown = (cumulative_series - running_max) / running_max
+    max_drawdown = drawdown.min()
+    
+    # Max Drawdown - Benchmark
+    bmk_cumulative_series = (1 + benchmark_returns).cumprod()
+    bmk_running_max = bmk_cumulative_series.cummax()
+    bmk_drawdown = (bmk_cumulative_series - bmk_running_max) / bmk_running_max
+    benchmark_max_drawdown = bmk_drawdown.min()
+    
+    # Total Return
+    total_return = (portfolio_cumulative.iloc[-1] / 100) - 1  # As decimal
+    benchmark_total_return = (benchmark_cumulative.iloc[-1] / 100) - 1
+    
+    # Alpha (simplified: portfolio annualized - benchmark annualized)
+    years_elapsed = len(ptf_rets) / 252
+    if years_elapsed > 0:
+        ptf_annualized = (1 + total_return) ** (1 / years_elapsed) - 1
+        bmk_annualized = (1 + benchmark_total_return) ** (1 / years_elapsed) - 1
+        alpha = ptf_annualized - bmk_annualized
+    else:
+        alpha = 0.0
+    
+    # Benchmark metrics
+    bmk_std = np.std(bmk_rets)
+    benchmark_volatility = bmk_std * np.sqrt(252)
+    benchmark_sharpe = (np.mean(bmk_rets) / bmk_std) * np.sqrt(252) if bmk_std > 0 else 0.0
+    
+    # Benchmark Sortino
+    bmk_negative_rets = bmk_rets[bmk_rets < 0]
+    bmk_downside_std = np.std(bmk_negative_rets) if len(bmk_negative_rets) > 0 else bmk_std
+    benchmark_sortino = (np.mean(bmk_rets) / bmk_downside_std) * np.sqrt(252) if bmk_downside_std > 0 else 0.0
+    
+    # Information Ratio = (Portfolio Return - Benchmark Return) / Tracking Error
+    # Tracking Error = Std Dev of excess returns (portfolio - benchmark)
+    excess_rets = ptf_rets - bmk_rets
+    tracking_error = np.std(excess_rets) * np.sqrt(252)  # Annualized
+    mean_excess_ret = np.mean(excess_rets) * 252  # Annualized
+    information_ratio = mean_excess_ret / tracking_error if tracking_error > 0 else 0.0
+    
+    # --- 8. Build performance series for chart ---
+    dates = portfolio_cumulative.index.strftime('%Y-%m-%d').tolist()
+    portfolio_values = portfolio_cumulative.tolist()
+    benchmark_values = benchmark_cumulative.tolist()
+    
+    performance_series = []
+    for i, date_str in enumerate(dates):
+        if pd.notna(portfolio_values[i]) and pd.notna(benchmark_values[i]):
+            performance_series.append({
+                "date": date_str,
+                "portfolio": portfolio_values[i],
+                "benchmark": benchmark_values[i]
+            })
+    
+    return {
+        "metrics": {
+            "totalReturn": round(total_return * 100, 2),  # As percentage
+            "benchmarkReturn": round(benchmark_total_return * 100, 2),
+            "alpha": round(alpha * 100, 2),
+            "sharpeRatio": round(sharpe_ratio, 2),
+            "sortinoRatio": round(sortino_ratio, 2),
+            "informationRatio": round(information_ratio, 2),
+            "trackingError": round(tracking_error * 100, 2),
+            "volatility": round(volatility * 100, 2),
+            "beta": round(beta, 2),
+            "maxDrawdown": round(max_drawdown * 100, 2),
+            "benchmarkMaxDrawdown": round(benchmark_max_drawdown * 100, 2),
+            "benchmarkVolatility": round(benchmark_volatility * 100, 2),
+            "benchmarkSharpe": round(benchmark_sharpe, 2),
+            "benchmarkSortino": round(benchmark_sortino, 2),
+        },
+        "series": performance_series,
+        "missingTickers": missing_tickers
+    }
+
+
 if __name__ == "__main__":
     import uvicorn
     import sys

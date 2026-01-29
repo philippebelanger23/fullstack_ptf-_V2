@@ -418,3 +418,64 @@ export const convertConfigToItems = (tickers: any[], periods: any[]): PortfolioI
     return flatItems;
 };
 
+export interface BackcastMetrics {
+    totalReturn: number;
+    benchmarkReturn: number;
+    alpha: number;
+    sharpeRatio: number;
+    sortinoRatio: number;
+    informationRatio: number;
+    trackingError: number;
+    volatility: number;
+    beta: number;
+    maxDrawdown: number;
+    benchmarkMaxDrawdown: number;
+    benchmarkVolatility: number;
+    benchmarkSharpe: number;
+    benchmarkSortino: number;
+}
+
+export interface BackcastSeriesPoint {
+    date: string;
+    portfolio: number;
+    benchmark: number;
+}
+
+export interface BackcastResponse {
+    metrics: BackcastMetrics;
+    series: BackcastSeriesPoint[];
+    missingTickers: string[];
+    error?: string;
+}
+
+export const fetchPortfolioBackcast = async (items: PortfolioItem[]): Promise<BackcastResponse> => {
+    try {
+        const response = await fetch(`${API_Base_URL}/portfolio-backcast`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ items }),
+        });
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Server Error: ${response.status} - ${errorText}`);
+        }
+
+        return await response.json();
+    } catch (error) {
+        console.error("Portfolio Backcast Error:", error);
+        return {
+            metrics: {
+                totalReturn: 0, benchmarkReturn: 0, alpha: 0, sharpeRatio: 0, sortinoRatio: 0,
+                informationRatio: 0, trackingError: 0, volatility: 0, beta: 0, maxDrawdown: 0,
+                benchmarkMaxDrawdown: 0, benchmarkVolatility: 0, benchmarkSharpe: 0, benchmarkSortino: 0
+            },
+            series: [],
+            missingTickers: [],
+            error: String(error)
+        };
+    }
+};
+
