@@ -2,6 +2,63 @@ import { PortfolioItem } from '../types';
 
 const API_Base_URL = ''; // Use relative path to leverage Vite proxy
 
+// =============================================================================
+// CACHE VERSIONING SYSTEM
+// Increment version numbers when server-side normalization or data format changes.
+// This ensures clients refresh stale cached data.
+// =============================================================================
+const CACHE_VERSIONS = {
+    sector: 2,    // Increment when sector classification logic changes
+    beta: 2,      // Increment when beta calculation changes
+    dividend: 5,  // Increment when dividend yield normalization changes (was 4)
+};
+
+/**
+ * Load a versioned cache from localStorage.
+ * Returns empty object if version mismatch or load fails.
+ */
+function loadVersionedCache<T>(cacheKey: string, versionKey: string, currentVersion: number): T | null {
+    try {
+        const cachedVersion = localStorage.getItem(versionKey);
+        if (cachedVersion === String(currentVersion)) {
+            const cached = localStorage.getItem(cacheKey);
+            if (cached) {
+                return JSON.parse(cached);
+            }
+        } else {
+            // Version mismatch - clear old cache and set new version
+            localStorage.removeItem(cacheKey);
+            localStorage.setItem(versionKey, String(currentVersion));
+            console.info(`Cache version mismatch for ${cacheKey}: clearing stale data`);
+        }
+    } catch (e) {
+        console.warn(`Failed to load ${cacheKey} from localStorage`, e);
+    }
+    return null;
+}
+
+/**
+ * Save a versioned cache to localStorage.
+ */
+function saveVersionedCache<T>(cacheKey: string, data: T): void {
+    try {
+        localStorage.setItem(cacheKey, JSON.stringify(data));
+    } catch (e) {
+        console.warn(`Failed to save ${cacheKey} to localStorage`, e);
+    }
+}
+
+// =============================================================================
+// SECTOR CACHE
+// =============================================================================
+let sectorCache: Record<string, string> = loadVersionedCache('sectorCache', 'sectorCacheVersion', CACHE_VERSIONS.sector) || {};
+
+
+let indexExposureCache: { sectors: any[], geography: any[] } | null = null;
+
+// =============================================================================
+// API FUNCTIONS
+// =============================================================================
 
 export const analyzeManualPortfolio = async (items: PortfolioItem[]): Promise<PortfolioItem[]> => {
     try {
@@ -25,19 +82,6 @@ export const analyzeManualPortfolio = async (items: PortfolioItem[]): Promise<Po
     }
 };
 
-// Cache storage - Initialize from localStorage if available
-let sectorCache: Record<string, string> = {};
-try {
-    const cached = localStorage.getItem('sectorCache');
-    if (cached) {
-        sectorCache = JSON.parse(cached);
-    }
-} catch (e) {
-    console.warn("Failed to load sector cache from localStorage", e);
-}
-
-let indexExposureCache: { sectors: any[], geography: any[] } | null = null;
-
 export const fetchSectors = async (tickers: string[]): Promise<Record<string, string>> => {
     // 1. Filter out tickers we already have in cache
     const missingTickers = tickers.filter(ticker => !sectorCache[ticker]);
@@ -57,12 +101,8 @@ export const fetchSectors = async (tickers: string[]): Promise<Record<string, st
                 const newSectors = await response.json();
                 // 3. Update cache
                 sectorCache = { ...sectorCache, ...newSectors };
-                // Persist to localStorage
-                try {
-                    localStorage.setItem('sectorCache', JSON.stringify(sectorCache));
-                } catch (e) {
-                    console.warn("Failed to save sector cache to localStorage", e);
-                }
+                // Persist to localStorage using versioned helper
+                saveVersionedCache('sectorCache', sectorCache);
             } else {
                 console.error('Failed to fetch sectors');
             }
@@ -123,16 +163,10 @@ export const fetchCurrencyPerformance = async (tickers: string[]): Promise<Recor
     }
 };
 
-// Beta cache - Initialize from localStorage if available
-let betaCache: Record<string, number> = {};
-try {
-    const cached = localStorage.getItem('betaCache');
-    if (cached) {
-        betaCache = JSON.parse(cached);
-    }
-} catch (e) {
-    console.warn("Failed to load beta cache from localStorage", e);
-}
+// =============================================================================
+// BETA CACHE
+// =============================================================================
+let betaCache: Record<string, number> = loadVersionedCache('betaCache', 'betaCacheVersion', CACHE_VERSIONS.beta) || {};
 
 export const fetchBetas = async (tickers: string[]): Promise<Record<string, number>> => {
     // 1. Filter out tickers we already have in cache
@@ -153,12 +187,8 @@ export const fetchBetas = async (tickers: string[]): Promise<Record<string, numb
                 const newBetas = await response.json();
                 // 3. Update cache
                 betaCache = { ...betaCache, ...newBetas };
-                // Persist to localStorage
-                try {
-                    localStorage.setItem('betaCache', JSON.stringify(betaCache));
-                } catch (e) {
-                    console.warn("Failed to save beta cache to localStorage", e);
-                }
+                // Persist to localStorage using versioned helper
+                saveVersionedCache('betaCache', betaCache);
             } else {
                 console.error('Failed to fetch betas');
             }
@@ -178,28 +208,10 @@ export const fetchBetas = async (tickers: string[]): Promise<Record<string, numb
     return result;
 };
 
-// Dividend yield cache - Initialize from localStorage if available
-// Version 3: Fixed - yfinance returns dividendYield as percentage, not decimal
-const DIVIDEND_CACHE_VERSION = 4;
-let dividendCache: Record<string, number> = {};
-try {
-    const cachedVersion = localStorage.getItem('dividendCacheVersion');
-    const currentVersion = String(DIVIDEND_CACHE_VERSION);
-
-    if (cachedVersion === currentVersion) {
-        const cached = localStorage.getItem('dividendCache');
-        if (cached) {
-            dividendCache = JSON.parse(cached);
-        }
-    } else {
-        // Cache version mismatch - clear old cache
-        localStorage.removeItem('dividendCache');
-        localStorage.setItem('dividendCacheVersion', currentVersion);
-
-    }
-} catch (e) {
-    console.warn("Failed to load dividend cache from localStorage", e);
-}
+// =============================================================================
+// DIVIDEND CACHE
+// =============================================================================
+let dividendCache: Record<string, number> = loadVersionedCache('dividendCache', 'dividendCacheVersion', CACHE_VERSIONS.dividend) || {};
 
 export const fetchDividends = async (tickers: string[]): Promise<Record<string, number>> => {
     // 1. Filter out tickers we already have in cache
@@ -220,12 +232,8 @@ export const fetchDividends = async (tickers: string[]): Promise<Record<string, 
                 const newDividends = await response.json();
                 // 3. Update cache
                 dividendCache = { ...dividendCache, ...newDividends };
-                // Persist to localStorage
-                try {
-                    localStorage.setItem('dividendCache', JSON.stringify(dividendCache));
-                } catch (e) {
-                    console.warn("Failed to save dividend cache to localStorage", e);
-                }
+                // Persist to localStorage using versioned helper
+                saveVersionedCache('dividendCache', dividendCache);
             } else {
                 console.error('Failed to fetch dividends');
             }
@@ -360,12 +368,17 @@ export const loadAssetGeo = async (): Promise<Record<string, string>> => {
     }
 };
 
-export const checkNavLag = async (tickers: string[]): Promise<Record<string, any>> => {
+export const checkNavLag = async (tickers: string[], forceRefresh: boolean = false, referenceDate?: string): Promise<Record<string, any>> => {
     try {
         const response = await fetch(`${API_Base_URL}/check-nav-lag`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ tickers, _t: Date.now() }),
+            body: JSON.stringify({
+                tickers,
+                force_refresh: forceRefresh,
+                reference_date: referenceDate,
+                _t: Date.now()  // Cache buster
+            }),
         });
         if (!response.ok) return {};
         return await response.json();

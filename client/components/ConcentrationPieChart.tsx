@@ -25,7 +25,7 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
 
 export const ConcentrationPieChart = memo(({ data, colors }: Props) => {
     return (
-        <div className="lg:col-span-4 bg-white p-6 rounded-xl border border-wallstreet-700 shadow-sm flex flex-col">
+        <div className="lg:col-span-4 bg-white p-6 rounded-xl border border-wallstreet-700 shadow-sm flex flex-col min-h-[450px]">
             <div className="mb-4">
                 <h3 className="font-mono font-bold text-wallstreet-text uppercase tracking-wider text-sm flex items-center gap-2">
                     <PieChartIcon size={16} className="text-wallstreet-500" /> Actual Top 10
@@ -39,7 +39,7 @@ export const ConcentrationPieChart = memo(({ data, colors }: Props) => {
                             cx="50%"
                             cy="50%"
                             innerRadius={150}
-                            outerRadius={200}
+                            outerRadius={210}
                             fill="#8884d8"
                             paddingAngle={3}
                             dataKey="value"

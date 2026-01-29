@@ -8,7 +8,7 @@ import { AttributionView } from './views/AttributionView';
 import { IndexView } from './views/IndexView';
 import { PerformanceView } from './views/PerformanceView';
 import { PortfolioItem, ViewState } from './types';
-import { loadPortfolioConfig, analyzeManualPortfolio, convertConfigToItems, loadSectorWeights, loadAssetGeo } from './services/api';
+import { loadPortfolioConfig, analyzeManualPortfolio, convertConfigToItems, loadSectorWeights, loadAssetGeo, checkNavLag } from './services/api';
 
 class GlobalErrorBoundary extends Component<{ children: React.ReactNode }, { hasError: boolean, error: Error | null, errorInfo: ErrorInfo | null }> {
   constructor(props: any) {
@@ -98,7 +98,12 @@ function App() {
     // Must have no lagging NAVs for MFs
     const anyLagging = activeTickers.some(t => {
       const item = portfolioData.find(i => i.ticker === t);
-      return item?.isMutualFund && lagStatus[t]?.lagging;
+      if (!item?.isMutualFund) return false;
+
+      const status = lagStatus[t];
+      // If status is missing, we treat it as "not complete" because check hasn't run
+      if (!status) return true;
+      return status.lagging;
     });
 
     return allSectorsDone && !anyLagging;
@@ -128,6 +133,13 @@ function App() {
             try {
               const results = await analyzeManualPortfolio(flatItems);
               handleDataLoaded(results, { name: "Manual Entry", count: results.length });
+
+              // NEW: Proactively check for NAV lags after auto-load
+              const mfs = results.filter(i => i.isMutualFund).map(i => i.ticker);
+              if (mfs.length > 0) {
+                const lagResults = await checkNavLag(Array.from(new Set(mfs)));
+                setLagStatus(lagResults);
+              }
             } catch (analysisErr) {
               console.error("Backend analysis failed during auto-load, falling back to basic data:", analysisErr);
               // Fallback: Create basic items so the UI can still show the management list

@@ -6,6 +6,38 @@ from constants import CASH_TICKER, FX_TICKER, INDICES
 from cache_manager import load_cache, save_cache
 
 
+def needs_fx_adjustment(ticker: str, is_mutual_fund: bool = False, nav_dict: dict = None) -> bool:
+    """
+    Determine if ticker needs USD->CAD FX conversion.
+    
+    Args:
+        ticker: The ticker symbol
+        is_mutual_fund: Whether this is a mutual fund (NAV data already in CAD)
+        nav_dict: Dictionary of NAV data (tickers present here are CAD-denominated)
+    
+    Returns:
+        True if USD->CAD adjustment needed, False otherwise
+    """
+    if nav_dict is None:
+        nav_dict = {}
+    
+    # Cash doesn't need FX
+    if ticker == CASH_TICKER:
+        return False
+    
+    # Mutual funds use NAV data directly without FX adjustment
+    if is_mutual_fund or ticker in nav_dict:
+        return False
+    
+    # Canadian-listed securities (ending in .TO or TSX index)
+    if ticker.endswith('.TO') or ticker == "^GSPTSE":
+        return False
+    
+    # Default: US-listed securities need FX adjustment
+    return True
+
+
+
 def get_price_on_date(ticker, date, cache):
     """Get price for a ticker on a specific date, using cache if available."""
     cache_key = f"{ticker}_{date.strftime('%Y-%m-%d')}"
@@ -75,22 +107,17 @@ def calculate_returns(weights_dict, nav_dict, dates, cache, mutual_fund_tickers=
                         last_date = available_dates[-1]
                         prices[ticker][date_val] = nav_dict[ticker][last_date]
                     else:
-                        # No previous data available. 
-                        # If it's a manual ticker, Yahoo probably won't have it either, but we can try 
-                        # or just error out more gracefully.
-                        # For now, let's try the fallback to get_price_on_date only if we really have to,
-                        # but avoiding it for known manual tickers is safer to prevent 500s.
-                        try:
-                             prices[ticker][date_val] = get_price_on_date(ticker, date_val, cache)
-                        except Exception:
-                             # Default to 1.0 to prevent crash
-                             import logging
-                             logger = logging.getLogger(__name__)
-                             logger.warning(f"No pricing data available for {ticker} on {date_val}. Defaulting to 1.0")
-                             prices[ticker][date_val] = 1.0
+                        # No previous NAV data available.
+                        # Mark as None to skip this period in return calculations rather than
+                        # defaulting to 1.0 which causes wildly incorrect returns.
+                        import logging
+                        logger = logging.getLogger(__name__)
+                        logger.warning(f"No NAV data available for {ticker} on or before {date_val}. Marking as None.")
+                        prices[ticker][date_val] = None
             else:
                 # Standard Yahoo Finance lookup
                 prices[ticker][date_val] = get_price_on_date(ticker, date_val, cache)
+
     
     for ticker in all_tickers:
         if ticker == CASH_TICKER:
@@ -106,22 +133,31 @@ def calculate_returns(weights_dict, nav_dict, dates, cache, mutual_fund_tickers=
             start_date = pd.to_datetime(dates[i], format="%d/%m/%Y")
             end_date = pd.to_datetime(dates[i+1], format="%d/%m/%Y")
             
+            # Check if we have valid price data for both dates
             if ticker not in prices or start_date not in prices[ticker] or end_date not in prices[ticker]:
-                raise ValueError(f"Missing price data for {ticker} on {start_date} or {end_date}")
+                # Missing price data - set return to 0 for this period
+                returns[ticker][(start_date, end_date)] = 0.0
+                continue
             
             price_start = prices[ticker][start_date]
             price_end = prices[ticker][end_date]
+            
+            # Skip if either price is None (no NAV data available)
+            if price_start is None or price_end is None:
+                returns[ticker][(start_date, end_date)] = 0.0
+                continue
+            
             period_return = (price_end / price_start) - 1
             
-            # Mutual funds (in nav_dict or marked as such) use NAV data directly without FX adjustment
-            if ticker in nav_dict or ticker in mutual_fund_tickers:
-                returns[ticker][(start_date, end_date)] = period_return
-            elif ticker.endswith('.TO') or ticker == "^GSPTSE":
-                returns[ticker][(start_date, end_date)] = period_return
-            else:
+            # Use centralized FX logic for consistency across all views
+            is_mf = ticker in mutual_fund_tickers
+            if needs_fx_adjustment(ticker, is_mutual_fund=is_mf, nav_dict=nav_dict):
                 fx_return = get_fx_return(start_date, end_date, cache)
                 cad_adjusted_return = (1 + period_return) * (1 + fx_return) - 1
                 returns[ticker][(start_date, end_date)] = cad_adjusted_return
+            else:
+                returns[ticker][(start_date, end_date)] = period_return
+
     
     return returns, prices
 
@@ -187,18 +223,25 @@ def build_results_dataframe(weights_dict, returns, prices, dates, cache, mutual_
             if ticker in prices and first_date in prices[ticker] and last_date in prices[ticker]:
                 first_price = prices[ticker][first_date]
                 last_price = prices[ticker][last_date]
-                ytd_return = (last_price / first_price) - 1
                 
-                if not ticker.endswith('.TO') and ticker != "^GSPTSE" and ticker not in mutual_fund_tickers:
-                    fx_start = get_price_on_date(FX_TICKER, first_date, cache)
-                    fx_end = get_price_on_date(FX_TICKER, last_date, cache)
-                    fx_return = (fx_end / fx_start) - 1
-                    ytd_return = (1 + ytd_return) * (1 + fx_return) - 1
+                # Guard against None values (missing NAV data)
+                if first_price is None or last_price is None:
+                    ytd_return = 0.0
+                else:
+                    ytd_return = (last_price / first_price) - 1
+                    
+                    if needs_fx_adjustment(ticker, is_mutual_fund=(ticker in mutual_fund_tickers)):
+                        fx_start = get_price_on_date(FX_TICKER, first_date, cache)
+                        fx_end = get_price_on_date(FX_TICKER, last_date, cache)
+                        fx_return = (fx_end / fx_start) - 1
+                        ytd_return = (1 + ytd_return) * (1 + fx_return) - 1
             else:
                 ytd_return = 0.0
             
+            # BUG FIX: Use period[1] (end_date) for weight lookup, not period[0] (start_date)
+            # Weights are keyed by end_date as per the config structure
             ytd_contrib = sum(
-                returns.get(ticker, {}).get(period, 0.0) * weights_dict.get(ticker, {}).get(period[0], 0.0)
+                returns.get(ticker, {}).get(period, 0.0) * weights_dict.get(ticker, {}).get(period[1], 0.0)
                 for period in periods
             )
         

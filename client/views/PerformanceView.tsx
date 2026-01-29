@@ -37,21 +37,24 @@ const KPICard: React.FC<KPICardProps> = ({ title, value, subtitle, isPositive, i
     </div>
 );
 
-type Period = 'YTD' | '3M' | '6M' | '1Y';
+type Period = 'YTD' | '3M' | '6M' | '1Y' | '2025';
 
-const getStartDateForPeriod = (period: Period): Date => {
+const getDateRangeForPeriod = (period: Period): { start: Date; end?: Date } => {
     const now = new Date();
+    now.setHours(0, 0, 0, 0);
     switch (period) {
+        case '2025':
+            return { start: new Date(2025, 0, 1), end: new Date(2025, 11, 31) };
         case 'YTD':
-            return new Date(now.getFullYear(), 0, 1);
+            return { start: new Date(now.getFullYear(), 0, 1) };
         case '3M':
-            return new Date(new Date().setMonth(now.getMonth() - 3));
+            return { start: new Date(new Date().setMonth(now.getMonth() - 3)) };
         case '6M':
-            return new Date(new Date().setMonth(now.getMonth() - 6));
+            return { start: new Date(new Date().setMonth(now.getMonth() - 6)) };
         case '1Y':
-            return new Date(new Date().setFullYear(now.getFullYear() - 1));
+            return { start: new Date(new Date().setFullYear(now.getFullYear() - 1)) };
         default:
-            return new Date(now.setFullYear(now.getFullYear() - 1));
+            return { start: new Date(new Date().setFullYear(now.getFullYear() - 1)) };
     }
 };
 
@@ -105,10 +108,11 @@ export const PerformanceView: React.FC = () => {
     const chartData = useMemo(() => {
         if (!data?.series || data.series.length === 0) return [];
 
-        const startDate = getStartDateForPeriod(selectedPeriod);
-        const startDateStr = startDate.toISOString().split('T')[0];
+        const { start, end } = getDateRangeForPeriod(selectedPeriod);
+        const startDateStr = start.toISOString().split('T')[0];
+        const endDateStr = end ? end.toISOString().split('T')[0] : '9999-12-31';
 
-        const filtered = data.series.filter(pt => pt.date >= startDateStr);
+        const filtered = data.series.filter(pt => pt.date >= startDateStr && pt.date <= endDateStr);
         if (filtered.length === 0) return [];
 
         // Normalize to start at 0%
@@ -162,9 +166,10 @@ export const PerformanceView: React.FC = () => {
     const periodMetrics = useMemo(() => {
         if (!data?.series || data.series.length < 5) return null;
 
-        const startDate = getStartDateForPeriod(selectedPeriod);
-        const startDateStr = startDate.toISOString().split('T')[0];
-        const filtered = data.series.filter(pt => pt.date >= startDateStr);
+        const { start, end } = getDateRangeForPeriod(selectedPeriod);
+        const startDateStr = start.toISOString().split('T')[0];
+        const endDateStr = end ? end.toISOString().split('T')[0] : '9999-12-31';
+        const filtered = data.series.filter(pt => pt.date >= startDateStr && pt.date <= endDateStr);
 
         if (filtered.length < 5) return null;
 
@@ -411,7 +416,7 @@ export const PerformanceView: React.FC = () => {
                         {/* Period Summary */}
                         {periodMetrics && (
                             <div className="flex items-center gap-3 text-xs font-mono">
-                                <div className={`flex items-center gap-1 px-2 py-1 rounded-lg ${periodMetrics.totalReturn >= 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'}`}>
+                                <div className="flex items-center gap-1 px-2 py-1 rounded-lg bg-emerald-50 text-emerald-700">
                                     <span className="font-bold">PTF:</span>
                                     <span className="font-bold">{formatPercent(periodMetrics.totalReturn)}</span>
                                 </div>
@@ -427,17 +432,19 @@ export const PerformanceView: React.FC = () => {
                         )}
                         {/* Period Selector Pills */}
                         <div className="flex bg-slate-100 p-1 rounded-xl">
-                            {(['YTD', '3M', '6M', '1Y'] as Period[]).map((period) => (
-                                <button
-                                    key={period}
-                                    onClick={() => setSelectedPeriod(period)}
-                                    className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all duration-200 ${selectedPeriod === period
-                                        ? 'bg-slate-900 text-white shadow-sm'
-                                        : 'text-slate-500 hover:text-slate-800 hover:bg-slate-200'
-                                        }`}
-                                >
-                                    {period}
-                                </button>
+                            {(['2025', 'YTD', '3M', '6M', '1Y'] as Period[]).map((period) => (
+                                <React.Fragment key={period}>
+                                    <button
+                                        onClick={() => setSelectedPeriod(period)}
+                                        className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all duration-200 ${selectedPeriod === period
+                                            ? 'bg-slate-900 text-white shadow-sm'
+                                            : 'text-slate-500 hover:text-slate-800 hover:bg-slate-200'
+                                            }`}
+                                    >
+                                        {period}
+                                    </button>
+                                    {period === '2025' && <div className="mx-1 h-4 w-px bg-slate-300" />}
+                                </React.Fragment>
                             ))}
                         </div>
                     </div>

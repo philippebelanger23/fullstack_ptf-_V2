@@ -11,7 +11,7 @@ import logging
 
 # Import existing logic
 from data_loader import load_historic_nav_csvs
-from market_data import calculate_returns, build_results_dataframe, get_ticker_performance
+from market_data import calculate_returns, build_results_dataframe, get_ticker_performance, needs_fx_adjustment
 from cache_manager import load_cache, save_cache
 from constants import CASH_TICKER, FX_TICKER
 
@@ -80,7 +80,7 @@ def get_aggregated_nav_data():
                 for ticker, dates_data in static_navs.items():
                     if ticker not in nav_dict: nav_dict[ticker] = {}
                     for d, v in dates_data.items():
-                        nav_dict[ticker][datetime.datetime.strptime(d, "%Y-%m-%d")] = v
+                        nav_dict[ticker][pd.to_datetime(d)] = v
         except Exception as e:
             logger.warning(f"Failed to load manual_navs.json: {e}")
 
@@ -116,7 +116,8 @@ async def analyze_manual(request: ManualAnalysisRequest):
                 
             try:
                 # Handle date parsing (expects YYYY-MM-DD from frontend)
-                dt = datetime.strptime(item.date, "%Y-%m-%d")
+                # Handle date parsing (expects YYYY-MM-DD from frontend)
+                dt = pd.to_datetime(item.date)
                 dates_set.add(dt)
                 
                 if ticker not in weights_dict:
@@ -150,7 +151,8 @@ async def analyze_manual(request: ManualAnalysisRequest):
         # Automatically add 'Today' if the last date is in the past
         # This ensures the Attribution tab shows current data for the latest positions
         latest_date = dates[-1]
-        now = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        latest_date = dates[-1]
+        now = pd.Timestamp.now().normalize()
         if latest_date < now:
             dates.append(now)
             # Propagate the latest weights to the 'Today' period
@@ -654,19 +656,39 @@ async def fetch_dividends(request: dict):
                     info = found_ticker.info
                     
                     def normalize_yield(val):
-                        if val is None: return 0.0
+                        """
+                        Normalize dividend yield to percentage format.
+                        
+                        yfinance typically returns yield as a decimal (0.0126 = 1.26%).
+                        However, we need to handle edge cases:
+                        - 0.0126 -> 1.26% (multiply by 100)
+                        - 1.26 -> 1.26% (already percentage, keep as is)
+                        - 126.0 -> 1.26% (over-multiplied, divide by 100)
+                        
+                        Key insight: Real dividend yields rarely exceed 15% for normal equities.
+                        High-yield REITs/MLPs may reach 15%, but 20%+ is extremely rare.
+                        """
+                        if val is None: 
+                            return 0.0
                         try:
                             v = float(val)
-                            # Logic:
-                            # 1. If v < 0.20 (e.g. 0.0126), it's likely a decimal. Multiply by 100 -> 1.26%
-                            # 2. If 0.20 <= v < 20 (e.g. 1.26), it's likely already a percentage. Keep as is -> 1.26%
-                            # 3. If v >= 20 (e.g. 126.0), it's likely double-multiplied or a rare high-yield outlier.
-                            #    We divide by 100 to be safe, as yields over 20% are extremely rare for standard equities.
-                            if v < 0.20:
+                            if v < 0:
+                                return 0.0  # Invalid negative yield
+                            
+                            # yfinance returns decimals where values < 1 represent the yield
+                            # e.g., 0.0126 = 1.26%
+                            if v < 1.0:
+                                # This is definitely a decimal - multiply to get percentage
                                 return v * 100.0
-                            elif v >= 20.0:
+                            elif v > 50.0:
+                                # This is almost certainly over-multiplied (no stock yields 50%+)
+                                # Could be 5000 (meaning 50%) - divide by 100
                                 return v / 100.0
-                            return v
+                            else:
+                                # Value is between 1.0 and 50.0 - assume it's already a percentage
+                                # This handles both high-yield edge cases (10-15%) and
+                                # already-converted values
+                                return v
                         except:
                             return 0.0
 
@@ -906,56 +928,119 @@ async def check_nav_lag(request: dict):
     """
     Compare last NAV date on file with last yfinance date for a set of tickers.
     If NAV date is behind yfinance (usually > 1-2 days lag), flag it.
+    
+    Args:
+        request.tickers: List of ticker symbols to check
+        request.force_refresh: If true, ignore internal caches
     """
     import yfinance as yf
     import datetime
     from pathlib import Path
+    import pandas as pd
     
     tickers = request.get("tickers", [])
+    force_refresh = request.get("force_refresh", False)
+    reference_date_str = request.get("reference_date")
+    
     if not tickers:
         return {}
-        
+    
     results = {}
-    nav_data = get_aggregated_nav_data() # dict[ticker, dict[date, val]]
+    
+    # 1. Load freshest NAV data (always from disk)
+    nav_data = get_aggregated_nav_data()
+    logger.info(f"check-nav-lag: Started check for {len(tickers)} tickers. force_refresh={force_refresh}, ref_date={reference_date_str}")
+    
+    # Helper to get last business day (skip weekends)
+    def get_last_business_day(reference_date=None):
+        if reference_date is None:
+            # Use current date but zero out time for clean comparison
+            reference_date = datetime.datetime.now().date()
+        
+        # If today is Saturday (5) or Sunday (6), go back to Friday
+        while reference_date.weekday() >= 5:
+            reference_date -= datetime.timedelta(days=1)
+        return reference_date
+
+    # 2. Get global market threshold
+    if reference_date_str:
+        try:
+            last_market_date = datetime.datetime.strptime(reference_date_str, "%Y-%m-%d").date()
+            # Adjust to business day if the provided date is a weekend
+            last_market_date = get_last_business_day(last_market_date)
+            logger.info(f"check-nav-lag: Using provided reference date: {last_market_date}")
+        except Exception as e:
+            logger.warning(f"Invalid reference_date {reference_date_str}, falling back to today. Error: {e}")
+            last_market_date = get_last_business_day()
+    else:
+        # We use SPY as the gold standard for North American trading calendar
+        try:
+            # yf.download is often more reliable for "fresh" data than Ticker history
+            # We fetch 5 days to ensure we find the last actual close even after long holidays
+            spy_hist = yf.download("SPY", period="5d", progress=False, threads=False)
+            
+            if not spy_hist.empty:
+                last_market_date = spy_hist.index[-1].date()
+                logger.info(f"check-nav-lag: Latest market date from SPY: {last_market_date}")
+            else:
+                raise ValueError("SPY history empty")
+        except Exception as market_err:
+            logger.warning(f"check-nav-lag: Failed to fetch market date ({market_err}). Falling back to business day logic.")
+            last_market_date = get_last_business_day()
+
+    # Define thresholds
+    # NAVs are typically published end-of-day. 
+    # If today is Monday, we expect Friday's NAV (yesterday's business day).
+    # If it's earlier than Friday, it's lagging.
+    last_bday = get_last_business_day(last_market_date)
+    # The threshold for "Lagging" is if data is older than the PREVIOUS business day
+    # (Allowing 1 business day for publication lag)
+    threshold_date = get_last_business_day(last_bday - datetime.timedelta(days=1))
     
     for ticker in tickers:
         try:
+            ticker = ticker.upper().strip()
+            
             # 1. Get last available NAV date
             ticker_navs = nav_data.get(ticker, {})
             if not ticker_navs:
-                results[ticker] = {"lagging": True, "reason": "No NAV data found"}
+                results[ticker] = {
+                    "lagging": True, 
+                    "reason": "Missing Data",
+                    "last_nav": None,
+                    "last_market": last_market_date.strftime("%Y-%m-%d"),
+                    "threshold_date": threshold_date.strftime("%Y-%m-%d"),
+                    "days_diff": 999
+                }
                 continue
             
-            last_nav_date = max(ticker_navs.keys()).date() if ticker_navs else None
+            # Keys are datetime or Timestamps
+            last_nav_dt = max(ticker_navs.keys())
+            # Convert to date for comparison
+            if hasattr(last_nav_dt, 'date'):
+                last_nav_date = last_nav_dt.date()
+            else:
+                last_nav_date = last_nav_dt
             
-            # 2. Get last market date from yfinance (using a proxy ticker like SPY or the ticker itself if valid)
-            # Fetching the ticker itself is better to see actual market lag
-            yf_ticker = yf.Ticker(ticker)
-            hist = yf_ticker.history(period="1d")
-            
-            if hist.empty:
-                 # Try a benchmark ticker if the MF ticker itself isn't in yf (common for MFs)
-                 hist = yf.Ticker("SPY").history(period="1d")
-            
-            if hist.empty:
-                results[ticker] = {"lagging": False, "reason": "No market data to compare"}
-                continue
-                
-            last_market_date = hist.index[-1].date()
-            
-            # 3. Compare. If NAV is older than Market, it lags.
-            # Allow 1 day buffer as NAVs are often released late evening (so yesterday's NAV is current for today)
+            # 2. Determine lag
+            # Lagging if last NAV is older than the threshold (prev business day)
+            is_lagging = last_nav_date < threshold_date
             days_diff = (last_market_date - last_nav_date).days
-            is_lagging = days_diff > 1
             
             results[ticker] = {
                 "lagging": is_lagging,
-                "last_nav": last_nav_date.strftime("%Y-%m-%d") if last_nav_date else None,
+                "last_nav": last_nav_date.strftime("%Y-%m-%d"),
                 "last_market": last_market_date.strftime("%Y-%m-%d"),
-                "days_diff": (last_market_date - last_nav_date).days if last_nav_date else 999
+                "days_diff": days_diff,
+                "threshold_date": threshold_date.strftime("%Y-%m-%d"),
+                "is_stale": is_lagging
             }
+            
+            if is_lagging:
+                logger.info(f"check-nav-lag: {ticker} is LAGGING. Last NAV: {last_nav_date}, Market: {last_market_date}")
+            
         except Exception as e:
-            logger.warning(f"Error checking lag for {ticker}: {e}")
+            logger.error(f"check-nav-lag: Error checking {ticker}: {e}")
             results[ticker] = {"lagging": False, "error": str(e)}
             
     return results
@@ -1005,6 +1090,7 @@ async def portfolio_backcast(request: BackcastRequest):
     # --- 1. Aggregate weights by ticker (get current weights) ---
     # Use the most recent period's weights
     weights_by_ticker: dict[str, float] = {}
+    mutual_fund_tickers: set[str] = set()  # Track mutual funds for FX logic
     for item in items:
         ticker = item.ticker.upper().strip()
         if not ticker or 'TICKER' in ticker or 'CASH' in ticker.upper():
@@ -1014,6 +1100,10 @@ async def portfolio_backcast(request: BackcastRequest):
             weights_by_ticker[ticker] = max(weights_by_ticker[ticker], w)  # Take max weight if duplicates
         else:
             weights_by_ticker[ticker] = w
+        # Track mutual funds
+        if getattr(item, 'isMutualFund', False):
+            mutual_fund_tickers.add(ticker)
+
     
     if not weights_by_ticker:
         return {"error": "No valid tickers found"}
@@ -1049,8 +1139,9 @@ async def portfolio_backcast(request: BackcastRequest):
     
     for ticker, weight in weights_by_ticker.items():
         if ticker in returns_df.columns:
-            # Apply FX adjustment for USD tickers (not .TO) if USDCAD available
-            if not ticker.endswith('.TO') and "USDCAD=X" in returns_df.columns:
+            # Apply FX adjustment using centralized logic (consistent with Attribution view)
+            is_mf = ticker in mutual_fund_tickers
+            if needs_fx_adjustment(ticker, is_mutual_fund=is_mf) and "USDCAD=X" in returns_df.columns:
                 fx_ret = returns_df["USDCAD=X"]
                 ticker_ret = (1 + returns_df[ticker]) * (1 + fx_ret) - 1
             else:

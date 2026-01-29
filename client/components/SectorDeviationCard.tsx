@@ -174,7 +174,7 @@ export const SectorDeviationCard: React.FC<Props> = ({ currentHoldings, benchmar
                                                 {/* Container for vertical text */}
                                                 <div className="h-full w-full flex items-center justify-center py-4">
                                                     <span
-                                                        className={`text-[10px] uppercase -rotate-90 whitespace-nowrap font-bold tracking-widest ${group.color}`}
+                                                        className={`text-[11px] uppercase -rotate-90 whitespace-nowrap font-black tracking-widest ${group.color}`}
                                                         style={{ writingMode: 'vertical-rl', textOrientation: 'mixed', transform: 'rotate(180deg)' }}
                                                     >
                                                         {group.name}
@@ -194,29 +194,31 @@ export const SectorDeviationCard: React.FC<Props> = ({ currentHoldings, benchmar
                                             {sector.actual.toFixed(2)}%
                                         </td>
                                         <td className="p-2">
-                                            <div className="flex items-center justify-center gap-2 relative h-6 w-full">
-                                                {/* Center line */}
-                                                <div className="absolute left-1/2 top-0 bottom-0 w-px bg-slate-300"></div>
+                                            {(() => {
+                                                const val = sector.delta;
+                                                const absVal = Math.abs(val);
+                                                const maxScale = 5;
+                                                const width = Math.min((absVal / maxScale) * 100, 100);
 
-                                                {/* Bar */}
-                                                {(() => {
-                                                    const val = sector.delta;
-                                                    const absVal = Math.abs(val);
-                                                    const maxScale = 5;
-                                                    const width = Math.min((absVal / maxScale) * 50, 50);
+                                                return (
+                                                    <div className="flex items-center w-full h-6 font-mono text-sm">
+                                                        {/* Left Half (Text for positive, Bar for negative) */}
+                                                        <div className="flex-1 flex justify-end pr-1 relative h-full items-center">
+                                                            {val < 0 && <div className="h-4 bg-rose-500 absolute right-0 top-1 rounded-l-sm" style={{ width: `${width}%` }} />}
+                                                            {val >= 0 && <span className="text-emerald-700 font-bold z-10">+{val.toFixed(2)}%</span>}
+                                                        </div>
 
-                                                    return (
-                                                        <div
-                                                            className={`h-4 absolute top-1 ${val > 0 ? 'bg-green-500/80 left-1/2' : 'bg-red-500/80 right-1/2'}`}
-                                                            style={{ width: `${width}%` }}
-                                                        ></div>
-                                                    );
-                                                })()}
+                                                        {/* Center Divider */}
+                                                        <div className="w-px h-full bg-slate-300 z-10" />
 
-                                                <span className={`relative z-10 text-sm font-bold drop-shadow-sm px-1 bg-white/60 rounded-sm backdrop-blur-[1px] ${sector.delta > 0 ? 'text-green-800' : 'text-red-800'}`}>
-                                                    {sector.delta > 0 ? '+' : ''}{sector.delta.toFixed(2)}%
-                                                </span>
-                                            </div>
+                                                        {/* Right Half (Bar for positive, Text for negative) */}
+                                                        <div className="flex-1 flex justify-start pl-1 relative h-full items-center">
+                                                            {val > 0 && <div className="h-4 bg-emerald-500 absolute left-0 top-1 rounded-r-sm" style={{ width: `${width}%` }} />}
+                                                            {val < 0 && <span className="text-rose-700 font-bold z-10">{val.toFixed(2)}%</span>}
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })()}
                                         </td>
                                     </tr>
                                 ))}

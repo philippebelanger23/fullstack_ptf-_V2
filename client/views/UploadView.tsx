@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { AlertCircle, ArrowRight, Trash2, Database, Edit, FileSpreadsheet, CheckCircle2, AlertTriangle, Upload, PieChart, RefreshCw, Layers, ChevronDown, ChevronUp } from 'lucide-react';
+import { AlertCircle, ArrowRight, Trash2, Database, Edit, FileSpreadsheet, CheckCircle2, AlertTriangle, Upload, PieChart, RefreshCw, Layers, ChevronDown, ChevronUp, HelpCircle } from 'lucide-react';
 import { PortfolioItem } from '../types';
 import { analyzeManualPortfolio, checkNavLag, loadSectorWeights, saveSectorWeights, uploadNav, saveAssetGeo } from '../services/api';
 import { ManualEntryModal } from '../components/ManualEntryModal';
@@ -32,23 +32,69 @@ export const UploadView: React.FC<UploadViewProps> = ({
   // UI State
   const [isAssetSectionOpen, setIsAssetSectionOpen] = useState(true); // Default to open if data exists
 
+  // Auto-run lag check on mount if we have mutual funds
+  useEffect(() => {
+    if (currentData.length > 0 && Object.keys(lagStatus).length === 0) {
+      runLagCheck(currentData);
+    }
+  }, []);
+
   // Manual Entry State
   const [isManualModalOpen, setIsManualModalOpen] = useState(false);
   const [isSectorModalOpen, setIsSectorModalOpen] = useState(false);
   const [selectedTickerForSector, setSelectedTickerForSector] = useState<string>('');
 
-  const runLagCheck = async (items: PortfolioItem[]) => {
-    const mfTickers = Array.from(new Set(items.filter(i => i.isMutualFund).map(i => i.ticker)));
+  const runLagCheck = async (items: PortfolioItem[], forceRefresh: boolean = false) => {
+    if (items.length === 0) return;
+
+    // Find the latest date specifically for Mutual Funds to decouple them from live Stock dates
+    // This ensures we check lag relative to the latest available MF data point
+    const mfLatestDate = items
+      .filter(i => i.isMutualFund && i.weight > 0)
+      .reduce((max, item) => (item.date > max ? item.date : max), '');
+
+    // Use mutual fund date if available, otherwise fallback to global (though we filter for MFs later)
+    const referenceDate = mfLatestDate || items.reduce((max, item) => (item.date > max ? item.date : max), '');
+
+    // Only check mutual funds that are ACTIVE (weight > 0) in that specific reference period
+    const mfTickers = Array.from(new Set(
+      items
+        .filter(i => i.isMutualFund && i.date === referenceDate && i.weight > 0)
+        .map(i => i.ticker)
+    ));
+
     if (mfTickers.length > 0) {
       setIsCheckingLag(true);
       try {
-        const lagResults = await checkNavLag(mfTickers);
+        // Pass referenceDate so we check lag relative to the MF snapshot
+        const lagResults = await checkNavLag(mfTickers, forceRefresh, referenceDate);
         setLagStatus(lagResults);
       } catch (err) {
         console.error("Lag check failed", err);
       } finally {
         setIsCheckingLag(false);
       }
+    } else {
+      // If no active mutual funds, clear any existing lag status (or set to empty)
+      setLagStatus({});
+      setIsCheckingLag(false);
+    }
+  };
+
+  const handleFullRefresh = async () => {
+    setIsCheckingLag(true);
+    try {
+      // 1. Re-analyze portfolio to pick up any new NAVs on disk
+      const results = await analyzeManualPortfolio(currentData);
+      onDataLoaded(results, { name: "Manual Entry (Refreshed)", count: results.length });
+
+      // 2. Re-check lag status with forceRefresh=true
+      await runLagCheck(results, true);
+    } catch (err) {
+      console.error("Full refresh failed", err);
+      setError("Failed to refresh data. Please try again.");
+    } finally {
+      setIsCheckingLag(false);
     }
   };
 
@@ -74,14 +120,24 @@ export const UploadView: React.FC<UploadViewProps> = ({
   const handleNavUpload = async (ticker: string, file: File) => {
     try {
       setError(null);
+      setIsCheckingLag(true);  // Show loading state immediately
+
       await uploadNav(ticker, file);
 
-      // Proactively re-analyze and refresh lag check
+      // Small delay to ensure file is written on server
+      await new Promise(resolve => setTimeout(resolve, 300));
+
+      // Proactively re-analyze and refresh lag check with force refresh
+      // forceRefresh=true ensures server re-reads NAV files from disk
       const analyzedData = await analyzeManualPortfolio(currentData);
       onDataLoaded(analyzedData, { name: "Manual Entry (Updated)", count: analyzedData.length });
-      await runLagCheck(analyzedData);
+
+      // Run lag check to update status with new data (force refresh)
+      await runLagCheck(analyzedData, true);
     } catch (err: any) {
       setError(`Upload failed for ${ticker}: ${err.message}`);
+    } finally {
+      setIsCheckingLag(false);
     }
   };
 
@@ -208,39 +264,80 @@ export const UploadView: React.FC<UploadViewProps> = ({
 
                   <div className="p-5 bg-white rounded-2xl border border-slate-100 flex flex-col items-center justify-center shadow-sm hover:shadow-md transition-shadow">
                     <p className="text-xs text-slate-400 uppercase font-black tracking-widest mb-2">Data Recency</p>
-                    <div className="flex items-center gap-2">
-                      <span className={`text-2xl font-black ${anyLagging ? 'text-amber-600' : 'text-green-600'}`}>
-                        {anyLagging ? 'Lagging' : 'Optimal'}
-                      </span>
-                    </div>
-                    {anyLagging ? (
-                      <div className="flex flex-col items-center gap-1 mt-2">
-                        <button
-                          onClick={() => runLagCheck(currentData)}
-                          className="flex items-center gap-1 text-amber-600 font-bold text-xs bg-amber-50 px-2.5 py-1 rounded-full uppercase hover:bg-amber-100 transition-colors"
-                        >
-                          <RefreshCw size={12} className={isCheckingLag ? "animate-spin" : ""} />
-                          {isCheckingLag ? 'Checking...' : 'Refresh'}
-                        </button>
-                        {(() => {
-                          // Find first lagging item to show dates
-                          const laggingEntries = Object.values(lagStatus).filter(s => s.lagging);
-                          if (laggingEntries.length > 0) {
-                            const first = laggingEntries[0];
-                            return (
-                              <p className="text-[10px] text-slate-500 font-mono mt-1">
-                                NAV: {first.last_nav} <br /> MKT: {first.last_market}
-                              </p>
-                            );
-                          }
-                          return null;
-                        })()}
-                      </div>
-                    ) : (
-                      <div className="mt-2 flex items-center gap-1 text-green-600 font-bold text-xs bg-green-50 px-2.5 py-1 rounded-full uppercase">
-                        <CheckCircle2 size={12} /> Current
-                      </div>
-                    )}
+                    {(() => {
+                      const activeMfItems = currentData.filter(i => i.isMutualFund && i.weight > 0);
+                      const hasMfs = activeMfItems.length > 0;
+
+                      if (!hasMfs) {
+                        return (
+                          <div className="flex flex-col items-center gap-2 py-4">
+                            <span className="text-green-600 font-bold text-lg">Live Data</span>
+                            <span className="text-xs text-slate-400 px-4 text-center">Using real-time market pricing</span>
+                          </div>
+                        );
+                      }
+
+                      const lastMfDate = activeMfItems.reduce((max, item) => (item.date > max ? item.date : max), '');
+                      const activeMfTickers = activeMfItems.map(i => i.ticker);
+                      const relevantStatuses = activeMfTickers.map(t => lagStatus[t]).filter(Boolean);
+
+                      const navDates = relevantStatuses.map(s => s.last_nav).filter(Boolean).sort();
+                      const oldestNavDate = navDates[0] || '';
+
+                      const marketDates = relevantStatuses.map(s => s.last_market).filter(Boolean).sort();
+                      const latestMarketDate = marketDates[marketDates.length - 1] || '';
+
+                      // Check for match
+                      const isSynced = oldestNavDate && lastMfDate && oldestNavDate >= lastMfDate;
+                      const isChecking = isCheckingLag;
+
+                      const todayStr = new Date().toISOString().split('T')[0];
+                      const isStockCurrent = latestMarketDate === todayStr;
+
+                      return (
+                        <>
+                          <div className="flex items-center gap-2 mb-3">
+                            {isChecking ? (
+                              <RefreshCw size={20} className="animate-spin text-slate-400" />
+                            ) : (
+                              <span className={`text-2xl font-black ${isSynced ? 'text-green-600' : 'text-amber-600'}`}>
+                                {isSynced ? 'Synced' : 'Lagging'}
+                              </span>
+                            )}
+                            {!isSynced && !isChecking && (
+                              <button
+                                onClick={() => runLagCheck(currentData, true)}
+                                className="ml-1 bg-amber-50 text-amber-600 p-1.5 rounded-full hover:bg-amber-100 transition-colors"
+                                title="Force refresh"
+                              >
+                                <RefreshCw size={10} />
+                              </button>
+                            )}
+                          </div>
+
+                          <div className="w-full bg-slate-50 rounded-lg p-3 text-xs font-mono space-y-2.5 border border-slate-100">
+                            <div className="flex justify-between items-center border-b border-slate-200 pb-2 mb-1">
+                              <span className="text-slate-400 uppercase tracking-tighter">Stock Data</span>
+                              <span className={isStockCurrent ? "text-green-600 font-bold" : "text-slate-600 font-bold"}>
+                                {latestMarketDate || 'N/A'}
+                              </span>
+                            </div>
+
+                            <div className="flex justify-between items-center">
+                              <span className="text-slate-400 uppercase tracking-tighter">Last MF Date</span>
+                              <span className="text-slate-700 font-bold">{lastMfDate || '-'}</span>
+                            </div>
+
+                            <div className="flex justify-between items-center">
+                              <span className="text-slate-400 uppercase tracking-tighter">Last NAV Data</span>
+                              <span className={`font-bold ${isSynced ? 'text-green-600' : 'text-amber-600'}`}>
+                                {oldestNavDate || (isChecking ? '...' : 'Missing')}
+                              </span>
+                            </div>
+                          </div>
+                        </>
+                      );
+                    })()}
                   </div>
                 </div>
               ) : (

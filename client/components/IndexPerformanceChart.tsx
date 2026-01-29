@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine, Area, AreaChart } from 'recharts';
 import { TrendingUp, TrendingDown, Minus, Calendar } from 'lucide-react';
 
-type Period = 'YTD' | '3M' | '6M' | '1Y' | '3Y' | '5Y';
+type Period = 'YTD' | '3M' | '6M' | '1Y' | '3Y' | '5Y' | '2025';
 
 interface IndexPerformanceChartProps {
     data: Record<string, { date: string, value: number }[]>;
@@ -14,26 +14,53 @@ const periodLabels: Record<Period, string> = {
     '6M': '6 Months',
     '1Y': '1 Year',
     '3Y': '3 Years',
-    '5Y': '5 Years'
+    '5Y': '5 Years',
+    '2025': '2025'
 };
 
-const getStartDateForPeriod = (period: Period): Date => {
+const getDateRangeForPeriod = (period: Period): { start: Date; end?: Date } => {
     const now = new Date();
+    // Reset time to midnight for consistency
+    now.setHours(0, 0, 0, 0);
+
     switch (period) {
+        case '2025':
+            return {
+                start: new Date(2025, 0, 1),
+                end: new Date(2025, 11, 31)
+            };
         case 'YTD':
-            return new Date(now.getFullYear(), 0, 1);
-        case '3M':
-            return new Date(now.setMonth(now.getMonth() - 3));
-        case '6M':
-            return new Date(now.setMonth(now.getMonth() - 6));
-        case '1Y':
-            return new Date(now.setFullYear(now.getFullYear() - 1));
-        case '3Y':
-            return new Date(now.setFullYear(now.getFullYear() - 3));
-        case '5Y':
-            return new Date(now.setFullYear(now.getFullYear() - 5));
-        default:
-            return new Date(now.setFullYear(now.getFullYear() - 5));
+            return { start: new Date(now.getFullYear(), 0, 1) };
+        case '3M': {
+            const date = new Date(now);
+            date.setMonth(date.getMonth() - 3);
+            return { start: date };
+        }
+        case '6M': {
+            const date = new Date(now);
+            date.setMonth(date.getMonth() - 6);
+            return { start: date };
+        }
+        case '1Y': {
+            const date = new Date(now);
+            date.setFullYear(date.getFullYear() - 1);
+            return { start: date };
+        }
+        case '3Y': {
+            const date = new Date(now);
+            date.setFullYear(date.getFullYear() - 3);
+            return { start: date };
+        }
+        case '5Y': {
+            const date = new Date(now);
+            date.setFullYear(date.getFullYear() - 5);
+            return { start: date };
+        }
+        default: {
+            const date = new Date(now);
+            date.setFullYear(date.getFullYear() - 5);
+            return { start: date };
+        }
     }
 };
 
@@ -48,27 +75,28 @@ export const IndexPerformanceChart: React.FC<IndexPerformanceChartProps> = ({ da
         if (acwi.length === 0 || xiu.length === 0) return [];
 
         // Filter by period
-        const startDate = getStartDateForPeriod(selectedPeriod);
-        const startDateStr = startDate.toISOString().split('T')[0];
+        const { start, end } = getDateRangeForPeriod(selectedPeriod);
+        const startDateStr = start.toISOString().split('T')[0];
+        const endDateStr = end ? end.toISOString().split('T')[0] : '9999-12-31';
 
         // Create a map for quick lookup by date
         const dateMap = new Map<string, { date: string, ACWI?: number, XIU?: number, Index?: number }>();
 
         acwi.forEach(item => {
-            if (item.date >= startDateStr) {
+            if (item.date >= startDateStr && item.date <= endDateStr) {
                 dateMap.set(item.date, { date: item.date, ACWI: item.value });
             }
         });
 
         xiu.forEach(item => {
-            if (item.date >= startDateStr) {
+            if (item.date >= startDateStr && item.date <= endDateStr) {
                 const existing = dateMap.get(item.date) || { date: item.date };
                 dateMap.set(item.date, { ...existing, XIU: item.value });
             }
         });
 
         index.forEach(item => {
-            if (item.date >= startDateStr) {
+            if (item.date >= startDateStr && item.date <= endDateStr) {
                 const existing = dateMap.get(item.date) || { date: item.date };
                 dateMap.set(item.date, { ...existing, Index: item.value });
             }
@@ -112,6 +140,7 @@ export const IndexPerformanceChart: React.FC<IndexPerformanceChartProps> = ({ da
         // Calculate years in the period
         const getYearsInPeriod = (): number => {
             switch (selectedPeriod) {
+                case '2025': return 1;
                 case 'YTD': {
                     // Days since Jan 1 of current year
                     const now = new Date();
@@ -261,18 +290,20 @@ export const IndexPerformanceChart: React.FC<IndexPerformanceChartProps> = ({ da
             {/* Period Selector & Performance Summary */}
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-4">
                 {/* Period Selector Pills */}
-                <div className="flex bg-slate-100 p-1 rounded-xl">
-                    {(['YTD', '3M', '6M', '1Y', '3Y', '5Y'] as Period[]).map((period) => (
-                        <button
-                            key={period}
-                            onClick={() => setSelectedPeriod(period)}
-                            className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all duration-200 ${selectedPeriod === period
-                                ? 'bg-wallstreet-accent text-white shadow-sm'
-                                : 'text-slate-500 hover:text-slate-800 hover:bg-slate-200'
-                                }`}
-                        >
-                            {period}
-                        </button>
+                <div className="flex bg-slate-100 p-1 rounded-xl items-center overflow-x-auto max-w-full">
+                    {(['2025', 'YTD', '3M', '6M', '1Y', '3Y', '5Y'] as Period[]).map((period) => (
+                        <React.Fragment key={period}>
+                            <button
+                                onClick={() => setSelectedPeriod(period)}
+                                className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all duration-200 ${selectedPeriod === period
+                                    ? 'bg-wallstreet-accent text-white shadow-sm'
+                                    : 'text-slate-500 hover:text-slate-800 hover:bg-slate-200'
+                                    }`}
+                            >
+                                {period}
+                            </button>
+                            {period === '2025' && <div className="mx-1 h-4 w-px bg-slate-300" />}
+                        </React.Fragment>
                     ))}
                 </div>
 
@@ -341,7 +372,7 @@ export const IndexPerformanceChart: React.FC<IndexPerformanceChartProps> = ({ da
 
                                 return (
                                     <div className="bg-white/95 border border-slate-200 rounded-xl shadow-lg p-3 font-mono text-sm">
-                                        <p className="font-bold text-slate-600 mb-2 border-b pb-1">{formatTooltipDate(label)}</p>
+                                        <p className="font-bold text-slate-600 mb-2 border-b pb-1">{formatTooltipDate(String(label))}</p>
                                         {sorted.map((entry, idx) => (
                                             <div key={entry.dataKey} className="flex justify-between items-center gap-4 py-0.5">
                                                 <span style={{ color: entry.color }} className="font-medium">

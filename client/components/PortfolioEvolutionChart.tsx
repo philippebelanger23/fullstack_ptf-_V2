@@ -1,4 +1,4 @@
-import React, { memo } from 'react';
+import React, { memo, useMemo } from 'react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { TrendingUp } from 'lucide-react';
 
@@ -55,10 +55,28 @@ const CustomAreaTooltip = ({ active, payload, label, dates }: any) => {
 
 
 export const PortfolioEvolutionChart = memo(({ data, topTickers, dates, colors }: Props) => {
+    const yAxisTicks = useMemo(() => {
+        if (!data || data.length === 0) return [0, 20, 40, 60, 80, 100];
+
+        const maxDataValue = Math.max(...data.map(d => {
+            return topTickers.reduce((sum, t) => sum + (d[t] || 0), 0);
+        }));
+
+        const step = 20;
+        // Ensure we have some buffer (10% or at least a bit) before snapping to next 20
+        const maxTick = Math.ceil((maxDataValue * 1.05) / step) * step;
+
+        const ticks = [];
+        for (let i = 0; i <= maxTick; i += step) {
+            ticks.push(i);
+        }
+        return ticks;
+    }, [data, topTickers]);
+
     return (
         <div className="lg:col-span-4 bg-white p-6 rounded-xl border border-wallstreet-700 shadow-sm flex flex-col">
             <div className="mb-4">
-                <h3 className="font-mono font-bold text-wallstreet-text uppercase tracking-wider text-sm flex items-center gap-2"><TrendingUp size={16} className="text-wallstreet-500" /> Portfolio Evolution (Top 10) </h3>
+                <h3 className="font-mono font-bold text-wallstreet-text uppercase tracking-wider text-sm flex items-center gap-2"><TrendingUp size={16} className="text-wallstreet-500" /> Actual Top 10 - historical weights</h3>
                 <p className="text-xs text-wallstreet-500 mt-1 text-slate-400">Historical absolute weight allocation of the top 10 positions over time</p>
             </div>
 
@@ -67,7 +85,7 @@ export const PortfolioEvolutionChart = memo(({ data, topTickers, dates, colors }
                     <AreaChart data={data} margin={{ top: 10, right: 10, left: 0, bottom: 5 }}>
                         <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
                         <XAxis dataKey="date" stroke="#94a3b8" tickFormatter={formatDateTick} tick={{ fontSize: 12, fontFamily: 'monospace' }} axisLine={{ stroke: '#e2e8f0' }} tickLine={false} dy={10} minTickGap={50} />
-                        <YAxis stroke="#94a3b8" tickFormatter={(val) => `${val.toFixed(0)}%`} tick={{ fontSize: 12, fontFamily: 'monospace' }} axisLine={false} tickLine={false} />
+                        <YAxis domain={[0, yAxisTicks[yAxisTicks.length - 1]]} ticks={yAxisTicks} stroke="#94a3b8" tickFormatter={(val) => `${val.toFixed(0)}%`} tick={{ fontSize: 12, fontFamily: 'monospace' }} axisLine={false} tickLine={false} />
                         <Tooltip content={(props) => <CustomAreaTooltip {...props} dates={dates} />} />
                         {topTickers.map((ticker, index) => (
                             <Area key={ticker} type="monotone" dataKey={ticker} stackId="1" stroke={colors[index % colors.length]} fill={colors[index % colors.length]} fillOpacity={0.8} strokeWidth={0} />

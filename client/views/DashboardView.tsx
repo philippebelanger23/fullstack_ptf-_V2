@@ -5,7 +5,7 @@ import { KPICard } from '../components/KPICard';
 import { ConcentrationPieChart } from '../components/ConcentrationPieChart';
 import { PortfolioEvolutionChart } from '../components/PortfolioEvolutionChart';
 import { SectorDeviationCard } from '../components/SectorDeviationCard';
-import { Wallet, Layers, PieChart as PieChartIcon, Wallet2Icon, WalletIcon } from 'lucide-react';
+import { Wallet, Layers, PieChart as PieChartIcon, Wallet2Icon, WalletIcon, AlertCircle, RefreshCw } from 'lucide-react';
 
 interface DashboardViewProps {
   data: PortfolioItem[];
@@ -38,34 +38,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ data, customSector
 
     const top10TotalWeight = currentTopHoldings.reduce((sum, item) => sum + item.value, 0);
 
-    // Global top tickers for the Evolution Chart (union of top 10 at each date)
-    const globalTopTickersSet = new Set<string>();
-    dates.forEach(date => {
-      const holdingsAtDate = data.filter(d => d.date === date);
-      const topAtDate = [...holdingsAtDate]
-        .sort((a, b) => b.weight - a.weight)
-        .slice(0, 10)
-        .map(h => h.ticker);
-      topAtDate.forEach(ticker => globalTopTickersSet.add(ticker));
-    });
-
-    const topTickers = Array.from(globalTopTickersSet).sort((a, b) => {
-      // 1. Sort by Current Weight (Descending)
-      // This puts the biggest current holdings at the bottom of the stack
-      const weightA = currentHoldings.find(h => h.ticker === a)?.weight || 0;
-      const weightB = currentHoldings.find(h => h.ticker === b)?.weight || 0;
-
-      // If there's a significant difference in current weight, use that
-      if (Math.abs(weightA - weightB) > 0.001) {
-        return weightB - weightA;
-      }
-
-      // 2. Fallback: Sort by Max Historical Weight (Descending)
-      // Useful for positions that are currently 0 (exited) but were significant
-      const maxA = Math.max(...data.filter(d => d.ticker === a).map(d => d.weight));
-      const maxB = Math.max(...data.filter(d => d.ticker === b).map(d => d.weight));
-      return maxB - maxA;
-    });
+    // Global top tickers for the Evolution Chart
+    // RESTRICTED TO CURRENT TOP 10 ONLY based on user feedback to reduce clutter
+    const topTickers = currentTopHoldings.map(h => h.name);
 
     return { topHoldings: currentTopHoldings, top10TotalWeight, topTickers };
   }, [currentHoldings, data, dates]);
@@ -104,6 +79,17 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ data, customSector
   const [divYieldMap, setDivYieldMap] = React.useState<Record<string, number>>({});
   const [benchmarkSectors, setBenchmarkSectors] = React.useState<any[]>([]);
 
+  // Error and loading state for better UX
+  const [dataFetchError, setDataFetchError] = React.useState<string | null>(null);
+  const [isLoadingMarketData, setIsLoadingMarketData] = React.useState(false);
+
+  // Retry mechanism for failed data fetches
+  const retryFetchData = React.useCallback(() => {
+    setDataFetchError(null);
+    setIsLoadingMarketData(true);
+    // Trigger useEffect by incrementing a counter or directly calling fetch
+  }, []);
+
   // Fetch Sectors and Betas effect
   React.useEffect(() => {
     const fetchData = async () => {
@@ -118,48 +104,91 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ data, customSector
 
       if (tickersToFetch.length === 0) return;
 
+      setIsLoadingMarketData(true);
+      setDataFetchError(null);
+
+      const errors: string[] = [];
+
       try {
         const { fetchSectors, fetchBetas, fetchDividends, loadSectorWeights, loadAssetGeo, fetchIndexExposure } = await import('../services/api');
 
-        // Fetch Sectors
-        const sectors = await fetchSectors(tickersToFetch);
-        if (Object.keys(sectors).length > 0) {
-          setSectorMap(prev => ({ ...prev, ...sectors }));
+        // Fetch Sectors with error handling
+        try {
+          const sectors = await fetchSectors(tickersToFetch);
+          if (Object.keys(sectors).length > 0) {
+            setSectorMap(prev => ({ ...prev, ...sectors }));
+          }
+        } catch (e) {
+          console.error("Failed to fetch sectors:", e);
+          errors.push("sectors");
         }
 
-        const betas = await fetchBetas(tickersToFetch);
-        if (Object.keys(betas).length > 0) {
-          setBetaMap(betas);
+        // Fetch Betas with error handling
+        try {
+          const betas = await fetchBetas(tickersToFetch);
+          if (Object.keys(betas).length > 0) {
+            setBetaMap(betas);
+          }
+        } catch (e) {
+          console.error("Failed to fetch betas:", e);
+          errors.push("betas");
         }
 
-        const dividends = await fetchDividends(tickersToFetch);
-        if (Object.keys(dividends).length > 0) {
-          setDivYieldMap(dividends);
+        // Fetch Dividends with error handling
+        try {
+          const dividends = await fetchDividends(tickersToFetch);
+          if (Object.keys(dividends).length > 0) {
+            setDivYieldMap(dividends);
+          }
+        } catch (e) {
+          console.error("Failed to fetch dividends:", e);
+          errors.push("dividends");
         }
 
         // Only fetch if props are missing
         if (!customSectors) {
-          const loadedWeights = await loadSectorWeights();
-          if (Object.keys(loadedWeights).length > 0) {
-            setLocalCustomSectorWeights(loadedWeights);
+          try {
+            const loadedWeights = await loadSectorWeights();
+            if (Object.keys(loadedWeights).length > 0) {
+              setLocalCustomSectorWeights(loadedWeights);
+            }
+          } catch (e) {
+            console.error("Failed to load sector weights:", e);
           }
         }
 
         if (!assetGeo) {
-          const loadedGeo = await loadAssetGeo();
-          if (Object.keys(loadedGeo).length > 0) {
-            setLocalAssetGeo(loadedGeo);
+          try {
+            const loadedGeo = await loadAssetGeo();
+            if (Object.keys(loadedGeo).length > 0) {
+              setLocalAssetGeo(loadedGeo);
+            }
+          } catch (e) {
+            console.error("Failed to load asset geo:", e);
           }
         }
 
         // Fetch Benchmark Data
-        const exposure = await fetchIndexExposure();
-        if (exposure && exposure.sectors) {
-          setBenchmarkSectors(exposure.sectors);
+        try {
+          const exposure = await fetchIndexExposure();
+          if (exposure && exposure.sectors) {
+            setBenchmarkSectors(exposure.sectors);
+          }
+        } catch (e) {
+          console.error("Failed to fetch benchmark data:", e);
+          errors.push("benchmark");
+        }
+
+        // Set error message if any fetches failed
+        if (errors.length > 0) {
+          setDataFetchError(`Failed to load: ${errors.join(", ")}. Some data may be incomplete.`);
         }
 
       } catch (error) {
-        console.error("Error fetching data:", error);
+        console.error("Critical error fetching market data:", error);
+        setDataFetchError("Failed to connect to market data service. Please check your connection and try again.");
+      } finally {
+        setIsLoadingMarketData(false);
       }
     };
 
@@ -200,6 +229,31 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ data, customSector
           <span>{dates.length} Snapshots</span>
         </div>
       </header>
+
+      {/* Error Banner for Market Data Fetch Failures */}
+      {dataFetchError && (
+        <div className="bg-amber-900/20 border border-amber-600/50 rounded-lg px-4 py-3 flex items-center justify-between animate-in fade-in">
+          <div className="flex items-center gap-3">
+            <AlertCircle className="h-5 w-5 text-amber-500 flex-shrink-0" />
+            <p className="text-sm text-amber-200">{dataFetchError}</p>
+          </div>
+          <button
+            onClick={() => window.location.reload()}
+            className="flex items-center gap-1.5 text-xs font-medium text-amber-400 hover:text-amber-300 transition-colors px-2 py-1 rounded hover:bg-amber-900/30"
+          >
+            <RefreshCw className="h-3.5 w-3.5" />
+            Retry
+          </button>
+        </div>
+      )}
+
+      {/* Loading Indicator */}
+      {isLoadingMarketData && (
+        <div className="flex items-center gap-2 text-sm text-wallstreet-500 animate-pulse">
+          <RefreshCw className="h-4 w-4 animate-spin" />
+          Loading market data...
+        </div>
+      )}
 
       {/* KPI Section */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 animate-in fade-in slide-in-from-bottom-2">

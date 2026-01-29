@@ -37,6 +37,8 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import { KPICard } from '../components/KPICard';
 import { Dropdown } from '../components/Dropdown';
 import { TrendingUp, Target, AlertTriangle, Calendar, Grid, Activity, Percent, Layers, Zap, Scale, Info, Printer, Download, Loader2, ArrowUpRight, ArrowDownRight } from 'lucide-react';
+
+
 interface AttributionViewProps {
     data: PortfolioItem[];
     selectedYear: 2025 | 2026;
@@ -262,12 +264,16 @@ const aggregatePeriodData = (data: PortfolioItem[]): TableItem[] => {
         // Avoid division by zero
         const weightedAvgReturn = weightSum > 0 ? (weightTimesReturnSum / weightSum) : 0;
 
-        results.push({
-            ticker,
-            weight: endOfPeriodWeight,
-            contribution: totalContrib,
-            returnPct: weightedAvgReturn
-        });
+        // Only push if there is a non-zero weight OR a non-zero contribution
+        // Use a small epsilon for contribution to avoid floating point noise
+        if (endOfPeriodWeight > 0.001 || Math.abs(totalContrib) > 0.0001) {
+            results.push({
+                ticker,
+                weight: endOfPeriodWeight,
+                contribution: totalContrib,
+                returnPct: weightedAvgReturn
+            });
+        }
     });
 
     return results;
@@ -404,7 +410,7 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
             const latestWeight = latestEntry ? latestEntry.weight : 0;
 
             return { ticker, totalContrib, history, latestWeight, stdDevContrib, beta, riskScore: stdDevContrib };
-        });
+        }).filter(t => t.latestWeight > 0.001 || Math.abs(t.totalContrib) > 0.0001);
     }, [uniqueTickers, filteredOverviewData, allMonths]);
 
     const sortedByContrib = useMemo(() => [...tickerStats].sort((a, b) => b.totalContrib - a.totalContrib), [tickerStats]);
@@ -539,7 +545,15 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
             row[`w-${key}`] = monthlyEntries.length > 0 ? Math.max(...monthlyEntries.map(e => e.weight)) : 0;
         });
         return row;
+    }).filter(row => {
+        // Filter out tickers where ALL months have null contributions (no data for this year)
+        const hasAnyNonNullContrib = allMonths.some(monthDate => {
+            const key = `${monthDate.getFullYear()}-${monthDate.getMonth()}`;
+            return row[key] !== null;
+        });
+        return hasAnyNonNullContrib;
     });
+
 
     const heatmapTotals = useMemo(() => {
         const totals: Record<string, number> = {};
@@ -628,6 +642,10 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
         const data = combined.map(i => ({ ticker: i.ticker, value: i.totalContrib, fill: i.totalContrib >= 0 ? '#16a34a' : '#dc2626' }));
         return { data, domain: [-domainLimit, domainLimit] };
     }, [sortedByContrib]);
+
+
+
+
 
     const activeReturn = heatmapTotals.grandTotal;
     const sharpeRatio = useMemo(() => {
@@ -731,13 +749,6 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
             {viewMode === 'OVERVIEW' && (
                 <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2">
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                        <KPICard title="Active Return" value={`${activeReturn > 0 ? '+' : ''}${activeReturn.toFixed(2)}%`} subtext="Total Portfolio Return" icon={null} colorClass={activeReturn >= 0 ? 'text-green-600' : 'text-red-600'} />
-                        <KPICard title="Sharpe Ratio (Dummy)" value={sharpeRatio.toFixed(2)} subtext="Risk-Adjusted (Ann.)" icon={null} colorClass="text-wallstreet-accent" />
-                        <KPICard title="Agg. Div Yield (Dummy)" value="1.45%" subtext="Est. 12M Trailing" icon={Percent} colorClass="text-wallstreet-text" />
-                        <KPICard title="Beta vs Bench (Dummy)" value="1.00" subtext="Benchmark Correlation" icon={Target} colorClass="text-wallstreet-text" />
-                    </div>
-
                     <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 h-auto lg:h-[500px]">
                         <div className="lg:col-span-5 bg-white p-6 rounded-xl border border-wallstreet-700 shadow-sm flex flex-col">
                             <div className="mb-4">
@@ -835,7 +846,7 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
                                                 return null;
                                             }} />
                                             {/* Reference Line at Expected Contribution (y = Weight * PortfolioReturn) */}
-                                            <ReferenceLine segment={diagonalEndpoint} stroke="#94a3b8" strokeDasharray="3 3" />
+                                            <ReferenceLine segment={diagonalEndpoint as any} stroke="#94a3b8" strokeDasharray="3 3" />
                                             <Scatter name="Tickers" data={capitalEfficiencyData} fill="#004dea">
                                                 {capitalEfficiencyData.map((entry, index) => {
                                                     // Gradient coloring based on Efficiency Score
@@ -931,6 +942,8 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
                             </div>
                         </div>
                     </div>
+
+
 
                     <div className="bg-white rounded-xl border border-wallstreet-700 shadow-lg overflow-hidden flex flex-col">
                         <div className="flex justify-between items-center p-4 border-b border-wallstreet-700 bg-wallstreet-50/50">
