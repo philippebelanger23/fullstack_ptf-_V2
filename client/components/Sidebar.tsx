@@ -45,12 +45,17 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, setView, hasData,
 
         <div onClick={() => hasData && !isLocked && setView(ViewState.ATTRIBUTION)} className={navItemClass(ViewState.ATTRIBUTION, !hasData || isLocked)}>
           <BarChart2 size={20} />
-          <span className="font-medium">Attribution</span>
+          <span className="font-medium">Return Contribution</span>
+        </div>
+
+        <div onClick={() => hasData && !isLocked && setView(ViewState.RISK_CONTRIBUTION)} className={navItemClass(ViewState.RISK_CONTRIBUTION, !hasData || isLocked)}>
+          <TrendingUp size={20} className="rotate-90" />
+          <span className="font-medium">Risk Contribution</span>
         </div>
 
         <div onClick={() => hasData && !isLocked && setView(ViewState.PERFORMANCE)} className={navItemClass(ViewState.PERFORMANCE, !hasData || isLocked)}>
           <TrendingUp size={20} />
-          <span className="font-medium">Performance</span>
+          <span className="font-medium">Relative Performance</span>
         </div>
 
         <div onClick={() => hasData && !isLocked && setView(ViewState.CORRELATION)} className={navItemClass(ViewState.CORRELATION, !hasData || isLocked)}>
