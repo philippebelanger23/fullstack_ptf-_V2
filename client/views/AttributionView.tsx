@@ -1,4 +1,9 @@
 import React, { useMemo, useState, Component, ErrorInfo } from 'react';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, LabelList, ReferenceLine, ScatterChart, Scatter, ZAxis, ComposedChart, Line, ReferenceArea, Dot } from 'recharts';
+import { KPICard } from '../components/KPICard';
+import { Dropdown } from '../components/Dropdown';
+import { TrendingUp, Target, AlertTriangle, Calendar, Grid, Activity, Percent, Layers, Zap, Scale, Info, Printer, Download, Loader2, ArrowUpRight, ArrowDownRight, Briefcase } from 'lucide-react';
+import { fetchSectorHistory, fetchSectors } from '../services/api';
 import { PortfolioItem } from '../types';
 
 class ErrorBoundary extends Component<{ children: React.ReactNode }, { hasError: boolean, error: Error | null, errorInfo: ErrorInfo | null }> {
@@ -32,11 +37,6 @@ class ErrorBoundary extends Component<{ children: React.ReactNode }, { hasError:
         return this.props.children;
     }
 }
-
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, LabelList, ReferenceLine, ScatterChart, Scatter, ZAxis, ComposedChart, Line, ReferenceArea } from 'recharts';
-import { KPICard } from '../components/KPICard';
-import { Dropdown } from '../components/Dropdown';
-import { TrendingUp, Target, AlertTriangle, Calendar, Grid, Activity, Percent, Layers, Zap, Scale, Info, Printer, Download, Loader2, ArrowUpRight, ArrowDownRight } from 'lucide-react';
 
 
 interface AttributionViewProps {
@@ -242,8 +242,8 @@ const aggregatePeriodData = (data: PortfolioItem[]): TableItem[] => {
         // 1. Weight: End-of-Period Weight
         // Find the item with the latest date (max date)
         // Sort items by date ascending to find the last one easily
-        items.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-        const lastItem = items[items.length - 1];
+        const sortedItems = [...items].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+        const lastItem = sortedItems[sortedItems.length - 1];
         const endOfPeriodWeight = lastItem.weight;
 
         // 2. Contribution: Sum of all particular contributions
@@ -282,6 +282,31 @@ const aggregatePeriodData = (data: PortfolioItem[]): TableItem[] => {
 const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selectedYear, setSelectedYear }) => {
     const [viewMode, setViewMode] = useState<'OVERVIEW' | 'TABLES'>('OVERVIEW');
     const [timeRange, setTimeRange] = useState<'YTD' | 'Q1' | 'Q2' | 'Q3' | 'Q4'>('YTD');
+    const [sectorHistory, setSectorHistory] = useState<Record<string, { date: string, value: number }[]>>({});
+    const [tickerSectors, setTickerSectors] = useState<Record<string, string>>({});
+    const [loadingSectors, setLoadingSectors] = useState(true);
+    const [regionFilter, setRegionFilter] = useState<'ALL' | 'US' | 'CA'>('ALL');
+
+    React.useEffect(() => {
+        const loadData = async () => {
+            setLoadingSectors(true);
+            const res = await fetchSectorHistory();
+            setSectorHistory(res);
+            setLoadingSectors(false);
+        };
+        loadData();
+    }, []);
+
+    // Fetch sector classifications for all tickers in the portfolio
+    React.useEffect(() => {
+        const tickers = Array.from(new Set(data.map(d => d.ticker))).filter(t => t !== 'CASH');
+        if (tickers.length === 0) return;
+        const loadTickerSectors = async () => {
+            const sectors = await fetchSectors(tickers);
+            setTickerSectors(sectors);
+        };
+        loadTickerSectors();
+    }, [data]);
 
     const handlePrint = () => {
         window.print();
@@ -409,126 +434,15 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
             }, history[0]);
             const latestWeight = latestEntry ? latestEntry.weight : 0;
 
-            return { ticker, totalContrib, history, latestWeight, stdDevContrib, beta, riskScore: stdDevContrib };
+            const totalReturn = history.reduce((sum, item) => sum + (item.returnPct || 0), 0);
+
+            return { ticker, totalContrib, totalReturn, history, latestWeight, stdDevContrib, beta, riskScore: stdDevContrib };
         }).filter(t => t.latestWeight > 0.001 || Math.abs(t.totalContrib) > 0.0001);
     }, [uniqueTickers, filteredOverviewData, allMonths]);
 
     const sortedByContrib = useMemo(() => [...tickerStats].sort((a, b) => b.totalContrib - a.totalContrib), [tickerStats]);
     // Update: Sort by latestWeight instead of avgWeight to match Dashboard logic
     const sortedByWeight = useMemo(() => [...tickerStats].sort((a, b) => b.latestWeight - a.latestWeight), [tickerStats]);
-
-    const capitalEfficiencyData = useMemo(() => {
-        // Calculate Total Portfolio Contribution (Sum of all ticker total contributions)
-        const totalPortfolioContrib = tickerStats.reduce((sum, t) => sum + t.totalContrib, 0);
-
-        // Sort by Weight Descending and take Top 15 for cleaner visualization
-        const top30 = [...tickerStats]
-            .sort((a, b) => b.latestWeight - a.latestWeight)
-            .slice(0, 15);
-
-        return top30.map(s => {
-            // Efficiency Score: Distance from the expected return line
-            // Expected Return = Weight * (TotalPortfolioReturn / 100)
-            const expectedContrib = (s.latestWeight / 100) * totalPortfolioContrib;
-            const efficiencyScore = s.totalContrib - expectedContrib; // Positive = Improving Efficiency
-
-            // Total Return % (Simple approximation: Contrib / Weight)
-            const impliedReturn = s.latestWeight > 0.01 ? (s.totalContrib / s.latestWeight) * 100 : 0;
-
-            return {
-                ticker: s.ticker,
-                x: s.latestWeight,
-                y: s.totalContrib, // Absolute Contribution %
-                absoluteContrib: s.totalContrib,
-                efficiencyScore: efficiencyScore,
-                impliedReturn: impliedReturn,
-                z: 1 // Placeholder for Sizing if we had Conviction data
-            };
-        });
-    }, [tickerStats]);
-
-    // Calculate dynamic domains for X and Y to maximize graph space usage with constant increments
-    const { xDomain, xTicks, yDomain, yTicks, portfolioReturn } = useMemo(() => {
-        // Calculate Portfolio Return for Reference Line Slope
-        const totalPortRet = tickerStats.reduce((sum, t) => sum + t.totalContrib, 0);
-
-        if (capitalEfficiencyData.length === 0) return { xDomain: [0, 10], xTicks: [0, 2, 4, 6, 8, 10], yDomain: [0, 10], yTicks: [0, 2, 4, 6, 8, 10], portfolioReturn: totalPortRet };
-
-        const minX = 0; // Weights are always positive
-        const maxX = Math.max(0, ...capitalEfficiencyData.map(d => d.x));
-
-        const minY = Math.min(0, ...capitalEfficiencyData.map(d => d.y));
-        const maxY = Math.max(0, ...capitalEfficiencyData.map(d => d.y));
-
-        const getTicks = (minVal: number, maxVal: number) => {
-            // Determine range to find step size
-            const range = maxVal - minVal;
-            const absMax = Math.max(Math.abs(minVal), Math.abs(maxVal));
-
-            let step = 1;
-            if (absMax > 100) step = 20;
-            else if (absMax > 50) step = 10;
-            else if (absMax > 25) step = 5;
-            else if (absMax > 8) step = 2; // Granular step for small contributions
-            else if (absMax > 2) step = 0.5; // Very granular for small contribs
-            else step = 0.1;
-
-            // Round min/max to nearest step
-            const niceMin = Math.floor(minVal / step) * step;
-            const niceMax = Math.ceil(maxVal / step) * step;
-
-            const ticks: number[] = [];
-            // Use epsilon to avoid float artifacts
-            for (let i = niceMin; i <= niceMax + (step / 1000); i += step) {
-                ticks.push(Number(i.toFixed(2))); // Keep 2 decimals for small contribs if needed
-            }
-            return { domain: [niceMin, niceMax], ticks };
-        };
-
-        const xData = getTicks(minX, maxX); // X is always 0 to Max
-        const yData = getTicks(minY, maxY); // Y can be negative (No buffer needed if ticks align)
-
-        return { xDomain: xData.domain, xTicks: xData.ticks, yDomain: yData.domain, yTicks: yData.ticks, portfolioReturn: totalPortRet };
-    }, [capitalEfficiencyData, tickerStats]);
-
-    const diagonalEndpoint = useMemo(() => {
-        // Line Equation: y = x * (PortfolioReturn / 100)
-        // We start at (0,0). We need to find where this line intersects the bounding box defined by domains.
-        // Slope m
-        const m = portfolioReturn / 100;
-
-        // Bounding Box
-        const xMin = xDomain[0] as number;
-        const xMax = xDomain[1] as number;
-        const yMin = yDomain[0] as number;
-        const yMax = yDomain[1] as number;
-
-        // Candidates for end point:
-        // 1. Right Wall (x = xMax) -> y = m * xMax
-        const yAtRight = m * xMax;
-        if (yAtRight >= yMin && yAtRight <= yMax) {
-            return [{ x: 0, y: 0 }, { x: xMax, y: yAtRight }];
-        }
-
-        // 2. Top Wall (y = yMax) -> x = yMax / m (Only if m > 0)
-        if (m > 0) {
-            const xAtTop = yMax / m;
-            if (xAtTop >= xMin && xAtTop <= xMax) {
-                return [{ x: 0, y: 0 }, { x: xAtTop, y: yMax }];
-            }
-        }
-
-        // 3. Bottom Wall (y = yMin) -> x = yMin / m (Only if m < 0)
-        if (m < 0) {
-            const xAtBottom = yMin / m;
-            if (xAtBottom >= xMin && xAtBottom <= xMax) {
-                return [{ x: 0, y: 0 }, { x: xAtBottom, y: yMin }];
-            }
-        }
-
-        // Fallback default (should be covered by above unless 0 slope)
-        return [{ x: 0, y: 0 }, { x: xMax, y: 0 }];
-    }, [xDomain, yDomain, portfolioReturn]);
 
     const matrixData = sortedByContrib.map(stat => {
         const row: any = { ticker: stat.ticker, total: stat.totalContrib, latestWeight: stat.latestWeight }; // Use latestWeight explicitly
@@ -626,22 +540,202 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
             if (d.value[1] > max) max = d.value[1];
         });
 
-        // Add a tiny buffer (5%) so the top label doesn't get cut off, but keep it tight
+        // Add a more generous buffer (15%) to both top and bottom so labels don't get cut off
         const range = max - min;
-        const buffer = range * 0.05;
+        const buffer = range * 0.15;
 
-        return [min, max + buffer];
+        return [min - buffer, max + buffer];
     }, [waterfallData]);
 
+    const sectorBenchmarkReturns = useMemo(() => {
+        if (!sectorHistory || Object.keys(sectorHistory).length === 0) return {};
+        
+        const results: Record<string, number> = {};
+        const quarters: Record<string, number[]> = { 'Q1': [0, 2], 'Q2': [3, 5], 'Q3': [6, 8], 'Q4': [9, 11] };
+        
+        Object.keys(sectorHistory).forEach(sector => {
+            const hist = sectorHistory[sector];
+            if (!hist || hist.length < 2) return;
+            
+            // Safer Year parsing (avoid JS Date UTC issues)
+            const yearHist = hist.filter(h => h.date.startsWith(selectedYear.toString()));
+            if (yearHist.length < 2) return;
+
+            // Sort by date
+            const sortedYearHist = [...yearHist].sort((a,b) => a.date.localeCompare(b.date));
+            
+            let startPoint, endPoint;
+            
+            if (timeRange === 'YTD') {
+                startPoint = sortedYearHist[0];
+                endPoint = sortedYearHist[sortedYearHist.length - 1];
+            } else {
+                const months = quarters[timeRange];
+                const periodHist = yearHist.filter(h => {
+                    // Month is index 5-6 in YYYY-MM-DD
+                    const m = parseInt(h.date.substring(5, 7)) - 1;
+                    return m >= months[0] && m <= months[1];
+                });
+                if (periodHist.length < 2) return;
+                const sortedPeriodHist = [...periodHist].sort((a,b) => a.date.localeCompare(b.date));
+                startPoint = sortedPeriodHist[0];
+                endPoint = sortedPeriodHist[sortedPeriodHist.length - 1];
+            }
+            
+            if (startPoint && endPoint && startPoint.value > 0) {
+                results[sector] = (endPoint.value / startPoint.value - 1) * 100;
+            }
+        });
+        
+        return results;
+    }, [sectorHistory, selectedYear, timeRange]);
+
+    const sectorComparisonData = useMemo(() => {
+        const sectorMapping: Record<string, string> = {
+            "Information Technology": "Information Technology",
+            "Information Tech": "Information Technology",
+            "Technology": "Information Technology",
+            "Financials": "Financials",
+            "Financial Services": "Financials",
+            "Finance": "Financials",
+            "Health Care": "Health Care",
+            "Healthcare": "Health Care",
+            "Consumer Discretionary": "Consumer Discretionary",
+            "Consumer Cyclical": "Consumer Discretionary",
+            "Cyclical Consumer": "Consumer Discretionary",
+            "Communication Services": "Communication Services",
+            "Communications": "Communication Services",
+            "Industrials": "Industrials",
+            "Industrial": "Industrials",
+            "Consumer Staples": "Consumer Staples",
+            "Consumer Defensive": "Consumer Staples",
+            "Energy": "Energy",
+            "Oil & Gas": "Energy",
+            "Utilities": "Utilities",
+            "Utility": "Utilities",
+            "Real Estate": "Real Estate",
+            "Materials": "Materials",
+            "Basic Materials": "Materials"
+        };
+
+        const CANONICAL_TO_DISPLAY: Record<string, string> = {
+            "Materials": "Basic Materials",
+            "Consumer Discretionary": "Cons. Cyclical",
+            "Financials": "Financial Services",
+            "Real Estate": "Real Estate",
+            "Communication Services": "Comm. Services",
+            "Energy": "Energy",
+            "Industrials": "Industrials",
+            "Information Technology": "Technology",
+            "Consumer Staples": "Cons. Defensive",
+            "Health Care": "Health Care",
+            "Utilities": "Utilities"
+        };
+
+        const FIXED_SECTOR_ORDER = [
+            "Materials",
+            "Consumer Discretionary",
+            "Financials",
+            "Real Estate",
+            "Communication Services",
+            "Energy",
+            "Industrials",
+            "Information Technology",
+            "Consumer Staples",
+            "Health Care",
+            "Utilities"
+        ];
+
+        const sectorGroups: Record<string, { stocks: any[], sumWeight: number, sumWeightedReturn: number }> = {};
+
+        // Filter tickers by region, excluding ETFs and MFs
+        const filteredTickers = uniqueTickers.filter(ticker => {
+            if (ticker === 'CASH' || ticker === '*CASH*') return false;
+            // Exclude ETFs and Mutual Funds
+            const entry = data.find(d => d.ticker === ticker);
+            if (entry?.isEtf || entry?.isMutualFund) return false;
+            
+            if (regionFilter === 'CA') return ticker.endsWith('.TO');
+            if (regionFilter === 'US') return !ticker.endsWith('.TO');
+            return true; // ALL
+        });
+
+        filteredTickers.forEach(ticker => {
+            const stats = tickerStats.find(t => t.ticker === ticker);
+            if (!stats) return;
+            
+            // Get sector from fetched sector data (not from PortfolioItem which doesn't have it)
+            const sectorName = tickerSectors[ticker] || 'Other';
+            const benchmarkName = sectorMapping[sectorName] || 'Other';
+            
+            if (!sectorGroups[benchmarkName]) {
+                sectorGroups[benchmarkName] = { stocks: [], sumWeight: 0, sumWeightedReturn: 0 };
+            }
+            
+            // Calculate ticker return for the period
+            const periodReturn = stats.history.reduce((sum, h) => sum + (h.returnPct || 0), 0);
+            
+            sectorGroups[benchmarkName].stocks.push({
+                ticker,
+                returnPct: periodReturn,
+                weight: stats.latestWeight
+            });
+            sectorGroups[benchmarkName].sumWeight += stats.latestWeight;
+            sectorGroups[benchmarkName].sumWeightedReturn += (periodReturn * stats.latestWeight);
+        });
+
+        // Convert to array for Chart
+        const chartData = Object.keys(sectorGroups)
+            .filter(s => sectorBenchmarkReturns[s] !== undefined && s !== 'Other')
+            .map(sector => {
+                const group = sectorGroups[sector];
+                const benchReturn = sectorBenchmarkReturns[sector];
+
+                // Relative Performance (Selection Effect)
+                // Stock Perf = Sum(Wi * Perfi)
+                // Sector Perf = Sum(Wi * Bench)
+                const stockPerf = group.sumWeightedReturn; // This is sum(Wi * Perfi)
+                const sectorPerf = (group.sumWeight * benchReturn); // This is sum(Wi) * Bench
+                const selectionEffect = stockPerf - sectorPerf;
+                
+                return {
+                    sector,
+                    displayName: CANONICAL_TO_DISPLAY[sector] || sector,
+                    value: selectionEffect,
+                    fill: selectionEffect >= 0 ? '#22c55e' : '#ef4444',
+                    benchmarkReturn: benchReturn,
+                    portfolioReturn: group.sumWeight > 0 ? group.sumWeightedReturn / group.sumWeight : 0,
+                    stocks: group.stocks.map(s => ({ 
+                        ticker: s.ticker, 
+                        returnPct: s.returnPct, 
+                        weight: s.weight,
+                        selectionContribution: s.weight * (s.returnPct - benchReturn)
+                    }))
+                };
+            })
+            .sort((a, b) => {
+                const indexA = FIXED_SECTOR_ORDER.indexOf(a.sector);
+                const indexB = FIXED_SECTOR_ORDER.indexOf(b.sector);
+                return (indexA === -1 ? 99 : indexA) - (indexB === -1 ? 99 : indexB);
+            });
+
+        return chartData;
+    }, [uniqueTickers, tickerStats, tickerSectors, sectorBenchmarkReturns, regionFilter, data]);
+
     const topMoversChartData = useMemo(() => {
-        const topPos = sortedByContrib.filter(i => i.totalContrib > 0).slice(0, 5);
-        const topNeg = sortedByContrib.filter(i => i.totalContrib < 0).slice(-5);
-        const combined = [...topPos, ...topNeg].sort((a, b) => b.totalContrib - a.totalContrib);
-        const maxAbs = combined.length > 0 ? Math.max(...combined.map(i => Math.abs(i.totalContrib))) : 1;
-        const domainLimit = maxAbs * 1.6;
-        const data = combined.map(i => ({ ticker: i.ticker, value: i.totalContrib, fill: i.totalContrib >= 0 ? '#16a34a' : '#dc2626' }));
+        // Flatten all selection contributions from sectorComparisonData
+        const allHoldings = sectorComparisonData.flatMap(s => s.stocks);
+        
+        const topPos = [...allHoldings].filter(i => i.selectionContribution > 0).sort((a, b) => b.selectionContribution - a.selectionContribution).slice(0, 5);
+        const topNeg = [...allHoldings].filter(i => i.selectionContribution < 0).sort((a, b) => a.selectionContribution - b.selectionContribution).slice(0, 5); // Bottom 5 negative
+        
+        // Combine them: top performers first, then worst performers
+        const combined = [...topPos, ...topNeg.reverse()]; // Reverse topNeg to show most negative at the bottom
+        const maxAbs = combined.length > 0 ? Math.max(...combined.map(i => Math.abs(i.selectionContribution))) : 1;
+        const domainLimit = maxAbs * 1.3;
+        const data = combined.map(i => ({ ticker: i.ticker, value: i.selectionContribution, fill: i.selectionContribution >= 0 ? '#22c55e' : '#ef4444' }));
         return { data, domain: [-domainLimit, domainLimit] };
-    }, [sortedByContrib]);
+    }, [sectorComparisonData]);
 
 
 
@@ -756,7 +850,7 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
                             </div>
                             <div className="flex-1 w-full min-h-[300px]">
                                 <ResponsiveContainer width="100%" height="100%">
-                                    <BarChart data={waterfallData} margin={{ top: 20, right: 30, left: 0, bottom: 5 }}>
+                                    <BarChart data={waterfallData} margin={{ top: 30, right: 30, left: 0, bottom: 20 }}>
                                         <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                                         <XAxis dataKey="name" tick={{ fontSize: 10, fontFamily: 'monospace', fill: '#64748b' }} interval={0} axisLine={{ stroke: '#e2e8f0' }} tickLine={false} />
                                         <YAxis domain={waterfallDomain} tickFormatter={(val) => `${val.toFixed(1)}%`} tick={{ fontSize: 10, fontFamily: 'monospace', fill: '#64748b' }} axisLine={false} tickLine={false} />
@@ -782,133 +876,104 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
                                 </ResponsiveContainer>
                             </div>
                         </div>
-
                         <div className="lg:col-span-4 flex flex-col md:gap-4 gap-4 h-full">
-                            <div className="bg-white p-4 rounded-xl border border-wallstreet-700 shadow-sm flex-1 flex flex-col min-h-[220px]">
+                            <div className="bg-white p-4 rounded-xl border border-wallstreet-700 shadow-sm flex-1 flex flex-col min-h-[400px] relative">
                                 <div className="flex justify-between items-start mb-2">
                                     <h3 className="font-mono font-bold text-wallstreet-text uppercase tracking-wider text-xs flex items-center gap-2">
-                                        <Scale size={14} className="text-wallstreet-500" /> Capital Efficiency Matrix (Top 15)
+                                        <Briefcase size={14} className="text-wallstreet-500" /> Sector Comparison
                                     </h3>
-                                    <div className="flex gap-2 text-[10px] font-mono">
-                                        <span className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-emerald-500"></div> Accretive</span>
-                                        <span className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-rose-500"></div> Dilutive</span>
+                                    <div className="flex items-center gap-3">
+                                        <div className="flex p-0.5 bg-wallstreet-200 rounded-lg">
+                                            {(['ALL', 'US', 'CA'] as const).map(region => (
+                                                <button
+                                                    key={region}
+                                                    onClick={() => setRegionFilter(region)}
+                                                    className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold transition-all ${
+                                                        regionFilter === region
+                                                            ? 'bg-white text-wallstreet-accent shadow-sm'
+                                                            : 'text-wallstreet-500 hover:text-wallstreet-text'
+                                                    }`}
+                                                >
+                                                    {region === 'ALL' ? 'Total' : region}
+                                                </button>
+                                            ))}
+                                        </div>
+                                        <div className="flex gap-2 text-[10px] font-mono">
+                                            <span className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-blue-500"></div> Bench</span>
+                                            <span className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-wallstreet-accent"></div> Ptf</span>
+                                        </div>
                                     </div>
                                 </div>
-                                <div className="flex-1 w-full rounded-lg relative" style={{ background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.08) 0%, rgba(255, 255, 255, 0) 40%, rgba(255, 255, 255, 0) 60%, rgba(244, 63, 94, 0.08) 100%)' }}>
+                                <div className="flex-1 w-full rounded-lg relative overflow-hidden">
                                     <ResponsiveContainer width="100%" height="100%">
-                                        <ScatterChart margin={{ top: 10, right: 10, bottom: 10, left: 0 }}>
-                                            <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                                            <XAxis type="number" dataKey="x" name="Weight" unit="%" tick={{ fontSize: 10 }} tickFormatter={(val: number) => `${val.toFixed(1)}`} label={{ value: 'Weight %', position: 'bottom', offset: 0, fontSize: 10 }} domain={xDomain} allowDecimals={false} ticks={xTicks} />
-                                            <YAxis type="number" dataKey="y" name="Contribution" unit="%" tick={{ fontSize: 10 }} tickFormatter={(val: number) => `${val.toFixed(1)}`} label={{ value: 'Contribution %', angle: -90, position: 'insideLeft', fontSize: 10 }} domain={yDomain} allowDecimals={false} ticks={yTicks} />
-                                            <Tooltip cursor={{ strokeDasharray: '3 3' }} content={({ active, payload }) => {
+                                        <BarChart 
+                                            data={sectorComparisonData} 
+                                            layout="vertical" 
+                                            margin={{ top: 20, right: 30, left: 10, bottom: 0 }}
+                                            barCategoryGap="25%"
+                                        >
+                                            <CartesianGrid strokeDasharray="3 3" horizontal={false} vertical={true} stroke="#f1f5f9" />
+                                            <XAxis type="number" tickFormatter={(val) => `${val.toFixed(1)}%`} tick={{ fontSize: 10, fontFamily: 'monospace' }} />
+                                            <YAxis dataKey="displayName" type="category" tick={{ fontSize: 9, fontFamily: 'monospace', width: 100 }} width={100} interval={0} />
+                                            <Tooltip content={({ active, payload }) => {
                                                 if (active && payload && payload.length) {
                                                     const d = payload[0].payload;
-                                                    const effScore = d.efficiencyScore;
-                                                    let action = "Hold";
-                                                    let actionColor = "text-slate-500";
-
-                                                    // Action Logic
-                                                    if (effScore > 0.05) {
-                                                        action = d.x < 3 ? "Add / Scale Up" : "Winner (Keep Riding)";
-                                                        actionColor = "text-emerald-600";
-                                                    } else if (effScore < -0.05) {
-                                                        action = d.x > 3 ? "Review / Trim" : "Watch (Speculative)";
-                                                        actionColor = "text-rose-600";
-                                                    }
-
                                                     return (
-                                                        <div className="bg-white text-black text-xs p-3 rounded-lg shadow-xl font-mono border border-wallstreet-200 z-50 min-w-[180px]">
-                                                            <div className="flex justify-between items-center border-b border-wallstreet-200 pb-2 mb-2">
-                                                                <span className="font-bold text-sm">{d.ticker}</span>
-                                                                <span className={`px-1.5 py-0.5 rounded text-[10px] uppercase font-bold ${effScore > 0 ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'}`}>
-                                                                    {effScore > 0 ? 'Efficient' : 'Inefficient'}
+                                                        <div className="bg-white p-3 rounded-lg shadow-xl border border-wallstreet-200 font-mono text-xs z-50">
+                                                            <div className="font-bold border-b pb-1 mb-2 uppercase">{d.displayName}</div>
+                                                            <div className="flex justify-between gap-4 mb-1">
+                                                                <span className="text-slate-500 text-[10px]">Relative Perf:</span>
+                                                                <span className={`font-bold ${d.value >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                                                    {d.value > 0 ? '+' : ''}{d.value.toFixed(2)}%
                                                                 </span>
                                                             </div>
-                                                            <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5">
-                                                                <span className="text-slate-500 text-left">Weight:</span>
-                                                                <span className="text-right font-bold text-slate-700">{d.x.toFixed(2)}%</span>
-
-                                                                <span className="text-slate-500 text-left">Contrib:</span>
-                                                                <span className={`text-right font-bold ${d.y > 0 ? 'text-emerald-700' : 'text-rose-700'}`}>
-                                                                    {d.y > 0 ? '+' : ''}{d.y.toFixed(2)}%
-                                                                </span>
-
-                                                                <div className="col-span-2 border-t border-slate-100 my-1"></div>
-
-                                                                <span className="text-slate-500 text-left flex items-center gap-1"><Info size={10} /> Action:</span>
-                                                                <span className={`text-right font-bold ${actionColor}`}>
-                                                                    {action}
-                                                                </span>
+                                                            <div className="flex justify-between gap-4 mb-1">
+                                                                <span className="text-slate-500 text-[10px]">Benchmark:</span>
+                                                                <span className="font-bold text-blue-600">{d.benchmarkReturn.toFixed(2)}%</span>
+                                                            </div>
+                                                            <div className="flex justify-between gap-4 mb-2">
+                                                                <span className="text-slate-500 text-[10px]">Portfolio Avg:</span>
+                                                                <span className="font-bold text-wallstreet-accent">{d.portfolioReturn.toFixed(2)}%</span>
+                                                            </div>
+                                                            <div className="border-t pt-2 mt-2">
+                                                                <div className="text-[10px] text-slate-400 mb-1 uppercase">Selection Alpha per Holding:</div>
+                                                                 {[...d.stocks].sort((a: any, b: any) => b.selectionContribution - a.selectionContribution).map((s: any, idx: number) => (
+                                                                    <div key={idx} className="flex justify-between gap-4 py-0.5">
+                                                                        <span className="font-bold">{s.ticker}</span>
+                                                                        <span className={s.selectionContribution >= 0 ? 'text-green-600' : 'text-red-600'}>
+                                                                            {s.selectionContribution >= 0 ? '+' : ''}{s.selectionContribution.toFixed(2)}%
+                                                                        </span>
+                                                                    </div>
+                                                                ))}
                                                             </div>
                                                         </div>
                                                     );
                                                 }
                                                 return null;
                                             }} />
-                                            {/* Reference Line at Expected Contribution (y = Weight * PortfolioReturn) */}
-                                            <ReferenceLine segment={diagonalEndpoint as any} stroke="#94a3b8" strokeDasharray="3 3" />
-                                            <Scatter name="Tickers" data={capitalEfficiencyData} fill="#004dea">
-                                                {capitalEfficiencyData.map((entry, index) => {
-                                                    // Gradient coloring based on Efficiency Score
-                                                    // Map score (-0.5 to +0.5 typically) to color saturation
-                                                    const score = entry.efficiencyScore;
-                                                    let fill = '#64748b'; // Neutral
-
-                                                    if (score > 0) {
-                                                        // Green Gradient
-                                                        if (score > 0.2) fill = '#15803d'; // Deep Green
-                                                        else if (score > 0.05) fill = '#22c55e'; // Bright Green
-                                                        else fill = '#86efac'; // Light Green
-                                                    } else {
-                                                        // Red Gradient
-                                                        if (score < -0.2) fill = '#b91c1c'; // Deep Red
-                                                        else if (score < -0.05) fill = '#ef4444'; // Bright Red
-                                                        else fill = '#fca5a5'; // Light Red
-                                                    }
-
-                                                    return <Cell key={`cell-${index}`} fill={fill} stroke="#ffffff" strokeWidth={2} />;
-                                                })}
-                                                {/* Minimal Labeling: Only label the 1-2 most extreme & isolated points */}
-                                                <LabelList
-                                                    dataKey="ticker"
-                                                    position="top"
-                                                    content={(props: any) => {
-                                                        const { x, y, value, index } = props;
-                                                        const item = capitalEfficiencyData[index];
-
-                                                        // Find the max and min Y values to only label extremes
-                                                        const maxY = Math.max(...capitalEfficiencyData.map(d => d.y));
-                                                        const minY = Math.min(...capitalEfficiencyData.map(d => d.y));
-
-                                                        // Only label THE top performer and THE worst performer
-                                                        const isTopPerformer = item.y === maxY && maxY > 1.0;
-                                                        const isWorstPerformer = item.y === minY && minY < -0.3;
-
-                                                        if (isTopPerformer) {
-                                                            return (
-                                                                <text x={x} y={y} dy={-10} fill="#15803d" fontSize={10} fontWeight="bold" fontFamily="monospace" textAnchor="middle">
-                                                                    {value}
-                                                                </text>
-                                                            );
-                                                        }
-
-                                                        if (isWorstPerformer) {
-                                                            return (
-                                                                <text x={x} y={y} dy={18} fill="#b91c1c" fontSize={10} fontWeight="bold" fontFamily="monospace" textAnchor="middle">
-                                                                    {value}
-                                                                </text>
-                                                            );
-                                                        }
-
-                                                        return null;
-                                                    }}
-                                                />
-                                            </Scatter>
-                                        </ScatterChart>
+                                            
+                                            <ReferenceLine x={0} stroke="#cbd5e1" strokeWidth={1} />
+                                            
+                                            <Bar dataKey="value" radius={[0, 2, 2, 0]}>
+                                                {sectorComparisonData.map((entry, index) => (
+                                                    <Cell key={`cell-s-${index}`} fill={entry.fill} />
+                                                ))}
+                                                <LabelList dataKey="value" content={TornadoLabel} />
+                                            </Bar>
+                                        </BarChart>
                                     </ResponsiveContainer>
                                 </div>
+                                {loadingSectors && (
+                                    <div className="absolute inset-0 bg-white/60 flex items-center justify-center z-10">
+                                        <div className="flex flex-col items-center gap-2">
+                                            <Loader2 className="animate-spin text-wallstreet-accent" size={24} />
+                                            <span className="font-mono text-[10px] text-slate-400 font-bold uppercase tracking-widest">Loading Benchmarks</span>
+                                        </div>
+                                    </div>
+                                )}
                             </div>
                         </div>
+
 
                         <div className="lg:col-span-3 bg-white p-4 rounded-xl border border-wallstreet-700 shadow-sm flex flex-col">
                             <div className="mb-2">
@@ -916,23 +981,23 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
                             </div>
                             <div className="flex-1 w-full min-h-[200px] flex items-center justify-center">
                                 <ResponsiveContainer width="100%" height="100%">
-                                    <BarChart layout="vertical" data={topMoversChartData.data} margin={{ top: 0, right: 30, left: 30, bottom: 0 }} barCategoryGap="20%">
-                                        <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f1f5f9e3" />
+                                    <BarChart layout="vertical" data={topMoversChartData.data} margin={{ top: 0, right: 30, left: 20, bottom: 0 }} barCategoryGap="25%">
+                                        <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f1f5f9" />
                                         <XAxis type="number" domain={topMoversChartData.domain} hide />
-                                        <YAxis type="category" dataKey="ticker" width={45} tick={{ fontSize: 10, fontFamily: 'monospace', fill: '#475569', fontWeight: 'bold' }} axisLine={false} tickLine={false} interval={0} />
-                                        <Tooltip cursor={{ fill: '#f1f5f9' }} content={({ active, payload }) => {
+                                        <YAxis type="category" dataKey="ticker" width={55} tick={{ fontSize: 9, fontFamily: 'monospace', fill: '#1e293b', fontWeight: 'bold' }} axisLine={false} tickLine={false} interval={0} />
+                                        <Tooltip cursor={{ fill: '#f8fafc' }} content={({ active, payload }) => {
                                             if (active && payload && payload.length) {
                                                 const d = payload[0].payload;
                                                 return (
                                                     <div className="bg-white text-black text-xs p-2 rounded shadow-xl font-mono border border-wallstreet-200 z-50">
-                                                        <div className="font-bold border-b border-wallstreet-200 pb-1 mb-1 text-center">{d.ticker}</div>
-                                                        <div className="text-center"><span className={d.value >= 0 ? 'text-green-600' : 'text-red-600'}>{d.value > 0 ? '+' : ''}{d.value.toFixed(2)}%</span></div>
+                                                        <div className="font-bold border-b border-wallstreet-200 pb-1 mb-1 text-center font-bold">{d.ticker}</div>
+                                                        <div className="text-center"><span className={d.value >= 0 ? 'text-green-600 font-bold' : 'text-red-600 font-bold'}>{d.value > 0 ? '+' : ''}{d.value.toFixed(2)}%</span></div>
                                                     </div>
                                                 );
                                             }
                                             return null;
                                         }} />
-                                        <ReferenceLine x={0} stroke="#94a3b8" />
+                                        <ReferenceLine x={0} stroke="#cbd5e1" strokeWidth={1} />
                                         <Bar dataKey="value" radius={[2, 2, 2, 2]}>
                                             {topMoversChartData.data.map((entry, index) => <Cell key={`cell-${index}`} fill={entry.fill} />)}
                                             <LabelList dataKey="value" content={TornadoLabel} />
