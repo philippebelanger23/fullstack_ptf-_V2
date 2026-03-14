@@ -40,7 +40,7 @@ export const ClevelandDotPlot: React.FC<DotPlotProps> = ({ data }) => {
     const sortOrder = [
         "Materials",        // Basic Materials
         "Cons. Disc.",      // Consumer Cyclical
-        "Financials",       // Financial Services
+        "Financials",
         "Real Estate",
         "Communication",    // Communication Services
         "Energy",

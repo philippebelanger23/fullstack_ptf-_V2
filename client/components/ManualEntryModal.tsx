@@ -1340,7 +1340,16 @@ export const ManualEntryModal: React.FC<ManualEntryModalProps> = ({ isOpen, onCl
                     setTickers(config.tickers);
                 }
                 if (config.periods && config.periods.length > 0) {
-                    setPeriods(config.periods);
+                    const formattedPeriods = config.periods.map((p: any) => ({
+                        ...p,
+                        weights: Object.fromEntries(
+                            Object.entries(p.weights || {}).map(([ticker, val]) => {
+                                const num = parseFloat(val as string);
+                                return [ticker, isNaN(num) ? '0.00' : num.toFixed(2)];
+                            })
+                        )
+                    }));
+                    setPeriods(formattedPeriods);
                 }
             } catch (err) {
                 console.error("Failed to load portfolio config:", err);

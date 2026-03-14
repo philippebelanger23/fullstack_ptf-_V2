@@ -121,7 +121,7 @@ export const SectorDeviationCard: React.FC<Props> = ({ currentHoldings, benchmar
                 if (sectorKey === 'Consumer Discretionary') displayName = 'Cons. Cyclical';
                 if (sectorKey === 'Consumer Staples') displayName = 'Cons. Defensive';
                 if (sectorKey === 'Communication Services') displayName = 'Comm. Services';
-                if (sectorKey === 'Financials') displayName = 'Financial Services';
+                if (sectorKey === 'Financials') displayName = 'Financials';
                 if (sectorKey === 'Materials') displayName = 'Basic Materials';
 
                 return {

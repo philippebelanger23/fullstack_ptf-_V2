@@ -30,7 +30,8 @@ export const SectorWeightsModal: React.FC<SectorWeightsModalProps> = ({ isOpen, 
         if (isOpen) {
             const normalized: Record<string, string> = {};
             GICS_SECTORS.forEach(s => {
-                normalized[s] = initialWeights?.[s]?.toString() || '0';
+                const val = initialWeights?.[s];
+                normalized[s] = typeof val === 'number' ? val.toFixed(2) : '0.00';
             });
             setWeights(normalized);
         }
@@ -45,6 +46,12 @@ export const SectorWeightsModal: React.FC<SectorWeightsModalProps> = ({ isOpen, 
         // Only allow numbers and decimal point
         if (value !== '' && !/^\d*\.?\d*$/.test(value)) return;
         setWeights(prev => ({ ...prev, [sector]: value }));
+    };
+
+    const handleWeightBlur = (sector: string, value: string) => {
+        const num = parseFloat(value);
+        const formatted = isNaN(num) ? '0.00' : num.toFixed(2);
+        setWeights(prev => ({ ...prev, [sector]: formatted }));
     };
 
     const handleSave = () => {
@@ -94,6 +101,7 @@ export const SectorWeightsModal: React.FC<SectorWeightsModalProps> = ({ isOpen, 
                                         type="text"
                                         value={weights[sector] || ''}
                                         onChange={(e) => handleWeightChange(sector, e.target.value)}
+                                        onBlur={(e) => handleWeightBlur(sector, e.target.value)}
                                         className="w-28 pr-8 pl-3 py-2 bg-white border border-slate-200 rounded-lg text-right font-mono text-sm font-bold focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all outline-none"
                                         placeholder="0.00"
                                     />
