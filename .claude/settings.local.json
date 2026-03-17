@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 -c \"import json; d=json.load\\(open\\(''c:/Users/Phili/Desktop/Local_GitHub/fullstack-ptf-V2/server/data/sectors_cache.json''\\)\\); print\\(''ATD.TO:'', d.get\\(''ATD.TO'', ''NOT FOUND''\\)\\)\")"
+    ]
+  }
+}

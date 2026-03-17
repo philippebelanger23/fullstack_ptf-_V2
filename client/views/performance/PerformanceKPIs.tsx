@@ -1,0 +1,97 @@
+import React from 'react';
+import { TrendingUp, Award, Activity, ShieldAlert, BarChart3, Target } from 'lucide-react';
+import { MetricCard } from '../../components/ui/MetricCard';
+import { formatPercent } from '../../utils/formatters';
+
+export type Period = 'YTD' | '3M' | '6M' | '1Y' | '2025';
+
+export interface PeriodMetrics {
+    totalReturn: number;
+    benchmarkReturn: number;
+    alpha: number;
+    sharpeRatio: number;
+    sortinoRatio: number;
+    informationRatio: number;
+    trackingError: number;
+    volatility: number;
+    benchmarkVolatility: number;
+    benchmarkSharpe: number;
+    benchmarkSortino: number;
+    beta: number;
+    maxDrawdown: number;
+    benchmarkMaxDrawdown: number;
+}
+
+interface PerformanceKPIsProps {
+    periodMetrics: PeriodMetrics | null;
+    selectedPeriod: Period;
+    loading: boolean;
+}
+
+export const PerformanceKPIs: React.FC<PerformanceKPIsProps> = ({ periodMetrics, selectedPeriod, loading }) => (
+    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <MetricCard
+            title={`Return (${selectedPeriod})`}
+            value={periodMetrics ? formatPercent(periodMetrics.totalReturn) : '--'}
+            subtitle={periodMetrics ? `Benchmark: ${formatPercent(periodMetrics.benchmarkReturn)}` : undefined}
+            isPositive={periodMetrics ? periodMetrics.totalReturn > periodMetrics.benchmarkReturn : undefined}
+            icon={TrendingUp}
+            loading={loading}
+        />
+        <MetricCard
+            title="Alpha"
+            value={periodMetrics ? formatPercent(periodMetrics.alpha) : '--'}
+            subtitle={`Excess return (${selectedPeriod})`}
+            isPositive={periodMetrics ? periodMetrics.alpha > 0 : undefined}
+            icon={Target}
+            loading={loading}
+        />
+        <MetricCard
+            title="Sharpe"
+            value={periodMetrics ? periodMetrics.sharpeRatio.toFixed(2) : '--'}
+            subtitle={periodMetrics ? `Benchmark: ${periodMetrics.benchmarkSharpe.toFixed(2)}` : undefined}
+            isPositive={periodMetrics ? periodMetrics.sharpeRatio > periodMetrics.benchmarkSharpe : undefined}
+            icon={Award}
+            loading={loading}
+        />
+        <MetricCard
+            title="Sortino"
+            value={periodMetrics ? periodMetrics.sortinoRatio.toFixed(2) : '--'}
+            subtitle={periodMetrics ? `Benchmark: ${periodMetrics.benchmarkSortino.toFixed(2)}` : undefined}
+            isPositive={periodMetrics ? periodMetrics.sortinoRatio > periodMetrics.benchmarkSortino : undefined}
+            icon={Award}
+            loading={loading}
+        />
+        <MetricCard
+            title="Info Ratio"
+            value={periodMetrics ? periodMetrics.informationRatio.toFixed(2) : '--'}
+            subtitle={periodMetrics ? `T.E.: ${periodMetrics.trackingError.toFixed(1)}%` : undefined}
+            isPositive={periodMetrics ? periodMetrics.informationRatio > 0 : undefined}
+            icon={Target}
+            loading={loading}
+        />
+        <MetricCard
+            title="Beta"
+            value={periodMetrics ? periodMetrics.beta.toFixed(2) : '--'}
+            subtitle={periodMetrics?.beta && periodMetrics.beta < 1 ? 'Defensive' : 'Aggressive'}
+            icon={Activity}
+            loading={loading}
+        />
+        <MetricCard
+            title="Volatility"
+            value={periodMetrics ? `${periodMetrics.volatility.toFixed(1)}%` : '--'}
+            subtitle={periodMetrics ? `Benchmark: ${periodMetrics.benchmarkVolatility.toFixed(1)}%` : undefined}
+            isPositive={periodMetrics ? periodMetrics.volatility < periodMetrics.benchmarkVolatility : undefined}
+            icon={BarChart3}
+            loading={loading}
+        />
+        <MetricCard
+            title="Max Drawdown"
+            value={periodMetrics ? `${periodMetrics.maxDrawdown.toFixed(1)}%` : '--'}
+            subtitle={periodMetrics ? `Benchmark: ${periodMetrics.benchmarkMaxDrawdown.toFixed(1)}%` : undefined}
+            isPositive={periodMetrics ? periodMetrics.maxDrawdown > periodMetrics.benchmarkMaxDrawdown : undefined}
+            icon={ShieldAlert}
+            loading={loading}
+        />
+    </div>
+);

@@ -1,4 +1,4 @@
-import { PortfolioItem } from '../types';
+import { PortfolioItem, BackcastMetrics, BackcastSeriesPoint, BackcastResponse, RiskPosition, SectorRisk, RiskContributionResponse, SectorHistoryData } from '../types';
 
 const API_Base_URL = ''; // Use relative path to leverage Vite proxy
 
@@ -8,7 +8,7 @@ const API_Base_URL = ''; // Use relative path to leverage Vite proxy
 // This ensures clients refresh stale cached data.
 // =============================================================================
 const CACHE_VERSIONS = {
-    sector: 2,    // Increment when sector classification logic changes
+    sector: 3,    // Increment when sector classification logic changes (v3: ATD.TO override → Consumer Staples)
     beta: 2,      // Increment when beta calculation changes
     dividend: 5,  // Increment when dividend yield normalization changes (was 4)
 };
@@ -208,23 +208,23 @@ export const fetchIndexHistory = async (): Promise<Record<string, { date: string
     }
 };
 
-export type SectorHistoryData = Record<string, { date: string, value: number }[]>;
+// SectorHistoryData moved to types.ts
 
-export const fetchSectorHistory = async (): Promise<{ US: SectorHistoryData, CA: SectorHistoryData }> => {
+export const fetchSectorHistory = async (): Promise<{ US: SectorHistoryData, CA: SectorHistoryData, OVERALL: SectorHistoryData }> => {
     try {
         const response = await fetch(`${API_Base_URL}/sector-history`);
         if (response.ok) {
             const data = await response.json();
             // Handle both old flat format and new nested format
-            if (data.US) return data;
-            return { US: data, CA: {} };
+            if (data.US) return { US: data.US, CA: data.CA || {}, OVERALL: data.OVERALL || {} };
+            return { US: data, CA: {}, OVERALL: {} };
         } else {
             console.error('Failed to fetch sector history');
-            return { US: {}, CA: {} };
+            return { US: {}, CA: {}, OVERALL: {} };
         }
     } catch (error) {
         console.error("Error fetching sector history:", error);
-        return { US: {}, CA: {} };
+        return { US: {}, CA: {}, OVERALL: {} };
     }
 };
 
@@ -248,16 +248,11 @@ export const savePortfolioConfig = async (config: { tickers: any[], periods: any
 };
 
 export const loadPortfolioConfig = async (): Promise<{ tickers: any[], periods: any[] }> => {
-    try {
-        const response = await fetch(`${API_Base_URL}/load-portfolio-config`);
-        if (!response.ok) {
-            throw new Error(`Failed to load portfolio config: ${response.statusText}`);
-        }
-        return await response.json();
-    } catch (error) {
-        console.error("Error loading portfolio config:", error);
-        return { tickers: [], periods: [] };
+    const response = await fetch(`${API_Base_URL}/load-portfolio-config`);
+    if (!response.ok) {
+        throw new Error(`Failed to load portfolio config: ${response.statusText}`);
     }
+    return await response.json();
 };
 
 export const saveSectorWeights = async (weights: Record<string, Record<string, number>>): Promise<void> => {
@@ -371,35 +366,7 @@ export const convertConfigToItems = (tickers: any[], periods: any[]): PortfolioI
     return flatItems;
 };
 
-export interface BackcastMetrics {
-    totalReturn: number;
-    benchmarkReturn: number;
-    alpha: number;
-    sharpeRatio: number;
-    sortinoRatio: number;
-    informationRatio: number;
-    trackingError: number;
-    volatility: number;
-    beta: number;
-    maxDrawdown: number;
-    benchmarkMaxDrawdown: number;
-    benchmarkVolatility: number;
-    benchmarkSharpe: number;
-    benchmarkSortino: number;
-}
-
-export interface BackcastSeriesPoint {
-    date: string;
-    portfolio: number;
-    benchmark: number;
-}
-
-export interface BackcastResponse {
-    metrics: BackcastMetrics;
-    series: BackcastSeriesPoint[];
-    missingTickers: string[];
-    error?: string;
-}
+// BackcastMetrics, BackcastSeriesPoint, BackcastResponse moved to types.ts
 
 export const fetchPortfolioBackcast = async (items: PortfolioItem[]): Promise<BackcastResponse> => {
     try {
@@ -436,36 +403,8 @@ export const fetchPortfolioBackcast = async (items: PortfolioItem[]): Promise<Ba
 // RISK CONTRIBUTION
 // =============================================================================
 
-export interface RiskPosition {
-    ticker: string;
-    weight: number;
-    individualVol: number;
-    beta: number;
-    mctr: number;
-    componentRisk: number;
-    pctOfTotalRisk: number;
-    annualizedReturn: number;
-    riskAdjustedReturn: number;
-}
-
-export interface SectorRisk {
-    sector: string;
-    weight: number;
-    riskContribution: number;
-}
-
-export interface RiskContributionResponse {
-    portfolioVol: number;
-    benchmarkVol: number;
-    diversificationRatio: number;
-    concentrationRatio: number;
-    numEffectiveBets: number;
-    top3Concentration: number;
-    positions: RiskPosition[];
-    sectorRisk: SectorRisk[];
-    missingTickers: string[];
-    error?: string;
-}
+// Re-export types from canonical source for backward compatibility
+export type { RiskPosition, SectorRisk, RiskContributionResponse } from '../types';
 
 export const fetchRiskContribution = async (items: PortfolioItem[]): Promise<RiskContributionResponse> => {
     try {

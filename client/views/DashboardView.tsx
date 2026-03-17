@@ -82,13 +82,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ data, customSector
   const [dataFetchError, setDataFetchError] = React.useState<string | null>(null);
   const [isLoadingMarketData, setIsLoadingMarketData] = React.useState(false);
 
-  // Retry mechanism for failed data fetches
-  const retryFetchData = React.useCallback(() => {
-    setDataFetchError(null);
-    setIsLoadingMarketData(true);
-    // Trigger useEffect by incrementing a counter or directly calling fetch
-  }, []);
-
   // Fetch Sectors and Betas effect
   React.useEffect(() => {
     const fetchData = async () => {

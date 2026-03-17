@@ -4,7 +4,7 @@ import { UploadView } from './views/UploadView';
 import { DashboardView } from './views/DashboardView';
 import { AnalysisView } from './views/AnalysisView';
 import { CorrelationView } from './views/CorrelationView';
-import { AttributionView } from './views/AttributionView';
+import { AttributionView } from './views/attribution/AttributionView';
 import { IndexView } from './views/IndexView';
 import { PerformanceView } from './views/PerformanceView';
 import { RiskContributionView } from './views/RiskContributionView';

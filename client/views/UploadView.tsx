@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { AlertCircle, ArrowRight, Trash2, Database, Edit, FileSpreadsheet, CheckCircle2, AlertTriangle, Upload, PieChart, RefreshCw, Layers, ChevronDown, ChevronUp, HelpCircle } from 'lucide-react';
 import { PortfolioItem } from '../types';
 import { analyzeManualPortfolio, checkNavLag, loadSectorWeights, saveSectorWeights, uploadNav, saveAssetGeo } from '../services/api';
@@ -32,19 +32,7 @@ export const UploadView: React.FC<UploadViewProps> = ({
   // UI State
   const [isAssetSectionOpen, setIsAssetSectionOpen] = useState(true); // Default to open if data exists
 
-  // Auto-run lag check on mount if we have mutual funds
-  useEffect(() => {
-    if (currentData.length > 0 && Object.keys(lagStatus).length === 0) {
-      runLagCheck(currentData);
-    }
-  }, []);
-
-  // Manual Entry State
-  const [isManualModalOpen, setIsManualModalOpen] = useState(false);
-  const [isSectorModalOpen, setIsSectorModalOpen] = useState(false);
-  const [selectedTickerForSector, setSelectedTickerForSector] = useState<string>('');
-
-  const runLagCheck = async (items: PortfolioItem[], forceRefresh: boolean = false) => {
+  const runLagCheck = useCallback(async (items: PortfolioItem[], forceRefresh: boolean = false) => {
     if (items.length === 0) return;
 
     // Find the latest date specifically for Mutual Funds to decouple them from live Stock dates
@@ -79,7 +67,19 @@ export const UploadView: React.FC<UploadViewProps> = ({
       setLagStatus({});
       setIsCheckingLag(false);
     }
-  };
+  }, []);
+
+  // Auto-run lag check when portfolio data changes and lag hasn't been checked yet
+  useEffect(() => {
+    if (currentData.length > 0 && Object.keys(lagStatus).length === 0) {
+      runLagCheck(currentData);
+    }
+  }, [currentData, lagStatus, runLagCheck]);
+
+  // Manual Entry State
+  const [isManualModalOpen, setIsManualModalOpen] = useState(false);
+  const [isSectorModalOpen, setIsSectorModalOpen] = useState(false);
+  const [selectedTickerForSector, setSelectedTickerForSector] = useState<string>('');
 
   const handleFullRefresh = async () => {
     setIsCheckingLag(true);

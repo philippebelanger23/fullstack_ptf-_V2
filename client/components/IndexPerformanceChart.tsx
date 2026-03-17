@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine, Area, AreaChart } from 'recharts';
 import { TrendingUp, TrendingDown, Minus, Calendar } from 'lucide-react';
+import { formatXAxis as formatXAxisBase, formatTooltipDate, formatPercent, getPerformanceColor } from '../utils/formatters';
 
 type Period = 'YTD' | '3M' | '6M' | '1Y' | '3Y' | '5Y' | '2025';
 
@@ -184,27 +185,7 @@ export const IndexPerformanceChart: React.FC<IndexPerformanceChartProps> = ({ da
         );
     }
 
-    // Dynamic date formatters based on period - only show unique labels
-    const formatXAxis = (str: string) => {
-        const date = new Date(str);
-        const month = date.getMonth();
-        const year = date.getFullYear();
-
-        if (selectedPeriod === '3Y' || selectedPeriod === '5Y') {
-            // Multi-year: show "Jan 2024" format for January, "Jul" for mid-year
-            if (month === 0) {
-                return year.toString();
-            }
-            return '';
-        } else {
-            // For shorter periods: show "Jan" or "Jan '25" at year boundaries
-            const monthName = new Intl.DateTimeFormat('en-US', { month: 'short' }).format(date);
-            if (month === 0) {
-                return `${monthName} '${year.toString().slice(-2)}`;
-            }
-            return monthName;
-        }
-    };
+    const formatXAxis = (str: string) => formatXAxisBase(str, selectedPeriod);
 
     // Get ticks that represent first trading day of each month (no duplicates)
     const getMonthlyTicks = useMemo(() => {
@@ -260,23 +241,6 @@ export const IndexPerformanceChart: React.FC<IndexPerformanceChartProps> = ({ da
 
         return lines;
     }, [chartData]);
-
-    const formatTooltipDate = (str: string) => {
-        const date = new Date(str);
-        return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).format(date);
-    };
-
-    const formatPercent = (val: number | undefined) => {
-        if (val === undefined) return 'N/A';
-        return `${val > 0 ? '+' : ''}${val.toFixed(2)}%`;
-    };
-
-    const getPerformanceColor = (val: number | undefined) => {
-        if (val === undefined) return 'text-slate-400';
-        if (val > 0) return 'text-green-600';
-        if (val < 0) return 'text-red-500';
-        return 'text-slate-500';
-    };
 
     const getPerformanceIcon = (val: number | undefined) => {
         if (val === undefined) return <Minus size={14} />;
