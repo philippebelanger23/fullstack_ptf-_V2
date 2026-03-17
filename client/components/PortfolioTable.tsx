@@ -353,14 +353,14 @@ export const PortfolioTable: React.FC<PortfolioTableProps> = ({ currentHoldings,
                               {val === 'N/A' ? (
                                 <span className="text-slate-400 italic text-[10px]">N/A</span>
                               ) : val !== '' ? (
-                                <span>{val}%</span>
+                                <span>{(typeof val === 'number' ? val.toFixed(2) : val)}%</span>
                               ) : null}
                             </td>
                           );
                         })}
                         <td className="px-3 py-3 text-center font-bold text-xs bg-wallstreet-50">
                           {rowTotal !== '' ? (
-                            <span className="text-wallstreet-text">{typeof rowTotal === 'number' ? rowTotal.toFixed(0) : rowTotal}%</span>
+                            <span className="text-wallstreet-text">{typeof rowTotal === 'number' ? rowTotal.toFixed(2) : rowTotal}%</span>
                           ) : null}
                         </td>
                       </tr>

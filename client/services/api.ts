@@ -286,6 +286,21 @@ export const fetchIndexHistory = async (): Promise<Record<string, { date: string
     }
 };
 
+export const fetchSectorHistory = async (): Promise<Record<string, { date: string, value: number }[]>> => {
+    try {
+        const response = await fetch(`${API_Base_URL}/sector-history`);
+        if (response.ok) {
+            return await response.json();
+        } else {
+            console.error('Failed to fetch sector history');
+            return {};
+        }
+    } catch (error) {
+        console.error("Error fetching sector history:", error);
+        return {};
+    }
+};
+
 export const savePortfolioConfig = async (config: { tickers: any[], periods: any[] }): Promise<void> => {
     try {
         const response = await fetch(`${API_Base_URL}/save-portfolio-config`, {
@@ -417,15 +432,13 @@ export const convertConfigToItems = (tickers: any[], periods: any[]): PortfolioI
             // Just strip the % sign if present and parse as a number
             const weight = parseFloat(rawWeight.toString().replace('%', ''));
 
-            if (weight > 0) {
-                flatItems.push({
-                    ticker: t.ticker,
-                    weight: weight,  // Pass as percentage value (e.g., 10.00 for 10%)
-                    date: period.startDate,
-                    isMutualFund: t.isMutualFund || false,
-                    isEtf: t.isEtf || false,
-                });
-            }
+            flatItems.push({
+                ticker: t.ticker,
+                weight: weight,  // Pass as percentage value (e.g., 10.00 for 10%)
+                date: period.startDate,
+                isMutualFund: t.isMutualFund || false,
+                isEtf: t.isEtf || false,
+            });
         });
     });
     return flatItems;

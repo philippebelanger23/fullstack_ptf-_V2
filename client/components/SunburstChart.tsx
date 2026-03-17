@@ -6,8 +6,8 @@ interface SunburstChartProps {
         inner: { name: string; value: number; color: string }[];
         outer: { name: string; value: number; color: string }[];
     };
-    width?: number | string;
-    height?: number | string;
+    width?: number | `${number}%`;
+    height?: number | `${number}%`;
 }
 
 const RADIAN = Math.PI / 180;

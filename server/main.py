@@ -151,14 +151,37 @@ async def analyze_manual(request: ManualAnalysisRequest):
         # Automatically add 'Today' if the last date is in the past
         # This ensures the Attribution tab shows current data for the latest positions
         latest_date = dates[-1]
-        latest_date = dates[-1]
         now = pd.Timestamp.now().normalize()
         if latest_date < now:
+            # Inject intermediate month-end dates between the last config date and today.
+            # Without this, a single long period (e.g. Jan 24 → Mar 13) is created,
+            # causing the heatmap to show all contribution in March with nothing in February.
+            month_end_dates = pd.date_range(
+                start=latest_date + pd.DateOffset(days=1),
+                end=now,
+                freq='ME'  # Month-End frequency
+            )
+            for me_date in month_end_dates:
+                me_ts = pd.Timestamp(me_date).normalize()
+                if me_ts not in dates_set:
+                    dates.append(me_ts)
+                    dates_set.add(me_ts)
+                    # Forward-fill weights: use the most recent known weight for each ticker
+                    for ticker in weights_dict:
+                        # Find the most recent date <= me_ts that has a weight
+                        prior_dates = sorted([d for d in weights_dict[ticker] if d <= me_ts])
+                        if prior_dates:
+                            weights_dict[ticker][me_ts] = weights_dict[ticker][prior_dates[-1]]
+
             dates.append(now)
-            # Propagate the latest weights to the 'Today' period
+            # Forward-fill the latest weights to the 'Today' period
             for ticker in weights_dict:
-                if latest_date in weights_dict[ticker]:
-                    weights_dict[ticker][now] = weights_dict[ticker][latest_date]
+                prior_dates = sorted([d for d in weights_dict[ticker] if d < now])
+                if prior_dates:
+                    weights_dict[ticker][now] = weights_dict[ticker][prior_dates[-1]]
+            
+            # Re-sort dates after insertions
+            dates = sorted(dates)
         
         
         # Load all available NAV data
@@ -840,6 +863,77 @@ async def get_index_history():
 
 
 # Removed refresh-navs endpoint as scraping is no longer supported.
+
+@app.get("/sector-history")
+async def get_sector_history():
+    """
+    Fetch historical data for major sector ETFs to use as benchmarks.
+    """
+    import yfinance as yf
+    import json
+    import datetime
+    
+    cache_file = Path("data/sector_history_cache.json")
+    
+    # Check cache freshness (24 hours)
+    if cache_file.exists():
+        try:
+            mtime = datetime.datetime.fromtimestamp(cache_file.stat().st_mtime)
+            if datetime.datetime.now() - mtime < datetime.timedelta(hours=24):
+                with open(cache_file, "r") as f:
+                    return json.load(f)
+        except Exception as e:
+            logger.warning(f"Failed to read sector history cache: {e}")
+
+    # Standard Select Sector SPDR ETFs
+    sector_map = {
+        "Information Technology": "XLK",
+        "Financials": "XLF",
+        "Health Care": "XLV",
+        "Consumer Discretionary": "XLY",
+        "Communication Services": "XLC",
+        "Industrials": "XLI",
+        "Consumer Staples": "XLP",
+        "Energy": "XLE",
+        "Utilities": "XLU",
+        "Real Estate": "XLRE",
+        "Materials": "XLB"
+    }
+    
+    tickers = list(sector_map.values())
+    logger.info(f"Fetching fresh sector history for {tickers}...")
+    
+    try:
+        data = yf.download(tickers, period="5y", interval="1d", progress=False)
+        if data.empty:
+            return {}
+            
+        if 'Close' in data.columns:
+            closes = data['Close']
+        else:
+            closes = data
+            
+        closes = closes.ffill().bfill()
+        dates = closes.index.strftime('%Y-%m-%d').tolist()
+        
+        result_data = {}
+        for sector, ticker in sector_map.items():
+            if ticker in closes.columns:
+                series = closes[ticker].tolist()
+                result_data[sector] = [{"date": d, "value": v} for d, v in zip(dates, series) if pd.notna(v)]
+        
+        # Save to cache
+        try:
+            cache_file.parent.mkdir(parents=True, exist_ok=True)
+            with open(cache_file, "w") as f:
+                json.dump(result_data, f)
+        except Exception as e:
+            logger.error(f"Failed to write sector history cache: {e}")
+            
+        return result_data
+    except Exception as e:
+        logger.error(f"Error fetching sector history: {e}")
+        return {}
 
 @app.post("/save-portfolio-config")
 async def save_portfolio_config(config: PortfolioConfig):

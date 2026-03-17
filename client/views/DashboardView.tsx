@@ -2,7 +2,6 @@ import React, { useMemo } from 'react';
 import { PortfolioItem } from '../types';
 import { PortfolioTable } from '../components/PortfolioTable';
 import { KPICard } from '../components/KPICard';
-import { ConcentrationPieChart } from '../components/ConcentrationPieChart';
 import { PortfolioEvolutionChart } from '../components/PortfolioEvolutionChart';
 import { SectorDeviationCard } from '../components/SectorDeviationCard';
 import { Wallet, Layers, PieChart as PieChartIcon, Wallet2Icon, WalletIcon, AlertCircle, RefreshCw } from 'lucide-react';
@@ -417,8 +416,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ data, customSector
         />
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 min-h-[450px] mb-8">
-        <ConcentrationPieChart data={topHoldings} colors={COLORS} />
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 min-h-[450px] mb-8">
         <PortfolioEvolutionChart data={areaChartData} topTickers={topTickers} dates={dates} colors={COLORS} />
         <SectorDeviationCard currentHoldings={enrichedCurrentHoldings} benchmarkData={benchmarkSectors} />
       </div>

@@ -372,54 +372,50 @@ export const UploadView: React.FC<UploadViewProps> = ({
               </div>
             </div>
 
-            <div className="p-5 grid grid-cols-1 md:grid-cols-2 gap-8">
+            <div className={`p-5 grid grid-cols-1 ${activeMfs.length > 0 && activeEtfs.length > 0 ? 'md:grid-cols-2' : ''} gap-8`}>
               {/* Mutual Funds Section */}
-              <div className={activeMfs.length === 0 ? 'opacity-20' : ''}>
-                <div className="flex items-center gap-2 mb-3 border-b border-slate-100 pb-1">
-                  <Database size={16} className="text-purple-600" />
-                  <h3 className="text-sm font-black text-slate-800 uppercase tracking-widest">Mutual Funds</h3>
+              {activeMfs.length > 0 && (
+                <div>
+                  <div className="flex items-center gap-2 mb-3 border-b border-slate-100 pb-1">
+                    <Database size={16} className="text-purple-600" />
+                    <h3 className="text-sm font-black text-slate-800 uppercase tracking-widest">Mutual Funds</h3>
+                  </div>
+                  <div className="space-y-3">
+                    {activeMfs.map(asset => (
+                      <AssetCard
+                        key={asset.ticker}
+                        asset={asset}
+                        lagStatus={lagStatus}
+                        onEditSector={() => { setSelectedTickerForSector(asset.ticker); setIsSectorModalOpen(true); }}
+                        onAssetGeoChange={(geo) => handleSaveAssetGeo(asset.ticker, geo)}
+                        onUploadNav={handleNavUpload}
+                      />
+                    ))}
+                  </div>
                 </div>
-                <div className="space-y-3">
-                  {activeMfs.length > 0 ? activeMfs.map(asset => (
-                    <AssetCard
-                      key={asset.ticker}
-                      asset={asset}
-                      lagStatus={lagStatus}
-                      onEditSector={() => { setSelectedTickerForSector(asset.ticker); setIsSectorModalOpen(true); }}
-                      onAssetGeoChange={(geo) => handleSaveAssetGeo(asset.ticker, geo)}
-                      onUploadNav={handleNavUpload}
-                    />
-                  )) : (
-                    <div className="h-full flex flex-col items-center justify-center py-12 border-2 border-dashed border-slate-100 rounded-2xl">
-                      <p className="text-slate-300 text-sm font-bold uppercase tracking-widest">No MFs Active</p>
-                    </div>
-                  )}
-                </div>
-              </div>
+              )}
 
               {/* ETFs Section */}
-              <div className={activeEtfs.length === 0 ? 'opacity-20' : ''}>
-                <div className="flex items-center gap-2 mb-3 border-b border-slate-100 pb-1">
-                  <Layers size={16} className="text-blue-600" />
-                  <h3 className="text-sm font-black text-slate-800 uppercase tracking-widest">ETFs</h3>
+              {activeEtfs.length > 0 && (
+                <div>
+                  <div className="flex items-center gap-2 mb-3 border-b border-slate-100 pb-1">
+                    <Layers size={16} className="text-blue-600" />
+                    <h3 className="text-sm font-black text-slate-800 uppercase tracking-widest">ETFs</h3>
+                  </div>
+                  <div className="space-y-3">
+                    {activeEtfs.map(asset => (
+                      <AssetCard
+                        key={asset.ticker}
+                        asset={asset}
+                        lagStatus={lagStatus}
+                        onEditSector={() => { setSelectedTickerForSector(asset.ticker); setIsSectorModalOpen(true); }}
+                        onAssetGeoChange={(geo) => handleSaveAssetGeo(asset.ticker, geo)}
+                        onUploadNav={handleNavUpload}
+                      />
+                    ))}
+                  </div>
                 </div>
-                <div className="space-y-3">
-                  {activeEtfs.length > 0 ? activeEtfs.map(asset => (
-                    <AssetCard
-                      key={asset.ticker}
-                      asset={asset}
-                      lagStatus={lagStatus}
-                      onEditSector={() => { setSelectedTickerForSector(asset.ticker); setIsSectorModalOpen(true); }}
-                      onAssetGeoChange={(geo) => handleSaveAssetGeo(asset.ticker, geo)}
-                      onUploadNav={handleNavUpload}
-                    />
-                  )) : (
-                    <div className="h-full flex flex-col items-center justify-center py-12 border-2 border-dashed border-slate-100 rounded-2xl">
-                      <p className="text-slate-300 text-sm font-bold uppercase tracking-widest">No ETFs Active</p>
-                    </div>
-                  )}
-                </div>
-              </div>
+              )}
             </div>
           </div>
         )}

@@ -7,6 +7,7 @@ import { CorrelationView } from './views/CorrelationView';
 import { AttributionView } from './views/AttributionView';
 import { IndexView } from './views/IndexView';
 import { PerformanceView } from './views/PerformanceView';
+import { RiskContributionView } from './views/RiskContributionView';
 import { PortfolioItem, ViewState } from './types';
 import { loadPortfolioConfig, analyzeManualPortfolio, convertConfigToItems, loadSectorWeights, loadAssetGeo, checkNavLag } from './services/api';
 
@@ -200,6 +201,8 @@ function App() {
         return <AttributionView data={portfolioData} selectedYear={selectedYear} setSelectedYear={setSelectedYear} />;
       case ViewState.PERFORMANCE:
         return <PerformanceView />;
+      case ViewState.RISK_CONTRIBUTION:
+        return <RiskContributionView />;
       case ViewState.CORRELATION:
         return (
           <CorrelationView
