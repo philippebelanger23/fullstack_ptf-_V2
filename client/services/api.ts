@@ -49,24 +49,84 @@ function saveVersionedCache<T>(cacheKey: string, data: T): void {
 }
 
 // =============================================================================
-// SECTOR CACHE
+// GENERIC CACHED FETCH HELPER
 // =============================================================================
-let sectorCache: Record<string, string> = loadVersionedCache('sectorCache', 'sectorCacheVersion', CACHE_VERSIONS.sector) || {};
 
+/**
+ * Creates a cached fetch function that:
+ * 1. Checks local cache for existing data
+ * 2. Fetches only missing tickers from the server
+ * 3. Merges results and persists to localStorage
+ */
+function createCachedFetcher<T>(
+    endpoint: string,
+    cacheKey: string,
+    versionKey: string,
+    version: number,
+    isMissing: (cache: Record<string, T>, ticker: string) => boolean = (cache, ticker) => cache[ticker] === undefined,
+) {
+    let cache: Record<string, T> = loadVersionedCache(cacheKey, versionKey, version) || {};
+
+    return async (tickers: string[]): Promise<Record<string, T>> => {
+        const missingTickers = tickers.filter(ticker => isMissing(cache, ticker));
+
+        if (missingTickers.length > 0) {
+            try {
+                const response = await fetch(`${API_Base_URL}/${endpoint}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ tickers: missingTickers }),
+                });
+
+                if (response.ok) {
+                    const newData = await response.json();
+                    cache = { ...cache, ...newData };
+                    saveVersionedCache(cacheKey, cache);
+                } else {
+                    console.error(`Failed to fetch ${endpoint}`);
+                }
+            } catch (error) {
+                console.error(`Error fetching ${endpoint}:`, error);
+            }
+        }
+
+        const result: Record<string, T> = {};
+        tickers.forEach(ticker => {
+            if (cache[ticker] !== undefined) {
+                result[ticker] = cache[ticker];
+            }
+        });
+        return result;
+    };
+}
+
+// =============================================================================
+// CACHED API FUNCTIONS
+// =============================================================================
+export const fetchSectors = createCachedFetcher<string>(
+    'fetch-sectors', 'sectorCache', 'sectorCacheVersion', CACHE_VERSIONS.sector,
+    (cache, ticker) => !cache[ticker],
+);
+
+export const fetchBetas = createCachedFetcher<number>(
+    'fetch-betas', 'betaCache', 'betaCacheVersion', CACHE_VERSIONS.beta,
+);
+
+export const fetchDividends = createCachedFetcher<number>(
+    'fetch-dividends', 'dividendCache', 'dividendCacheVersion', CACHE_VERSIONS.dividend,
+);
+
+// =============================================================================
+// NON-CACHED API FUNCTIONS
+// =============================================================================
 
 let indexExposureCache: { sectors: any[], geography: any[] } | null = null;
-
-// =============================================================================
-// API FUNCTIONS
-// =============================================================================
 
 export const analyzeManualPortfolio = async (items: PortfolioItem[]): Promise<PortfolioItem[]> => {
     try {
         const response = await fetch(`${API_Base_URL}/analyze-manual`, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ items }),
         });
 
@@ -82,57 +142,11 @@ export const analyzeManualPortfolio = async (items: PortfolioItem[]): Promise<Po
     }
 };
 
-export const fetchSectors = async (tickers: string[]): Promise<Record<string, string>> => {
-    // 1. Filter out tickers we already have in cache
-    const missingTickers = tickers.filter(ticker => !sectorCache[ticker]);
-
-    // 2. Fetch only missing tickers
-    if (missingTickers.length > 0) {
-        try {
-            const response = await fetch(`${API_Base_URL}/fetch-sectors`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ tickers: missingTickers }),
-            });
-
-            if (response.ok) {
-                const newSectors = await response.json();
-                // 3. Update cache
-                sectorCache = { ...sectorCache, ...newSectors };
-                // Persist to localStorage using versioned helper
-                saveVersionedCache('sectorCache', sectorCache);
-            } else {
-                console.error('Failed to fetch sectors');
-            }
-        } catch (error) {
-            console.error("Error fetching sectors:", error);
-        }
-    }
-
-    // 4. Return all requested sectors from cache (existing + new)
-    const result: Record<string, string> = {};
-    tickers.forEach(ticker => {
-        if (sectorCache[ticker]) {
-            result[ticker] = sectorCache[ticker];
-        }
-    });
-
-    return result;
-};
-
 export const fetchIndexExposure = async (): Promise<{ sectors: any[], geography: any[], last_scraped?: string }> => {
-    // Return cached data if available
-    // if (indexExposureCache) {
-    //     return indexExposureCache;
-    // }
-
     try {
         const response = await fetch(`${API_Base_URL}/index-exposure`);
         if (!response.ok) throw new Error("Failed to fetch index exposure");
 
-        // Cache the result
         indexExposureCache = await response.json();
         return indexExposureCache!;
     } catch (error) {
@@ -145,9 +159,7 @@ export const fetchCurrencyPerformance = async (tickers: string[]): Promise<Recor
     try {
         const response = await fetch(`${API_Base_URL}/fetch-performance`, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ tickers }),
         });
 
@@ -161,96 +173,6 @@ export const fetchCurrencyPerformance = async (tickers: string[]): Promise<Recor
         console.error("Error fetching currency performance:", error);
         return {};
     }
-};
-
-// =============================================================================
-// BETA CACHE
-// =============================================================================
-let betaCache: Record<string, number> = loadVersionedCache('betaCache', 'betaCacheVersion', CACHE_VERSIONS.beta) || {};
-
-export const fetchBetas = async (tickers: string[]): Promise<Record<string, number>> => {
-    // 1. Filter out tickers we already have in cache
-    const missingTickers = tickers.filter(ticker => betaCache[ticker] === undefined);
-
-    // 2. Fetch only missing tickers
-    if (missingTickers.length > 0) {
-        try {
-            const response = await fetch(`${API_Base_URL}/fetch-betas`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ tickers: missingTickers }),
-            });
-
-            if (response.ok) {
-                const newBetas = await response.json();
-                // 3. Update cache
-                betaCache = { ...betaCache, ...newBetas };
-                // Persist to localStorage using versioned helper
-                saveVersionedCache('betaCache', betaCache);
-            } else {
-                console.error('Failed to fetch betas');
-            }
-        } catch (error) {
-            console.error("Error fetching betas:", error);
-        }
-    }
-
-    // 4. Return all requested betas from cache (existing + new)
-    const result: Record<string, number> = {};
-    tickers.forEach(ticker => {
-        if (betaCache[ticker] !== undefined) {
-            result[ticker] = betaCache[ticker];
-        }
-    });
-
-    return result;
-};
-
-// =============================================================================
-// DIVIDEND CACHE
-// =============================================================================
-let dividendCache: Record<string, number> = loadVersionedCache('dividendCache', 'dividendCacheVersion', CACHE_VERSIONS.dividend) || {};
-
-export const fetchDividends = async (tickers: string[]): Promise<Record<string, number>> => {
-    // 1. Filter out tickers we already have in cache
-    const missingTickers = tickers.filter(ticker => dividendCache[ticker] === undefined);
-
-    // 2. Fetch only missing tickers
-    if (missingTickers.length > 0) {
-        try {
-            const response = await fetch(`${API_Base_URL}/fetch-dividends`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ tickers: missingTickers }),
-            });
-
-            if (response.ok) {
-                const newDividends = await response.json();
-                // 3. Update cache
-                dividendCache = { ...dividendCache, ...newDividends };
-                // Persist to localStorage using versioned helper
-                saveVersionedCache('dividendCache', dividendCache);
-            } else {
-                console.error('Failed to fetch dividends');
-            }
-        } catch (error) {
-            console.error("Error fetching dividends:", error);
-        }
-    }
-
-    // 4. Return all requested dividends from cache (existing + new)
-    const result: Record<string, number> = {};
-    tickers.forEach(ticker => {
-        if (dividendCache[ticker] !== undefined) {
-            result[ticker] = dividendCache[ticker];
-        }
-    });
-
-    return result;
 };
 
 // In-memory cache for index history data
@@ -286,18 +208,23 @@ export const fetchIndexHistory = async (): Promise<Record<string, { date: string
     }
 };
 
-export const fetchSectorHistory = async (): Promise<Record<string, { date: string, value: number }[]>> => {
+export type SectorHistoryData = Record<string, { date: string, value: number }[]>;
+
+export const fetchSectorHistory = async (): Promise<{ US: SectorHistoryData, CA: SectorHistoryData }> => {
     try {
         const response = await fetch(`${API_Base_URL}/sector-history`);
         if (response.ok) {
-            return await response.json();
+            const data = await response.json();
+            // Handle both old flat format and new nested format
+            if (data.US) return data;
+            return { US: data, CA: {} };
         } else {
             console.error('Failed to fetch sector history');
-            return {};
+            return { US: {}, CA: {} };
         }
     } catch (error) {
         console.error("Error fetching sector history:", error);
-        return {};
+        return { US: {}, CA: {} };
     }
 };
 
@@ -501,6 +428,66 @@ export const fetchPortfolioBackcast = async (items: PortfolioItem[]): Promise<Ba
             series: [],
             missingTickers: [],
             error: String(error)
+        };
+    }
+};
+
+// =============================================================================
+// RISK CONTRIBUTION
+// =============================================================================
+
+export interface RiskPosition {
+    ticker: string;
+    weight: number;
+    individualVol: number;
+    beta: number;
+    mctr: number;
+    componentRisk: number;
+    pctOfTotalRisk: number;
+    annualizedReturn: number;
+    riskAdjustedReturn: number;
+}
+
+export interface SectorRisk {
+    sector: string;
+    weight: number;
+    riskContribution: number;
+}
+
+export interface RiskContributionResponse {
+    portfolioVol: number;
+    benchmarkVol: number;
+    diversificationRatio: number;
+    concentrationRatio: number;
+    numEffectiveBets: number;
+    top3Concentration: number;
+    positions: RiskPosition[];
+    sectorRisk: SectorRisk[];
+    missingTickers: string[];
+    error?: string;
+}
+
+export const fetchRiskContribution = async (items: PortfolioItem[]): Promise<RiskContributionResponse> => {
+    try {
+        const response = await fetch(`${API_Base_URL}/risk-contribution`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ items }),
+        });
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Server Error: ${response.status} - ${errorText}`);
+        }
+
+        return await response.json();
+    } catch (error) {
+        console.error("Risk Contribution Error:", error);
+        return {
+            portfolioVol: 0, benchmarkVol: 0, diversificationRatio: 0,
+            concentrationRatio: 0, numEffectiveBets: 0, top3Concentration: 0,
+            positions: [], sectorRisk: [], missingTickers: [],
+            error: String(error),
         };
     }
 };

@@ -48,8 +48,7 @@ def import_excel_navs():
                 date_str = None
                 if isinstance(col, datetime.datetime):
                    try:
-                       # Only include 2025 dates as requested
-                       if col.year == 2025:
+                       if col.year >= 2025:
                            date_str = col.strftime("%Y-%m-%d")
                    except:
                        pass

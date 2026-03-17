@@ -214,21 +214,7 @@ function App() {
           />
         );
       default:
-        return (
-          <UploadView
-            onDataLoaded={handleDataLoaded}
-            onProceed={() => setCurrentView(ViewState.DASHBOARD)}
-            currentData={portfolioData}
-            selectedYear={selectedYear}
-            setSelectedYear={setSelectedYear}
-            customSectors={customSectors}
-            setCustomSectors={setCustomSectors}
-            assetGeo={assetGeo}
-            setAssetGeo={setAssetGeo}
-            lagStatus={lagStatus}
-            setLagStatus={setLagStatus}
-          />
-        );
+        return null;
     }
   };
 

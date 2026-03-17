@@ -65,7 +65,7 @@ const getDateRangeForPeriod = (period: Period): { start: Date; end?: Date } => {
 };
 
 export const IndexPerformanceChart: React.FC<IndexPerformanceChartProps> = ({ data }) => {
-    const [selectedPeriod, setSelectedPeriod] = useState<Period>('1Y');
+    const [selectedPeriod, setSelectedPeriod] = useState<Period>('YTD');
 
     const chartData = useMemo(() => {
         const acwi = data['ACWI'] || [];

@@ -1,9 +1,12 @@
 """Market data fetching and return calculations."""
 
+import logging
 import pandas as pd
 import yfinance as yf
 from constants import CASH_TICKER, FX_TICKER, INDICES
 from cache_manager import load_cache, save_cache
+
+logger = logging.getLogger(__name__)
 
 
 def needs_fx_adjustment(ticker: str, is_mutual_fund: bool = False, nav_dict: dict = None) -> bool:
@@ -59,10 +62,6 @@ def get_price_on_date(ticker, date, cache):
         cache[cache_key] = price
         return price
     except Exception as e:
-        # Instead of crashing, return a default price and log a warning.
-        # This prevents invalid tickers from breaking the entire analysis.
-        import logging
-        logger = logging.getLogger(__name__)
         logger.warning(f"Error fetching price for {ticker} on {date}: {str(e)}. Defaulting to 1.0")
         return 1.0
 
@@ -107,11 +106,6 @@ def calculate_returns(weights_dict, nav_dict, dates, cache, mutual_fund_tickers=
                         last_date = available_dates[-1]
                         prices[ticker][date_val] = nav_dict[ticker][last_date]
                     else:
-                        # No previous NAV data available.
-                        # Mark as None to skip this period in return calculations rather than
-                        # defaulting to 1.0 which causes wildly incorrect returns.
-                        import logging
-                        logger = logging.getLogger(__name__)
                         logger.warning(f"No NAV data available for {ticker} on or before {date_val}. Marking as None.")
                         prices[ticker][date_val] = None
             else:

@@ -3,7 +3,7 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import { KPICard } from '../components/KPICard';
 import { Dropdown } from '../components/Dropdown';
 import { TrendingUp, Target, AlertTriangle, Calendar, Grid, Activity, Percent, Layers, Zap, Scale, Info, Printer, Download, Loader2, ArrowUpRight, ArrowDownRight, Briefcase } from 'lucide-react';
-import { fetchSectorHistory, fetchSectors, fetchIndexExposure } from '../services/api';
+import { fetchSectorHistory, fetchSectors, fetchIndexExposure, SectorHistoryData } from '../services/api';
 import { PortfolioItem } from '../types';
 
 class ErrorBoundary extends Component<{ children: React.ReactNode }, { hasError: boolean, error: Error | null, errorInfo: ErrorInfo | null }> {
@@ -102,11 +102,14 @@ const TornadoLabel = (props: any) => {
     // robust way is to find min/max x.
     const barEnd = isPos ? Math.max(x, x + width) : Math.min(x, x + width);
 
+    const isZero = Math.abs(realValue) < 0.005;
+    const fillColor = isZero ? '#e5eaf0' : (isPos ? '#16a34a' : '#dc2626');
+
     return (
         <text
             x={isPos ? barEnd + offset : barEnd - offset}
             y={y + height / 2 + 1}
-            fill={isPos ? '#16a34a' : '#dc2626'}
+            fill={fillColor}
             textAnchor={isPos ? 'start' : 'end'}
             dominantBaseline="central"
             className="text-[12px] font-mono font-bold"
@@ -307,11 +310,15 @@ const aggregatePeriodData = (data: PortfolioItem[]): TableItem[] => {
 const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selectedYear, setSelectedYear }) => {
     const [viewMode, setViewMode] = useState<'OVERVIEW' | 'TABLES'>('OVERVIEW');
     const [timeRange, setTimeRange] = useState<'YTD' | 'Q1' | 'Q2' | 'Q3' | 'Q4'>('YTD');
-    const [sectorHistory, setSectorHistory] = useState<Record<string, { date: string, value: number }[]>>({});
+    const [sectorHistory, setSectorHistory] = useState<{ US: SectorHistoryData, CA: SectorHistoryData }>({ US: {}, CA: {} });
     const [tickerSectors, setTickerSectors] = useState<Record<string, string>>({});
     const [loadingSectors, setLoadingSectors] = useState(true);
+    const [loadingExposure, setLoadingExposure] = useState(true);
+    const [loadingTickerSectors, setLoadingTickerSectors] = useState(true);
     const [regionFilter, setRegionFilter] = useState<'ALL' | 'US' | 'CA'>('ALL');
     const [benchmarkExposure, setBenchmarkExposure] = useState<any[]>([]);
+
+    const isAttributionLoading = loadingSectors || loadingExposure || loadingTickerSectors;
 
     const isFuture = useMemo(() => {
         const now = new Date();
@@ -326,10 +333,12 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
 
     React.useEffect(() => {
         const loadExposure = async () => {
+            setLoadingExposure(true);
             const res = await fetchIndexExposure();
             if (res && res.sectors) {
                 setBenchmarkExposure(res.sectors);
             }
+            setLoadingExposure(false);
         };
         loadExposure();
     }, []);
@@ -347,13 +356,21 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
     // Fetch sector classifications for all tickers in the portfolio
     React.useEffect(() => {
         const tickers = Array.from(new Set(data.map(d => d.ticker))).filter(t => t !== 'CASH');
-        if (tickers.length === 0) return;
+        if (tickers.length === 0) { setLoadingTickerSectors(false); return; }
         const loadTickerSectors = async () => {
+            setLoadingTickerSectors(true);
             const sectors = await fetchSectors(tickers);
             setTickerSectors(sectors);
+            setLoadingTickerSectors(false);
         };
         loadTickerSectors();
     }, [data]);
+
+    // Select sector history based on region filter: CA uses Canadian ETFs, US/ALL use US ETFs
+    const activeSectorHistory = useMemo(() => {
+        if (regionFilter === 'CA') return sectorHistory.CA || {};
+        return sectorHistory.US || {};
+    }, [sectorHistory, regionFilter]);
 
     const handlePrint = () => {
         window.print();
@@ -602,24 +619,24 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
     }, [waterfallData]);
 
     const sectorBenchmarkReturns = useMemo(() => {
-        if (!sectorHistory || Object.keys(sectorHistory).length === 0) return {};
-        
+        if (!activeSectorHistory || Object.keys(activeSectorHistory).length === 0) return {};
+
         const results: Record<string, number> = {};
         const quarters: Record<string, number[]> = { 'Q1': [0, 2], 'Q2': [3, 5], 'Q3': [6, 8], 'Q4': [9, 11] };
-        
-        Object.keys(sectorHistory).forEach(sector => {
-            const hist = sectorHistory[sector];
+
+        Object.keys(activeSectorHistory).forEach(sector => {
+            const hist = activeSectorHistory[sector];
             if (!hist || hist.length < 2) return;
-            
+
             // Safer Year parsing (avoid JS Date UTC issues)
             const yearHist = hist.filter(h => h.date.startsWith(selectedYear.toString()));
             if (yearHist.length < 2) return;
 
             // Sort by date
             const sortedYearHist = [...yearHist].sort((a,b) => a.date.localeCompare(b.date));
-            
+
             let startPoint, endPoint;
-            
+
             if (timeRange === 'YTD') {
                 startPoint = sortedYearHist[0];
                 endPoint = sortedYearHist[sortedYearHist.length - 1];
@@ -635,14 +652,14 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
                 startPoint = sortedPeriodHist[0];
                 endPoint = sortedPeriodHist[sortedPeriodHist.length - 1];
             }
-            
+
             if (startPoint && endPoint && startPoint.value > 0) {
                 results[sector] = (endPoint.value / startPoint.value - 1) * 100;
             }
         });
-        
+
         return results;
-    }, [sectorHistory, selectedYear, timeRange]);
+    }, [activeSectorHistory, selectedYear, timeRange]);
 
     const sectorAttributionData = useMemo(() => {
         const sectorMapping: Record<string, string> = {
@@ -686,6 +703,35 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
             "Utilities": "Utilities"
         };
 
+        const US_SECTOR_BENCHMARK_ETF: Record<string, string> = {
+            "Materials": "XLB",
+            "Consumer Discretionary": "XLY",
+            "Financials": "XLF",
+            "Real Estate": "XLRE",
+            "Communication Services": "XLC",
+            "Energy": "XLE",
+            "Industrials": "XLI",
+            "Information Technology": "XLK",
+            "Consumer Staples": "XLP",
+            "Health Care": "XLV",
+            "Utilities": "XLU"
+        };
+
+        const CA_SECTOR_BENCHMARK_ETF: Record<string, string> = {
+            "Financials": "XFN.TO",
+            "Energy": "XEG.TO",
+            "Materials": "XMA.TO",
+            "Industrials": "ZIN.TO",
+            "Information Technology": "XIT.TO",
+            "Utilities": "XUT.TO",
+            "Real Estate": "XRE.TO",
+            "Consumer Staples": "XST.TO",
+            "Consumer Discretionary": "XCD.TO",
+            "Health Care": "XHC.TO",
+        };
+
+        const activeBenchmarkETFs = regionFilter === 'CA' ? CA_SECTOR_BENCHMARK_ETF : US_SECTOR_BENCHMARK_ETF;
+
         const FIXED_SECTOR_ORDER = [
             "Materials",
             "Consumer Discretionary",
@@ -700,12 +746,14 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
             "Utilities"
         ];
 
-        // 1. Map Benchmark Weights to Canonical Names
+        // 1. Map Benchmark Weights to Canonical Names (region-aware)
         const benchmarkWeights: Record<string, number> = {};
         benchmarkExposure.forEach(item => {
             const normalized = sectorMapping[item.sector];
             if (normalized) {
-                benchmarkWeights[normalized] = item.Index;
+                if (regionFilter === 'CA') benchmarkWeights[normalized] = item.TSX || 0;
+                else if (regionFilter === 'US') benchmarkWeights[normalized] = item.ACWI || 0;
+                else benchmarkWeights[normalized] = item.Index;
             }
         });
 
@@ -733,8 +781,9 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
                 sectorGroups[canonicalName] = { stocks: [], sumWeight: 0, sumWeightedReturn: 0 };
             }
             
-            const periodReturn = stats.history.reduce((sum, h) => sum + (h.returnPct || 0), 0);
-            
+            // returnPct from server is in decimal form (0.05 = 5%), convert to percentage for consistency with benchmark returns
+            const periodReturn = stats.history.reduce((sum, h) => sum + (h.returnPct || 0), 0) * 100;
+
             sectorGroups[canonicalName].stocks.push({
                 ticker,
                 returnPct: periodReturn,
@@ -770,20 +819,30 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
                 const benchReturn = sectorBenchmarkReturns[sector] || 0;
                 const benchWeight = benchmarkWeights[sector] || 0;
 
-                const portfolioReturn = group.sumWeight > 0 ? group.sumWeightedReturn / group.sumWeight : 0;
+                const hasPortfolioHoldings = group.sumWeight > 0.001;
+                const portfolioReturn = hasPortfolioHoldings ? group.sumWeightedReturn / group.sumWeight : 0;
 
                 // Selection Effect = W_b * (R_p - R_b)
-                const selectionEffect = (benchWeight * (portfolioReturn - benchReturn)) / 100;
+                // Only meaningful when we actually hold stocks in this sector;
+                // if W_p ≈ 0, R_p is undefined — selection effect is 0.
+                const selectionEffect = hasPortfolioHoldings
+                    ? (benchWeight * (portfolioReturn - benchReturn)) / 100
+                    : 0;
 
                 // Allocation Effect = (W_p - W_b) * (R_b - R_total_b)
+                // Always valid — captures the impact of over/underweighting a sector.
                 const allocationEffect = ((group.sumWeight - benchWeight) * (benchReturn - totalBenchmarkReturn)) / 100;
 
                 // Interaction Effect = (W_p - W_b) * (R_p - R_b)
-                const interactionEffect = ((group.sumWeight - benchWeight) * (portfolioReturn - benchReturn)) / 100;
+                // Only meaningful when R_p is defined (we hold stocks in this sector).
+                const interactionEffect = hasPortfolioHoldings
+                    ? ((group.sumWeight - benchWeight) * (portfolioReturn - benchReturn)) / 100
+                    : 0;
                 
                 return {
                     sector,
                     displayName: CANONICAL_TO_DISPLAY[sector] || sector,
+                    benchmarkETF: activeBenchmarkETFs[sector] || '—',
                     selectionEffect,
                     allocationEffect,
                     interactionEffect,
@@ -791,11 +850,17 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
                     benchmarkWeight: benchWeight,
                     portfolioWeight: group.sumWeight,
                     portfolioReturn: portfolioReturn,
-                    stocks: group.stocks.map(s => ({ 
-                        ticker: s.ticker, 
-                        returnPct: s.returnPct, 
+                    stocks: group.stocks.map(s => ({
+                        ticker: s.ticker,
+                        returnPct: s.returnPct,
                         weight: s.weight,
-                        selectionContribution: s.weight * (s.returnPct - benchReturn)
+                        // Per-stock decomposition of sector selection effect:
+                        // Selection_sector = W_b * (R_p - R_b) / 100
+                        //                 = W_b * Σ(w_i * (R_i - R_b)) / (W_p * 100)
+                        // So each stock's contribution = W_b * w_i * (R_i - R_b) / (W_p * 100)
+                        selectionContribution: hasPortfolioHoldings
+                            ? (benchWeight * s.weight * (s.returnPct - benchReturn)) / (group.sumWeight * 100)
+                            : 0
                     }))
                 };
             });
@@ -1019,7 +1084,15 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
                                     </div>
                                 </div>
                             </div>
-                            <div className="flex h-full min-h-0 w-full">
+                            {isAttributionLoading ? (
+                                <div className="flex-1 flex items-center justify-center min-h-[300px]">
+                                    <div className="flex flex-col items-center gap-3">
+                                        <Loader2 className="animate-spin text-wallstreet-accent" size={28} />
+                                        <span className="font-mono text-xs text-slate-400 font-bold uppercase tracking-widest">Loading Attribution Data</span>
+                                    </div>
+                                </div>
+                            ) : (
+                            <div className="flex h-full min-h-0 w-full">
                                 {/* Dedicated Label Column for aligned Y-Axis */}
                                 <div className="w-[105px] flex flex-col shrink-0">
                                     <div className="h-[44px]"></div> {/* Title Spacer */}
@@ -1052,9 +1125,13 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
                                                     <Tooltip content={({ active, payload }) => {
                                                         if (active && payload && payload.length) {
                                                             const d = payload[0].payload;
+                                                            const hasHoldings = d.portfolioWeight > 0.001;
                                                             return (
                                                                 <div className="bg-white p-4 rounded-lg shadow-xl border border-wallstreet-200 font-mono text-[12px] z-50 min-w-[220px]">
                                                                     <div className="font-bold border-b pb-2 mb-2 uppercase text-[13px]">{d.displayName} Selection</div>
+                                                                    {!hasHoldings ? (
+                                                                        <div className="text-slate-400 italic text-[11px] py-2">No holdings in this sector — selection effect is zero.</div>
+                                                                    ) : (
                                                                     <div className="space-y-1.5">
                                                                         <div className="flex justify-between gap-4">
                                                                             <span className="text-slate-500">Selection:</span>
@@ -1065,7 +1142,7 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
                                                                             <span className="font-bold">{d.portfolioReturn.toFixed(2)}%</span>
                                                                         </div>
                                                                         <div className="flex justify-between gap-4">
-                                                                            <span className="text-slate-500">Benchmark Return:</span>
+                                                                            <span className="text-slate-500">Bench Return ({d.benchmarkETF}):</span>
                                                                             <span className="font-bold">{d.benchmarkReturn.toFixed(2)}%</span>
                                                                         </div>
                                                                         <div className="flex justify-between gap-4">
@@ -1073,17 +1150,25 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
                                                                             <span className="font-bold text-blue-600">{d.benchmarkWeight.toFixed(2)}%</span>
                                                                         </div>
                                                                     </div>
+                                                                    )}
+                                                                    {hasHoldings && d.stocks.length > 0 && (
                                                                     <div className="border-t mt-3 pt-2">
                                                                         <div className="text-[10px] text-slate-400 mb-2 uppercase text-center font-bold">Key Drivers (Selection):</div>
                                                                         {[...d.stocks].sort((a: any, b: any) => Math.abs(b.selectionContribution) - Math.abs(a.selectionContribution)).slice(0, 3).map((s: any, idx: number) => (
                                                                             <div key={idx} className="flex justify-between gap-4 py-1 text-[10px]">
                                                                                 <span className="font-bold">{s.ticker}</span>
-                                                                                <span className={s.selectionContribution >= 0 ? 'text-green-600' : 'text-red-600'}>
-                                                                                    {s.selectionContribution >= 0 ? '+' : ''}{s.selectionContribution.toFixed(2)}%
-                                                                                </span>
+                                                                                <div className="text-right">
+                                                                                    <span className={s.returnPct >= 0 ? 'text-green-600' : 'text-red-600'}>
+                                                                                        {s.returnPct >= 0 ? '+' : ''}{s.returnPct.toFixed(1)}%
+                                                                                    </span>
+                                                                                    <span className="text-slate-400 ml-1">
+                                                                                        ({s.selectionContribution >= 0 ? '+' : ''}{s.selectionContribution.toFixed(2)}%)
+                                                                                    </span>
+                                                                                </div>
                                                                             </div>
                                                                         ))}
                                                                     </div>
+                                                                    )}
                                                                 </div>
                                                             );
                                                         }
@@ -1137,7 +1222,7 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
                                                                             <span className="font-bold text-blue-600">{d.benchmarkWeight.toFixed(2)}%</span>
                                                                         </div>
                                                                         <div className="flex justify-between gap-4">
-                                                                            <span className="text-slate-500">Bench Return:</span>
+                                                                            <span className="text-slate-500">Bench Return ({d.benchmarkETF}):</span>
                                                                             <span className="font-bold">{d.benchmarkReturn.toFixed(2)}%</span>
                                                                         </div>
                                                                     </div>
@@ -1178,9 +1263,13 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
                                                     <Tooltip content={({ active, payload }) => {
                                                         if (active && payload && payload.length) {
                                                             const d = payload[0].payload;
+                                                            const hasHoldings = d.portfolioWeight > 0.001;
                                                             return (
                                                                 <div className="bg-white p-4 rounded-lg shadow-xl border border-wallstreet-200 font-mono text-[12px] z-50 min-w-[220px]">
                                                                     <div className="font-bold border-b pb-2 mb-2 uppercase text-[13px]">{d.displayName} Interaction</div>
+                                                                    {!hasHoldings ? (
+                                                                        <div className="text-slate-400 italic text-[11px] py-2">No holdings in this sector — interaction effect is zero.</div>
+                                                                    ) : (
                                                                     <div className="space-y-1.5 text-[12px]">
                                                                         <div className="flex justify-between gap-4">
                                                                             <span className="text-slate-500">Interaction:</span>
@@ -1190,6 +1279,7 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
                                                                             Combined effect of selection and allocation. Usually small, but large when overweighting significant winners.
                                                                         </div>
                                                                     </div>
+                                                                    )}
                                                                 </div>
                                                             );
                                                         }
@@ -1208,13 +1298,6 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
                                     </div>
                                 </div>
                             </div>
-                            {loadingSectors && (
-                                <div className="absolute inset-0 bg-white/60 flex items-center justify-center z-10">
-                                    <div className="flex flex-col items-center gap-2">
-                                        <Loader2 className="animate-spin text-wallstreet-accent" size={24} />
-                                        <span className="font-mono text-[10px] text-slate-400 font-bold uppercase tracking-widest">Loading Benchmarks</span>
-                                    </div>
-                                </div>
                             )}
                         </div>
                     </div>

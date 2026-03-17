@@ -1,12 +1,19 @@
 import shutil
 import os
+import json
+import datetime
 from pathlib import Path
 from typing import List, Optional
+from datetime import timedelta
+
+import numpy as np
 import pandas as pd
+import yfinance as yf
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from dateutil.relativedelta import relativedelta
 import logging
 
 # Import existing logic
@@ -73,8 +80,6 @@ def get_aggregated_nav_data():
     manual_nav_path = Path("data/manual_navs.json")
     if manual_nav_path.exists():
         try:
-            import json
-            import datetime
             with open(manual_nav_path, "r") as f:
                 static_navs = json.load(f)
                 for ticker, dates_data in static_navs.items():
@@ -85,7 +90,7 @@ def get_aggregated_nav_data():
             logger.warning(f"Failed to load manual_navs.json: {e}")
 
 
-    # 3. Load historical CSV NAVs
+    # 2. Load historical CSV NAVs
     try:
         csv_navs = load_historic_nav_csvs("data/historic_navs")
         for ticker, dates_data in csv_navs.items():
@@ -103,7 +108,6 @@ class ManualAnalysisRequest(BaseModel):
 @app.post("/analyze-manual", response_model=List[PortfolioItem])
 async def analyze_manual(request: ManualAnalysisRequest):
     try:
-        from datetime import datetime
         
         # Convert flat list of items to weights_dict and dates
         weights_dict = {}
@@ -115,7 +119,6 @@ async def analyze_manual(request: ManualAnalysisRequest):
                 continue
                 
             try:
-                # Handle date parsing (expects YYYY-MM-DD from frontend)
                 # Handle date parsing (expects YYYY-MM-DD from frontend)
                 dt = pd.to_datetime(item.date)
                 dates_set.add(dt)
@@ -213,10 +216,10 @@ def run_portfolio_analysis(weights_dict, nav_dict, dates, mutual_fund_tickers=No
     sector_path = Path("data/custom_sectors.json")
     if sector_path.exists():
         try:
-            import json
             with open(sector_path, "r") as f:
                 custom_sectors = json.load(f)
-        except: pass
+        except Exception:
+            pass
 
     logger.info("Building results dataframe...")
     df, periods = build_results_dataframe(weights_dict, returns, prices, dates, cache, mutual_fund_tickers, custom_sectors)
@@ -268,8 +271,6 @@ async def fetch_sectors(request: dict):
     if not tickers:
         return {}
     
-    import yfinance as yf
-    import json
     
     unique_tickers = list(set([t.strip() for t in tickers if t and isinstance(t, str)]))
     
@@ -340,9 +341,6 @@ async def fetch_performance(request: dict):
     if not tickers:
         return {}
     
-    import yfinance as yf
-    import datetime
-    from dateutil.relativedelta import relativedelta
     
     unique_tickers = list(set([t.strip() for t in tickers if t and isinstance(t, str)]))
     results = {}
@@ -441,7 +439,6 @@ async def fetch_performance(request: dict):
 @app.get("/index-exposure")
 async def get_index_exposure():
     try:
-        import json
         # Try absolute path if relative fails
         data_path = Path("data/index_exposure.json")
         if not data_path.exists():
@@ -517,7 +514,6 @@ async def get_index_exposure():
 
 @app.post("/currency-performance")
 async def currency_performance(request: dict):
-    from cache_manager import load_cache, save_cache
     
     tickers = request.get("tickers", [])
     if not tickers:
@@ -540,8 +536,6 @@ async def fetch_betas(request: dict):
     if not tickers:
         return {}
     
-    import yfinance as yf
-    import json
     
     unique_tickers = list(set([t.strip() for t in tickers if t and isinstance(t, str)]))
     results = {}
@@ -630,8 +624,6 @@ async def fetch_dividends(request: dict):
     if not tickers:
         return {}
     
-    import yfinance as yf
-    import json
     
     unique_tickers = list(set([t.strip() for t in tickers if t and isinstance(t, str)]))
     results = {}
@@ -712,7 +704,7 @@ async def fetch_dividends(request: dict):
                                 # This handles both high-yield edge cases (10-15%) and
                                 # already-converted values
                                 return v
-                        except:
+                        except (ValueError, TypeError):
                             return 0.0
 
                     div_yield_pct = normalize_yield(info.get('dividendYield'))
@@ -747,9 +739,6 @@ async def get_index_history():
     Also fetches USDCAD=X to convert ACWI to CAD, and calculates a synthetic blend (75% ACWI, 25% XIU).
     Caches the result to avoid repeated slow yfinance calls.
     """
-    import yfinance as yf
-    import json
-    import datetime
     
     cache_file = Path("data/index_history_cache.json")
     
@@ -868,25 +857,26 @@ async def get_index_history():
 async def get_sector_history():
     """
     Fetch historical data for major sector ETFs to use as benchmarks.
+    Returns nested structure: {"US": {sector: [{date, value}]}, "CA": {sector: [{date, value}]}}
     """
-    import yfinance as yf
-    import json
-    import datetime
-    
+
     cache_file = Path("data/sector_history_cache.json")
-    
+
     # Check cache freshness (24 hours)
     if cache_file.exists():
         try:
             mtime = datetime.datetime.fromtimestamp(cache_file.stat().st_mtime)
             if datetime.datetime.now() - mtime < datetime.timedelta(hours=24):
                 with open(cache_file, "r") as f:
-                    return json.load(f)
+                    cached = json.load(f)
+                    # Only use cache if it has the new nested format
+                    if "US" in cached:
+                        return cached
         except Exception as e:
             logger.warning(f"Failed to read sector history cache: {e}")
 
-    # Standard Select Sector SPDR ETFs
-    sector_map = {
+    # US Select Sector SPDR ETFs
+    us_sector_map = {
         "Information Technology": "XLK",
         "Financials": "XLF",
         "Health Care": "XLV",
@@ -899,29 +889,53 @@ async def get_sector_history():
         "Real Estate": "XLRE",
         "Materials": "XLB"
     }
-    
-    tickers = list(sector_map.values())
-    logger.info(f"Fetching fresh sector history for {tickers}...")
-    
+
+    # Canadian iShares / BMO sector ETFs (TSX-listed)
+    ca_sector_map = {
+        "Financials": "XFN.TO",
+        "Energy": "XEG.TO",
+        "Materials": "XMA.TO",
+        "Industrials": "ZIN.TO",
+        "Information Technology": "XIT.TO",
+        "Utilities": "XUT.TO",
+        "Real Estate": "XRE.TO",
+        "Consumer Staples": "XST.TO",
+        "Consumer Discretionary": "XCD.TO",
+        "Health Care": "XHC.TO",
+        # Communication Services: no Canadian sector ETF exists
+    }
+
+    all_tickers = list(set(list(us_sector_map.values()) + list(ca_sector_map.values())))
+    logger.info(f"Fetching fresh sector history for {len(all_tickers)} tickers (US + CA)...")
+
     try:
-        data = yf.download(tickers, period="5y", interval="1d", progress=False)
+        data = yf.download(all_tickers, period="5y", interval="1d", progress=False)
         if data.empty:
-            return {}
-            
+            return {"US": {}, "CA": {}}
+
         if 'Close' in data.columns:
             closes = data['Close']
         else:
             closes = data
-            
+
         closes = closes.ffill().bfill()
         dates = closes.index.strftime('%Y-%m-%d').tolist()
-        
-        result_data = {}
-        for sector, ticker in sector_map.items():
-            if ticker in closes.columns:
-                series = closes[ticker].tolist()
-                result_data[sector] = [{"date": d, "value": v} for d, v in zip(dates, series) if pd.notna(v)]
-        
+
+        def build_region_data(sector_map):
+            region_data = {}
+            for sector, ticker in sector_map.items():
+                if ticker in closes.columns:
+                    series = closes[ticker].tolist()
+                    points = [{"date": d, "value": v} for d, v in zip(dates, series) if pd.notna(v)]
+                    if points:
+                        region_data[sector] = points
+            return region_data
+
+        result_data = {
+            "US": build_region_data(us_sector_map),
+            "CA": build_region_data(ca_sector_map)
+        }
+
         # Save to cache
         try:
             cache_file.parent.mkdir(parents=True, exist_ok=True)
@@ -929,15 +943,14 @@ async def get_sector_history():
                 json.dump(result_data, f)
         except Exception as e:
             logger.error(f"Failed to write sector history cache: {e}")
-            
+
         return result_data
     except Exception as e:
         logger.error(f"Error fetching sector history: {e}")
-        return {}
+        return {"US": {}, "CA": {}}
 
 @app.post("/save-portfolio-config")
 async def save_portfolio_config(config: PortfolioConfig):
-    import json
     try:
         config_path = Path("data/portfolio_config.json")
         config_path.parent.mkdir(parents=True, exist_ok=True)
@@ -950,7 +963,6 @@ async def save_portfolio_config(config: PortfolioConfig):
 
 @app.get("/load-portfolio-config")
 async def load_portfolio_config():
-    import json
     try:
         config_path = Path("data/portfolio_config.json")
         if not config_path.exists():
@@ -964,7 +976,6 @@ async def load_portfolio_config():
 @app.post("/save-sector-weights")
 async def save_sector_weights(request: dict):
     """Save custom sector weight breakdowns (e.g. for ETFs/MFs)"""
-    import json
     try:
         weights = request.get("weights", {})
         path = Path("data/custom_sectors.json")
@@ -978,7 +989,6 @@ async def save_sector_weights(request: dict):
 
 @app.get("/load-sector-weights")
 async def load_sector_weights():
-    import json
     try:
         path = Path("data/custom_sectors.json")
         if not path.exists():
@@ -992,7 +1002,6 @@ async def load_sector_weights():
 @app.post("/save-asset-geo")
 async def save_asset_geo(request: dict):
     """Save custom geographical classifications (e.g. CA, US, INTL)"""
-    import json
     try:
         geo = request.get("geo", {})
         path = Path("data/custom_geography.json")
@@ -1006,7 +1015,6 @@ async def save_asset_geo(request: dict):
 
 @app.get("/load-asset-geo")
 async def load_asset_geo():
-    import json
     try:
         path = Path("data/custom_geography.json")
         if not path.exists():
@@ -1027,10 +1035,6 @@ async def check_nav_lag(request: dict):
         request.tickers: List of ticker symbols to check
         request.force_refresh: If true, ignore internal caches
     """
-    import yfinance as yf
-    import datetime
-    from pathlib import Path
-    import pandas as pd
     
     tickers = request.get("tickers", [])
     force_refresh = request.get("force_refresh", False)
@@ -1172,10 +1176,6 @@ async def portfolio_backcast(request: BackcastRequest):
       - Daily cumulative performance series for Portfolio & Benchmark
       - Risk metrics: Sharpe, Volatility, Beta, Max Drawdown, Alpha, Total Return
     """
-    import yfinance as yf
-    import numpy as np
-    from datetime import datetime, timedelta
-    import json
     
     items = request.items
     if not items:
@@ -1353,6 +1353,191 @@ async def portfolio_backcast(request: BackcastRequest):
         },
         "series": performance_series,
         "missingTickers": missing_tickers
+    }
+
+
+@app.post("/risk-contribution")
+async def risk_contribution(request: BackcastRequest):
+    """
+    Per-position risk decomposition: marginal contribution to risk (MCTR),
+    component risk, diversification ratio, and sector-level risk.
+    Uses 1 year of daily returns and the portfolio covariance matrix.
+    """
+    items = request.items
+    if not items:
+        return {"error": "No portfolio items provided"}
+
+    # --- 1. Aggregate weights by ticker ---
+    weights_by_ticker: dict[str, float] = {}
+    mutual_fund_tickers: set[str] = set()
+    for item in items:
+        ticker = item.ticker.upper().strip()
+        if not ticker or 'TICKER' in ticker or 'CASH' in ticker.upper():
+            continue
+        w = item.weight / 100.0 if item.weight > 1 else item.weight
+        if ticker in weights_by_ticker:
+            weights_by_ticker[ticker] = max(weights_by_ticker[ticker], w)
+        else:
+            weights_by_ticker[ticker] = w
+        if getattr(item, 'isMutualFund', False):
+            mutual_fund_tickers.add(ticker)
+
+    if not weights_by_ticker:
+        return {"error": "No valid tickers found"}
+
+    total_weight = sum(weights_by_ticker.values())
+    if total_weight > 0:
+        weights_by_ticker = {k: v / total_weight for k, v in weights_by_ticker.items()}
+
+    # --- 2. Fetch 1 year of daily prices ---
+    all_tickers = list(weights_by_ticker.keys())
+    benchmark_tickers = ["ACWI", "XIU.TO", "USDCAD=X"]
+    fetch_list = list(set(all_tickers + benchmark_tickers))
+
+    try:
+        data = yf.download(fetch_list, period="1y", interval="1d", progress=False)
+        if data.empty:
+            return {"error": "Failed to fetch price data"}
+        closes = data['Close'] if 'Close' in data.columns else data
+        closes = closes.ffill().bfill()
+    except Exception as e:
+        logger.error(f"Risk contribution - error downloading prices: {e}")
+        return {"error": str(e)}
+
+    returns_df = closes.pct_change().fillna(0)
+
+    # --- 3. Build per-ticker FX-adjusted daily returns matrix ---
+    ticker_list = []
+    weight_vec = []
+    missing_tickers = []
+    ticker_returns_cols = {}
+
+    for ticker, weight in weights_by_ticker.items():
+        if ticker not in returns_df.columns:
+            missing_tickers.append(ticker)
+            continue
+        is_mf = ticker in mutual_fund_tickers
+        if needs_fx_adjustment(ticker, is_mutual_fund=is_mf) and "USDCAD=X" in returns_df.columns:
+            fx_ret = returns_df["USDCAD=X"]
+            adj_ret = (1 + returns_df[ticker]) * (1 + fx_ret) - 1
+        else:
+            adj_ret = returns_df[ticker]
+        ticker_list.append(ticker)
+        weight_vec.append(weight)
+        ticker_returns_cols[ticker] = adj_ret
+
+    if len(ticker_list) < 1:
+        return {"error": "No valid tickers with price data"}
+
+    # Build returns matrix (days × tickers)
+    returns_matrix = pd.DataFrame(ticker_returns_cols).iloc[1:]  # drop first NaN row
+    w = np.array(weight_vec)
+
+    # --- 4. Covariance matrix (annualized) ---
+    cov_matrix = returns_matrix.cov().values * 252
+
+    # Portfolio variance & volatility
+    port_var = w @ cov_matrix @ w
+    port_vol = np.sqrt(port_var) if port_var > 0 else 0.0
+
+    # --- 5. Per-position risk metrics ---
+    # MCTR = (Cov × w) / σ_portfolio
+    cov_w = cov_matrix @ w
+    mctr = cov_w / port_vol if port_vol > 0 else np.zeros(len(w))
+
+    # Component risk = w_i × MCTR_i
+    component_risk = w * mctr
+
+    # % of total risk (component risk sums to portfolio variance / port_vol = port_vol)
+    total_component = np.sum(component_risk)
+    pct_of_total = component_risk / total_component if total_component > 0 else np.zeros(len(w))
+
+    # Individual volatilities & annualized returns
+    individual_vols = returns_matrix.std().values * np.sqrt(252)
+    annualized_returns = returns_matrix.mean().values * 252
+
+    # Beta to portfolio
+    port_daily_ret = (returns_matrix.values * w).sum(axis=1)
+    port_daily_var = np.var(port_daily_ret)
+    betas = []
+    for i in range(len(ticker_list)):
+        if port_daily_var > 0:
+            b = np.cov(returns_matrix.iloc[:, i].values, port_daily_ret)[0, 1] / port_daily_var
+        else:
+            b = 1.0
+        betas.append(round(b, 3))
+
+    # --- 6. Portfolio-level metrics ---
+    sum_weighted_vol = np.sum(w * individual_vols)
+    diversification_ratio = sum_weighted_vol / port_vol if port_vol > 0 else 1.0
+
+    # HHI of risk contributions (concentration)
+    hhi = np.sum(pct_of_total ** 2)
+    num_effective_bets = 1.0 / hhi if hhi > 0 else len(ticker_list)
+
+    # Top-3 concentration
+    sorted_pct = np.sort(pct_of_total)[::-1]
+    top3_concentration = float(np.sum(sorted_pct[:3])) if len(sorted_pct) >= 3 else float(np.sum(sorted_pct))
+
+    # Benchmark volatility for comparison
+    bmk_vol = 0.0
+    if "ACWI" in returns_df.columns and "XIU.TO" in returns_df.columns and "USDCAD=X" in returns_df.columns:
+        acwi_cad = (1 + returns_df["ACWI"]) * (1 + returns_df["USDCAD=X"]) - 1
+        bmk_ret = 0.75 * acwi_cad + 0.25 * returns_df["XIU.TO"]
+        bmk_vol = float(bmk_ret.iloc[1:].std() * np.sqrt(252))
+
+    # --- 7. Build positions list ---
+    positions = []
+    for i, ticker in enumerate(ticker_list):
+        risk_adj_ret = annualized_returns[i] / individual_vols[i] if individual_vols[i] > 0 else 0.0
+        positions.append({
+            "ticker": ticker,
+            "weight": round(float(w[i]) * 100, 2),
+            "individualVol": round(float(individual_vols[i]) * 100, 2),
+            "beta": betas[i],
+            "mctr": round(float(mctr[i]) * 100, 4),
+            "componentRisk": round(float(component_risk[i]) * 100, 4),
+            "pctOfTotalRisk": round(float(pct_of_total[i]) * 100, 2),
+            "annualizedReturn": round(float(annualized_returns[i]) * 100, 2),
+            "riskAdjustedReturn": round(float(risk_adj_ret), 2),
+        })
+
+    # --- 8. Sector-level risk aggregation ---
+    # Try to load sector data
+    sector_risk = []
+    try:
+        sectors_file = Path("data/custom_sectors.json")
+        sector_map = {}
+        if sectors_file.exists():
+            with open(sectors_file) as f:
+                sector_map = json.load(f)
+
+        sector_weights: dict[str, float] = {}
+        sector_risk_pct: dict[str, float] = {}
+        for i, ticker in enumerate(ticker_list):
+            sec = sector_map.get(ticker, "Other")
+            sector_weights[sec] = sector_weights.get(sec, 0) + float(w[i])
+            sector_risk_pct[sec] = sector_risk_pct.get(sec, 0) + float(pct_of_total[i])
+
+        for sec in sorted(sector_weights.keys()):
+            sector_risk.append({
+                "sector": sec,
+                "weight": round(sector_weights[sec] * 100, 2),
+                "riskContribution": round(sector_risk_pct[sec] * 100, 2),
+            })
+    except Exception as e:
+        logger.warning(f"Could not load sector data for risk: {e}")
+
+    return {
+        "portfolioVol": round(float(port_vol) * 100, 2),
+        "benchmarkVol": round(float(bmk_vol) * 100, 2),
+        "diversificationRatio": round(float(diversification_ratio), 2),
+        "concentrationRatio": round(float(hhi), 4),
+        "numEffectiveBets": round(float(num_effective_bets), 1),
+        "top3Concentration": round(float(top3_concentration) * 100, 1),
+        "positions": positions,
+        "sectorRisk": sector_risk,
+        "missingTickers": missing_tickers,
     }
 
 

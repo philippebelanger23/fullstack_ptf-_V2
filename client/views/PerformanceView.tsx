@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useMemo } from 'react';
-import { TrendingUp, Award, Activity, ShieldAlert, ArrowUpRight, ArrowDownRight, BarChart3, Loader2, AlertCircle, Target } from 'lucide-react';
+import { TrendingUp, Award, Activity, ShieldAlert, ArrowUpRight, ArrowDownRight, BarChart3, Loader2, AlertCircle, Target, Maximize2, Minimize2 } from 'lucide-react';
 import { LineChart, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine } from 'recharts';
 import { loadPortfolioConfig, convertConfigToItems, fetchPortfolioBackcast, BackcastResponse, BackcastSeriesPoint } from '../services/api';
 
@@ -64,8 +64,20 @@ export const PerformanceView: React.FC = () => {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [data, setData] = useState<BackcastResponse | null>(null);
-    const [selectedPeriod, setSelectedPeriod] = useState<Period>('1Y');
+    const [selectedPeriod, setSelectedPeriod] = useState<Period>('YTD');
     const [chartView, setChartView] = useState<ChartView>('absolute');
+    const [isFullscreen, setIsFullscreen] = useState(false);
+
+    // Close fullscreen on Escape
+    useEffect(() => {
+        const handleEsc = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') setIsFullscreen(false);
+        };
+        if (isFullscreen) {
+            document.addEventListener('keydown', handleEsc);
+            return () => document.removeEventListener('keydown', handleEsc);
+        }
+    }, [isFullscreen]);
 
     useEffect(() => {
         const fetchData = async () => {
@@ -314,7 +326,7 @@ export const PerformanceView: React.FC = () => {
             <div className="flex justify-between items-end">
                 <div>
                     <h1 className="text-3xl font-bold text-slate-900 tracking-tight">Performance Deep Dive</h1>
-                    <p className="text-slate-500 mt-1">Portfolio backcast based on current holdings vs. 75/25 Global Index.</p>
+                    <p className="text-slate-500 mt-1">Portfolio backcast based on current holdings vs. 75/25 Global Index (75% ACWI in CAD + 25% XIU.TO).</p>
                 </div>
             </div>
 
@@ -385,10 +397,16 @@ export const PerformanceView: React.FC = () => {
                 />
             </div>
 
+            {/* Fullscreen Overlay */}
+            {isFullscreen && (
+                <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm" onClick={() => setIsFullscreen(false)} />
+            )}
+
             {/* Main Chart Area */}
-            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
-                {/* Chart View Tabs */}
-                <div className="flex items-center gap-2 mb-4 border-b border-slate-100 pb-3">
+            <div className={`bg-white p-6 rounded-2xl border border-slate-200 shadow-sm transition-all duration-300 ${isFullscreen ? 'fixed inset-4 z-50 overflow-auto' : ''}`}>
+                {/* Chart View Tabs + Fullscreen Toggle */}
+                <div className="flex items-center justify-between mb-4 border-b border-slate-100 pb-3">
+                    <div className="flex items-center gap-2">
                     {([
                         { key: 'absolute', label: 'Absolute' },
                         { key: 'relative', label: 'Relative' },
@@ -405,6 +423,14 @@ export const PerformanceView: React.FC = () => {
                             {label}
                         </button>
                     ))}
+                    </div>
+                    <button
+                        onClick={() => setIsFullscreen(!isFullscreen)}
+                        className="p-2 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
+                        title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+                    >
+                        {isFullscreen ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
+                    </button>
                 </div>
                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-4">
                     <h2 className="text-lg font-bold text-slate-900">
@@ -449,7 +475,7 @@ export const PerformanceView: React.FC = () => {
                         </div>
                     </div>
                 </div>
-                <div className="h-[400px]">
+                <div className={isFullscreen ? 'h-[calc(100vh-220px)]' : 'h-[400px]'}>
                     {loading ? (
                         <div className="flex items-center justify-center h-full">
                             <Loader2 className="animate-spin text-slate-400" size={40} />
@@ -603,7 +629,7 @@ export const PerformanceView: React.FC = () => {
                             <tr>
                                 <th className="px-4 py-2 text-left">Metric</th>
                                 <th className="px-4 py-2 text-right">Portfolio</th>
-                                <th className="px-4 py-2 text-right">Benchmark</th>
+                                <th className="px-4 py-2 text-right">Benchmark (75/25)</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">

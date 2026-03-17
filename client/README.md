@@ -1,20 +1,90 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# Portfolio Deep Dive — React Frontend
 
-# Run and deploy your AI Studio app
+React + TypeScript frontend for the portfolio analytics platform. Visualizes returns, contributions, sector allocations, benchmark comparisons, and AI-powered insights.
 
-This contains everything you need to run your app locally.
+---
 
-View your app in AI Studio: https://ai.studio/apps/drive/1UE4EEglFZHQvUP2D2AssZmswca1tyzZ-
+## Quick Start
 
-## Run Locally
+**Prerequisites:** Node.js 18+
 
-**Prerequisites:**  Node.js
+```bash
+cd client
+npm install
+npm run dev
+```
 
+App runs at **http://localhost:3000**
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+The dev server automatically proxies all `/api` calls to the backend at `localhost:8000`.
+
+> **Note:** The backend must also be running for data to load. See [../server/README.md](../server/README.md).
+
+---
+
+## Environment
+
+Create a `.env.local` file in the `client/` directory:
+
+```env
+VITE_GEMINI_API_KEY=your_gemini_api_key_here
+```
+
+The Gemini key enables the AI-powered analysis features. The app runs without it, but AI insights will be disabled.
+
+---
+
+## Tech Stack
+
+| Library | Purpose |
+|---------|---------|
+| React 19 + TypeScript | UI framework |
+| Vite 6 | Build tool & dev server |
+| TailwindCSS 3 | Styling |
+| Recharts | Charts & data visualization |
+| Google Generative AI SDK | Gemini AI integration |
+| Lucide React | Icons |
+
+---
+
+## Views
+
+| View | Description |
+|------|-------------|
+| Upload | Upload portfolio weights file or enter data manually |
+| Dashboard | Portfolio overview, KPIs, allocation summary |
+| Analysis | Return & contribution analysis with charts |
+| Attribution | Period-by-period return attribution |
+| Correlation | Asset correlation matrix |
+| Index | Benchmark & index exposure analysis |
+| Performance | Detailed performance metrics |
+| Risk Contribution | Risk decomposition by asset |
+
+---
+
+## Project Structure
+
+```
+client/
+├── App.tsx                  # Root component, view routing, global state
+├── index.tsx                # React entry point
+├── views/                   # One file per view/page
+├── components/              # Shared UI components
+│   ├── Sidebar.tsx
+│   ├── KPICard.tsx
+│   ├── PortfolioTable.tsx
+│   ├── ManualEntryModal.tsx
+│   └── ...charts & widgets
+└── services/
+    ├── api.ts               # All backend API calls
+    └── geminiService.ts     # Gemini AI integration
+```
+
+---
+
+## Build
+
+```bash
+npm run build    # outputs to dist/
+npm run preview  # preview the production build locally
+```

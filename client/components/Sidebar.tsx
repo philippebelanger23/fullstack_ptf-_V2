@@ -58,7 +58,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, setView, hasData,
           <span className="font-medium">Relative Performance</span>
         </div>
 
-        <div onClick={() => hasData && !isLocked && setView(ViewState.CORRELATION)} className={navItemClass(ViewState.CORRELATION, !hasData || isLocked)}>
+        <div className={navItemClass(ViewState.CORRELATION, true)} title="Module currently disabled">
           <Network size={20} />
           <span className="font-medium">Correlation Matrix</span>
         </div>
