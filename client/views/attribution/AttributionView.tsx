@@ -49,6 +49,7 @@ interface AttributionViewProps {
     data: PortfolioItem[];
     selectedYear: number;
     setSelectedYear: (year: number) => void;
+    customSectors?: Record<string, Record<string, number>>;
 }
 
 // ── FuturePeriodMessage ──────────────────────────────────────────────────────
@@ -83,7 +84,7 @@ const FuturePeriodMessage = () => (
 
 // ── AttributionViewContent ───────────────────────────────────────────────────
 
-const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selectedYear, setSelectedYear }) => {
+const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selectedYear, setSelectedYear, customSectors }) => {
     const [viewMode, setViewMode] = useState<'OVERVIEW' | 'TABLES'>('OVERVIEW');
     const [timeRange, setTimeRange] = useState<'YTD' | 'Q1' | 'Q2' | 'Q3' | 'Q4'>('YTD');
     const [sectorHistory, setSectorHistory] = useState<{ US: SectorHistoryData, CA: SectorHistoryData, OVERALL: SectorHistoryData }>({ US: {}, CA: {}, OVERALL: {} });
@@ -569,7 +570,7 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
 
         const sectorGroups: Record<string, { stocks: any[], sumWeight: number, sumWeightedReturn: number }> = {};
 
-        // Filter tickers by region, excluding ETFs and MFs
+        // Filter tickers by region, excluding ETFs and MFs (for stock-level attribution)
         const filteredTickers = uniqueTickers.filter(ticker => {
             if (ticker === 'CASH' || ticker === '*CASH*') return false;
             const entry = data.find(d => d.ticker === ticker);
@@ -601,6 +602,33 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
             });
             sectorGroups[canonicalName].sumWeight += stats.latestWeight;
             sectorGroups[canonicalName].sumWeightedReturn += (periodReturn * stats.latestWeight);
+        });
+
+        // Include ETF/MF sector weight contributions (distributes their weight across sectors)
+        uniqueTickers.forEach(ticker => {
+            if (ticker === 'CASH' || ticker === '*CASH*') return;
+            const entry = data.find(d => d.ticker === ticker);
+            if (!entry?.isEtf && !entry?.isMutualFund) return;
+
+            if (regionFilter === 'CA' && !ticker.endsWith('.TO')) return;
+            if (regionFilter === 'US' && ticker.endsWith('.TO')) return;
+
+            const stats = tickerStats.find(t => t.ticker === ticker);
+            if (!stats) return;
+
+            const sectorBreakdown = customSectors?.[ticker];
+            if (sectorBreakdown) {
+                // Distribute ETF/MF weight across sectors using custom sector breakdown
+                Object.entries(sectorBreakdown).forEach(([rawSector, pct]) => {
+                    const canonicalName = sectorMapping[rawSector] || (FIXED_SECTOR_ORDER.includes(rawSector) ? rawSector : null);
+                    if (!canonicalName || typeof pct !== 'number') return;
+
+                    if (!sectorGroups[canonicalName]) {
+                        sectorGroups[canonicalName] = { stocks: [], sumWeight: 0, sumWeightedReturn: 0 };
+                    }
+                    sectorGroups[canonicalName].sumWeight += stats.latestWeight * (pct / 100);
+                });
+            }
         });
 
         // 2a. Resolve effective benchmark returns (sector ETFs or broad index override)
@@ -702,7 +730,7 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
             allocationDomain: [-allocationDomainLimit, allocationDomainLimit] as [number, number],
             interactionDomain: [-interactionDomainLimit, interactionDomainLimit] as [number, number]
         };
-    }, [uniqueTickers, tickerStats, tickerSectors, sectorBenchmarkReturns, regionFilter, data, benchmarkExposure, benchmarkMode, overallBenchmarkReturn]);
+    }, [uniqueTickers, tickerStats, tickerSectors, sectorBenchmarkReturns, regionFilter, data, benchmarkExposure, benchmarkMode, overallBenchmarkReturn, customSectors]);
 
     const topMoversChartData = useMemo(() => {
         // Flatten all selection contributions from sectorAttributionData
@@ -732,6 +760,34 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
 
     // Debug logging
 
+
+    if (isAttributionLoading) {
+        return (
+            <div className="max-w-[100vw] mx-auto p-4 md:p-6 overflow-x-hidden min-h-screen flex flex-col items-center justify-center">
+                <div className="flex flex-col items-center gap-6">
+                    <div className="flex items-end gap-1.5 h-12">
+                        {[0, 1, 2, 3, 4].map(i => (
+                            <div
+                                key={i}
+                                className="w-2 bg-wallstreet-accent rounded-t"
+                                style={{
+                                    animation: `barPulse 1s ease-in-out ${i * 0.15}s infinite`,
+                                    height: '30%',
+                                }}
+                            />
+                        ))}
+                    </div>
+                    <p className="text-sm font-mono text-wallstreet-500 tracking-wide uppercase">Loading Attribution Data</p>
+                </div>
+                <style>{`
+                    @keyframes barPulse {
+                        0%, 100% { height: 30%; opacity: 0.4; }
+                        50% { height: 100%; opacity: 1; }
+                    }
+                `}</style>
+            </div>
+        );
+    }
 
     if (!data || data.length === 0) {
         return (

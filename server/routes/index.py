@@ -15,14 +15,49 @@ from market_data import get_ticker_performance
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
+STALENESS_THRESHOLD = datetime.timedelta(days=7)
+
+
+def _resolve_exposure_path() -> Path:
+    """Return the path to index_exposure.json, checking relative then absolute."""
+    data_path = Path("data/index_exposure.json")
+    if not data_path.exists():
+        data_path = Path(__file__).parent.parent / "data" / "index_exposure.json"
+    return data_path
+
+
+def _exposure_is_stale(data_path: Path) -> bool:
+    """True if the exposure file is missing or its scraped_at / as_of_date is older than STALENESS_THRESHOLD."""
+    if not data_path.exists():
+        return True
+    try:
+        with open(data_path, "r") as f:
+            raw = json.load(f)
+        # Prefer scraped_at timestamp, fall back to ACWI as_of_date
+        date_str = raw.get("scraped_at", "")[:10] or raw.get("ACWI", {}).get("as_of_date", "")
+        if not date_str:
+            return True
+        data_date = datetime.datetime.strptime(date_str, "%Y-%m-%d")
+        return datetime.datetime.now() - data_date > STALENESS_THRESHOLD
+    except Exception:
+        return True
+
 
 @router.get("/index-exposure")
-async def get_index_exposure():
+def get_index_exposure():
     try:
-        data_path = Path("data/index_exposure.json")
-        if not data_path.exists():
-            logger.warning(f"Relative path {data_path} not found, checking absolute...")
-            data_path = Path(__file__).parent.parent / "data" / "index_exposure.json"
+        data_path = _resolve_exposure_path()
+
+        # Auto re-scrape if data is older than 7 days
+        if _exposure_is_stale(data_path):
+            logger.info("Index exposure data is stale (>7 days), re-scraping...")
+            try:
+                from index_scraper import scrape_index_data
+                scrape_index_data()
+                # Re-resolve in case the file was just created
+                data_path = _resolve_exposure_path()
+            except Exception as scrape_err:
+                logger.error(f"Auto re-scrape failed: {scrape_err}")
 
         if not data_path.exists():
             logger.error(f"index_exposure.json not found even at {data_path}")
@@ -106,7 +141,7 @@ async def currency_performance(request: dict):
 
 
 @router.get("/index-history")
-async def get_index_history():
+def get_index_history():
     """
     Fetch historical data for ACWI (global) and XIU.TO (Canada) for the comparison graph.
     Also fetches USDCAD=X to convert ACWI to CAD, and calculates a synthetic blend (75% ACWI, 25% XIU).
@@ -199,7 +234,7 @@ async def get_index_history():
 
 
 @router.get("/sector-history")
-async def get_sector_history():
+def get_sector_history():
     """
     Fetch historical data for major sector ETFs to use as benchmarks.
     Returns nested structure: {"US": {sector: [{date, value}]}, "CA": {sector: [{date, value}]}}

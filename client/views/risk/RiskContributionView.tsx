@@ -19,11 +19,13 @@ export const RiskContributionView: React.FC = () => {
     const [barChartMode, setBarChartMode] = useState<'absolute' | 'ratio'>('absolute');
 
     useEffect(() => {
+        let cancelled = false;
         const fetchData = async () => {
             setLoading(true);
             setError(null);
             try {
                 const config = await loadPortfolioConfig();
+                if (cancelled) return;
                 if (!config.tickers || config.tickers.length === 0) {
                     setError("No portfolio configured. Go to Upload to configure your portfolio.");
                     setLoading(false);
@@ -53,18 +55,21 @@ export const RiskContributionView: React.FC = () => {
                 }
 
                 const result = await fetchRiskContribution(items);
+                if (cancelled) return;
                 if (result.error) {
                     setError(result.error);
                 } else {
                     setData(result);
                 }
             } catch (e) {
+                if (cancelled) return;
                 setError(String(e));
             } finally {
-                setLoading(false);
+                if (!cancelled) setLoading(false);
             }
         };
         fetchData();
+        return () => { cancelled = true; };
     }, [positionMode]);
 
     const handleSort = (key: SortKey) => {
@@ -115,6 +120,34 @@ export const RiskContributionView: React.FC = () => {
         if (!data) return [];
         return data.positions.map(p => ({ ticker: p.ticker, x: p.weight, y: p.pctOfTotalRisk }));
     }, [data]);
+
+    if (loading) {
+        return (
+            <div className="max-w-[100vw] mx-auto p-4 md:p-6 overflow-x-hidden min-h-screen flex flex-col items-center justify-center">
+                <div className="flex flex-col items-center gap-6">
+                    <div className="flex items-end gap-1.5 h-12">
+                        {[0, 1, 2, 3, 4].map(i => (
+                            <div
+                                key={i}
+                                className="w-2 bg-wallstreet-accent rounded-t"
+                                style={{
+                                    animation: `barPulse 1s ease-in-out ${i * 0.15}s infinite`,
+                                    height: '30%',
+                                }}
+                            />
+                        ))}
+                    </div>
+                    <p className="text-sm font-mono text-wallstreet-500 tracking-wide uppercase">Loading Risk Data</p>
+                </div>
+                <style>{`
+                    @keyframes barPulse {
+                        0%, 100% { height: 30%; opacity: 0.4; }
+                        50% { height: 100%; opacity: 1; }
+                    }
+                `}</style>
+            </div>
+        );
+    }
 
     if (error) {
         return (

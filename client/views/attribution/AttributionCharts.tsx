@@ -1,6 +1,6 @@
-import React from 'react';
+import React, { useCallback, useRef } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, LabelList, ReferenceLine } from 'recharts';
-import { TrendingUp, Layers, Info, Loader2 } from 'lucide-react';
+import { TrendingUp, Layers, Loader2 } from 'lucide-react';
 
 // ── TornadoLabel ────────────────────────────────────────────────────────────
 
@@ -98,30 +98,68 @@ export const SectorAttributionCharts: React.FC<SectorAttributionChartsProps> = (
     benchmarkMode,
     setBenchmarkMode,
     isAttributionLoading,
-}) => (
+}) => {
+    const explanationRef = useRef<HTMLDivElement>(null);
+    const hoveredKeyRef = useRef<string | null>(null);
+
+    const colorSpan = (val: number, text: string) =>
+        `<strong class="${val >= 0 ? 'text-green-600' : 'text-red-600'}">${text}</strong>`;
+
+    const fmt = (val: number) => `${val > 0 ? '+' : ''}${val.toFixed(2)}%`;
+
+    const buildExplanationHTML = useCallback((d: any, chart: string): string => {
+        const regionLabel = regionFilter === 'ALL' ? '' : regionFilter === 'US' ? 'US ' : 'Canadian ';
+        const benchLabel = benchmarkMode === 'SECTOR' ? d.benchmarkETF : benchmarkMode;
+
+        if (d.portfolioWeight <= 0.001) {
+            return `No holdings in <strong>${d.displayName}</strong> — all effects are zero.`;
+        }
+
+        if (chart === 'selection') {
+            const diff = d.portfolioReturn - d.benchmarkReturn;
+            const verb = diff >= 0 ? 'outperformed' : 'underperformed';
+            return `Your ${regionLabel}<strong>${d.displayName}</strong> picks returned ${colorSpan(d.portfolioReturn, fmt(d.portfolioReturn))} vs. ${benchLabel}'s <strong>${fmt(d.benchmarkReturn)}</strong> — your stock selection ${verb} by ${colorSpan(d.selectionEffect, Math.abs(diff).toFixed(2) + '%')}, contributing a ${colorSpan(d.selectionEffect, fmt(d.selectionEffect))} selection effect to the portfolio.`;
+        }
+
+        if (chart === 'allocation') {
+            if (benchmarkMode !== 'SECTOR') {
+                return `Allocation effect is N/A when benchmarking against a single broad index (${benchmarkMode}).`;
+            }
+            const overUnder = d.portfolioWeight > d.benchmarkWeight ? 'overweight' : 'underweight';
+            const sectorBeat = d.benchmarkReturn >= 0 ? 'outperformed' : 'underperformed';
+            return `Your portfolio holds <strong>${d.portfolioWeight.toFixed(1)}%</strong> in ${regionLabel}<strong>${d.displayName}</strong> vs. the benchmark's <strong class="text-blue-600">${d.benchmarkWeight.toFixed(1)}%</strong> — you are ${overUnder}. ${d.displayName} ${sectorBeat} (${benchLabel} ${fmt(d.benchmarkReturn)}), resulting in a ${colorSpan(d.allocationEffect, fmt(d.allocationEffect))} allocation effect.`;
+        }
+
+        return `Interaction effect for ${regionLabel}<strong>${d.displayName}</strong> vs. ${benchLabel}: ${colorSpan(d.interactionEffect, fmt(d.interactionEffect))}. The combined overlap of your weight tilt (${d.portfolioWeight.toFixed(1)}% vs. ${d.benchmarkWeight.toFixed(1)}%) and stock selection ${d.interactionEffect >= 0 ? 'compounded positively' : 'created additional drag'}.`;
+    }, [regionFilter, benchmarkMode]);
+
+    const handleChartMove = useCallback((chart: 'selection' | 'allocation' | 'interaction') => (state: any) => {
+        if (state && state.activeTooltipIndex != null && state.activeTooltipIndex >= 0) {
+            const d = sectorAttributionData.data[state.activeTooltipIndex];
+            const key = `${d.sector}:${chart}`;
+            if (hoveredKeyRef.current !== key) {
+                hoveredKeyRef.current = key;
+                if (explanationRef.current) {
+                    explanationRef.current.style.opacity = '1';
+                    explanationRef.current.innerHTML = `<span class="text-slate-600">${buildExplanationHTML(d, chart)}</span>`;
+                }
+            }
+        }
+    }, [sectorAttributionData.data, buildExplanationHTML]);
+
+    const handleChartLeave = useCallback(() => {
+        hoveredKeyRef.current = null;
+        if (explanationRef.current) {
+            explanationRef.current.style.opacity = '0.6';
+            explanationRef.current.innerHTML = '<span class="text-slate-400 italic">Hover a sector bar to see a contextual explanation.</span>';
+        }
+    }, []);
+
+    return (
     <div className="lg:col-span-8 bg-white p-4 rounded-xl border border-wallstreet-700 shadow-sm flex flex-col relative">
         <div className="flex justify-between items-start mb-4 border-b border-wallstreet-100 pb-2">
-            <h3 className="font-mono font-bold text-wallstreet-text uppercase tracking-wider text-xs flex items-center gap-2 group/title relative">
+            <h3 className="font-mono font-bold text-wallstreet-text uppercase tracking-wider text-xs flex items-center gap-2">
                 <Layers size={14} className="text-wallstreet-500" /> Attribution Analysis
-                <Info size={11} className="text-slate-300 cursor-help" />
-
-                {/* Consolidated Info Bubble Tooltip */}
-                <div className="absolute top-full left-0 mt-2 p-4 bg-slate-900 text-white rounded-lg shadow-xl border border-slate-700 w-72 invisible group-hover/title:visible z-[100] transition-all opacity-0 group-hover/title:opacity-100 font-mono text-[10px] normal-case tracking-normal">
-                    <div className="space-y-3">
-                        <div>
-                            <span className="text-green-400 font-bold block mb-1">SELECTION EFFECT</span>
-                            <p className="text-slate-300 leading-relaxed">Measures the ability to select securities that outperform their sector benchmark.</p>
-                        </div>
-                        <div>
-                            <span className="text-blue-400 font-bold block mb-1">ALLOCATION EFFECT</span>
-                            <p className="text-slate-300 leading-relaxed">Measures the impact of overweighting or underweighting sectors relative to the benchmark.</p>
-                        </div>
-                        <div>
-                            <span className="text-amber-400 font-bold block mb-1">INTERACTION EFFECT</span>
-                            <p className="text-slate-300 leading-relaxed">The combined effect of selection and allocation decisions. Positive when overweighting winners or underweighting losers.</p>
-                        </div>
-                    </div>
-                </div>
             </h3>
             <div className="flex items-center gap-2">
                 <div className="flex p-0.5 bg-wallstreet-200 rounded-lg">
@@ -163,7 +201,7 @@ export const SectorAttributionCharts: React.FC<SectorAttributionChartsProps> = (
                     <span className="font-mono text-xs text-slate-400 font-bold uppercase tracking-widest">Loading Attribution Data</span>
                 </div>
             </div>
-        ) : (
+        ) : (<>
         <div className="flex h-full min-h-0 w-full">
             {/* Dedicated Label Column for aligned Y-Axis */}
             <div className="w-[105px] flex flex-col shrink-0">
@@ -180,8 +218,10 @@ export const SectorAttributionCharts: React.FC<SectorAttributionChartsProps> = (
             <div className="grid grid-cols-3 gap-1 flex-1 min-h-0">
                 {/* SELECTION EFFECT */}
                 <div className="flex flex-col">
-                    <div className="mb-4 relative w-full text-center">
-                        <span className="text-[12px] font-mono font-black text-slate-700 uppercase tracking-wider inline-block">Selection</span>
+                    <div className="mb-4 w-full text-center">
+                        <span className="text-[12px] font-mono font-black text-slate-700 uppercase tracking-wider">
+                            Selection
+                        </span>
                     </div>
                     <div className="flex-1 w-full relative overflow-hidden">
                         <ResponsiveContainer width="100%" height="100%">
@@ -190,11 +230,13 @@ export const SectorAttributionCharts: React.FC<SectorAttributionChartsProps> = (
                                 layout="vertical"
                                 margin={{ top: 0, right: 30, left: 0, bottom: 0 }}
                                 barCategoryGap="20%"
+                                onMouseMove={handleChartMove('selection')}
+                                onMouseLeave={handleChartLeave}
                             >
                                 <CartesianGrid strokeDasharray="3 3" horizontal={false} vertical={true} stroke="#f1f5f9" />
                                 <XAxis type="number" domain={sectorAttributionData.selectionDomain} hide />
                                 <YAxis dataKey="displayName" type="category" hide />
-                                <Tooltip content={({ active, payload }) => {
+                                <Tooltip cursor={{ fill: 'rgba(148,163,184,0.10)', radius: 4 }} content={({ active, payload }) => {
                                     if (active && payload && payload.length) {
                                         const d = payload[0].payload;
                                         const hasHoldings = d.portfolioWeight > 0.001;
@@ -260,8 +302,10 @@ export const SectorAttributionCharts: React.FC<SectorAttributionChartsProps> = (
 
                 {/* ALLOCATION EFFECT */}
                 <div className="flex flex-col border-l border-wallstreet-100">
-                    <div className="mb-4 relative w-full text-center">
-                        <span className="text-[12px] font-mono font-black text-slate-700 uppercase tracking-wider inline-block">Allocation</span>
+                    <div className="mb-4 w-full text-center">
+                        <span className="text-[12px] font-mono font-black text-slate-700 uppercase tracking-wider">
+                            Allocation
+                        </span>
                     </div>
                     {benchmarkMode !== 'SECTOR' ? (
                         <div className="flex-1 flex items-center justify-center">
@@ -278,11 +322,13 @@ export const SectorAttributionCharts: React.FC<SectorAttributionChartsProps> = (
                                 layout="vertical"
                                 margin={{ top: 0, right: 30, left: 0, bottom: 0 }}
                                 barCategoryGap="20%"
+                                onMouseMove={handleChartMove('allocation')}
+                                onMouseLeave={handleChartLeave}
                             >
                                 <CartesianGrid strokeDasharray="3 3" horizontal={false} vertical={true} stroke="#f1f5f9" />
                                 <XAxis type="number" domain={sectorAttributionData.allocationDomain} hide />
                                 <YAxis dataKey="displayName" type="category" hide />
-                                <Tooltip content={({ active, payload }) => {
+                                <Tooltip cursor={{ fill: 'rgba(148,163,184,0.10)', radius: 4 }} content={({ active, payload }) => {
                                     if (active && payload && payload.length) {
                                         const d = payload[0].payload;
                                         return (
@@ -327,8 +373,10 @@ export const SectorAttributionCharts: React.FC<SectorAttributionChartsProps> = (
 
                 {/* INTERACTION EFFECT */}
                 <div className="flex flex-col border-l border-wallstreet-100">
-                    <div className="mb-4 relative w-full text-center">
-                        <span className="text-[12px] font-mono font-black text-slate-700 uppercase tracking-wider inline-block">Interaction</span>
+                    <div className="mb-4 w-full text-center">
+                        <span className="text-[12px] font-mono font-black text-slate-700 uppercase tracking-wider">
+                            Interaction
+                        </span>
                     </div>
                     <div className="flex-1 w-full relative overflow-hidden">
                         <ResponsiveContainer width="100%" height="100%">
@@ -337,11 +385,13 @@ export const SectorAttributionCharts: React.FC<SectorAttributionChartsProps> = (
                                 layout="vertical"
                                 margin={{ top: 0, right: 30, left: 0, bottom: 0 }}
                                 barCategoryGap="20%"
+                                onMouseMove={handleChartMove('interaction')}
+                                onMouseLeave={handleChartLeave}
                             >
                                 <CartesianGrid strokeDasharray="3 3" horizontal={false} vertical={true} stroke="#f1f5f9" />
                                 <XAxis type="number" domain={sectorAttributionData.interactionDomain} hide />
                                 <YAxis dataKey="displayName" type="category" hide />
-                                <Tooltip content={({ active, payload }) => {
+                                <Tooltip cursor={{ fill: 'rgba(148,163,184,0.10)', radius: 4 }} content={({ active, payload }) => {
                                     if (active && payload && payload.length) {
                                         const d = payload[0].payload;
                                         const hasHoldings = d.portfolioWeight > 0.001;
@@ -379,6 +429,14 @@ export const SectorAttributionCharts: React.FC<SectorAttributionChartsProps> = (
                 </div>
             </div>
         </div>
-        )}
+        {/* Dynamic explanation bar — updated via ref, no re-renders */}
+        <div
+            ref={explanationRef}
+            className="bg-slate-50 rounded-md border border-slate-100 px-4 py-2.5 mt-3 font-mono text-[11px] leading-relaxed transition-opacity duration-200 opacity-60"
+        >
+            <span className="text-slate-400 italic">Hover a sector bar to see a contextual explanation.</span>
+        </div>
+        </>)}
     </div>
-);
+    );
+};

@@ -201,8 +201,10 @@ def build_results_dataframe(weights_dict, returns, prices, dates, cache, mutual_
         
         for period_idx, period in enumerate(periods):
             start_date, end_date = period
-            # Weights are keyed by their startDate in the config, which corresponds to the end_date of the analysis period.
-            weight = weights_dict.get(ticker, {}).get(end_date, 0.0)
+            # Weights are keyed by their startDate in the config — the weight at start_date
+            # is the allocation in effect DURING this period, not the one at end_date
+            # (which may reflect a rebalance that takes effect after the period).
+            weight = weights_dict.get(ticker, {}).get(start_date, 0.0)
             period_return = returns.get(ticker, {}).get(period, 0.0)
             contribution = weight * period_return
             
@@ -232,10 +234,10 @@ def build_results_dataframe(weights_dict, returns, prices, dates, cache, mutual_
             else:
                 ytd_return = 0.0
             
-            # BUG FIX: Use period[1] (end_date) for weight lookup, not period[0] (start_date)
-            # Weights are keyed by end_date as per the config structure
+            # Use period[0] (start_date) for weight lookup — the weight at the start of the
+            # period is the allocation that was in effect during that period.
             ytd_contrib = sum(
-                returns.get(ticker, {}).get(period, 0.0) * weights_dict.get(ticker, {}).get(period[1], 0.0)
+                returns.get(ticker, {}).get(period, 0.0) * weights_dict.get(ticker, {}).get(period[0], 0.0)
                 for period in periods
             )
         

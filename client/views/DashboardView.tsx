@@ -80,7 +80,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ data, customSector
 
   // Error and loading state for better UX
   const [dataFetchError, setDataFetchError] = React.useState<string | null>(null);
-  const [isLoadingMarketData, setIsLoadingMarketData] = React.useState(false);
+  const [isLoadingMarketData, setIsLoadingMarketData] = React.useState(true);
 
   // Fetch Sectors and Betas effect
   React.useEffect(() => {
@@ -210,6 +210,35 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ data, customSector
   }, [currentHoldings, sectorMap, effectiveCustomSectors]);
 
 
+  if (isLoadingMarketData) {
+    return (
+      <div className="max-w-[100vw] mx-auto p-4 md:p-6 overflow-x-hidden min-h-screen flex flex-col items-center justify-center">
+        <div className="flex flex-col items-center gap-6">
+          {/* Animated bars */}
+          <div className="flex items-end gap-1.5 h-12">
+            {[0, 1, 2, 3, 4].map(i => (
+              <div
+                key={i}
+                className="w-2 bg-wallstreet-accent rounded-t"
+                style={{
+                  animation: `barPulse 1s ease-in-out ${i * 0.15}s infinite`,
+                  height: '30%',
+                }}
+              />
+            ))}
+          </div>
+          <p className="text-sm font-mono text-wallstreet-500 tracking-wide uppercase">Loading Holdings Data</p>
+        </div>
+        <style>{`
+          @keyframes barPulse {
+            0%, 100% { height: 30%; opacity: 0.4; }
+            50% { height: 100%; opacity: 1; }
+          }
+        `}</style>
+      </div>
+    );
+  }
+
   return (
     <div className="max-w-[100vw] mx-auto p-4 md:p-6 space-y-6 overflow-x-hidden min-h-screen">
       <header className="border-b border-wallstreet-700 pb-4 flex flex-col md:flex-row justify-between items-start md:items-end gap-4">
@@ -236,14 +265,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ data, customSector
             <RefreshCw className="h-3.5 w-3.5" />
             Retry
           </button>
-        </div>
-      )}
-
-      {/* Loading Indicator */}
-      {isLoadingMarketData && (
-        <div className="flex items-center gap-2 text-sm text-wallstreet-500 animate-pulse">
-          <RefreshCw className="h-4 w-4 animate-spin" />
-          Loading market data...
         </div>
       )}
 

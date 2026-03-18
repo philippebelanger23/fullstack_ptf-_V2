@@ -172,6 +172,34 @@ export const PerformanceView: React.FC = () => {
         };
     }, [data, selectedPeriod]);
 
+    if (loading) {
+        return (
+            <div className="max-w-[100vw] mx-auto p-4 md:p-6 overflow-x-hidden min-h-screen flex flex-col items-center justify-center">
+                <div className="flex flex-col items-center gap-6">
+                    <div className="flex items-end gap-1.5 h-12">
+                        {[0, 1, 2, 3, 4].map(i => (
+                            <div
+                                key={i}
+                                className="w-2 bg-wallstreet-accent rounded-t"
+                                style={{
+                                    animation: `barPulse 1s ease-in-out ${i * 0.15}s infinite`,
+                                    height: '30%',
+                                }}
+                            />
+                        ))}
+                    </div>
+                    <p className="text-sm font-mono text-wallstreet-500 tracking-wide uppercase">Loading Performance Data</p>
+                </div>
+                <style>{`
+                    @keyframes barPulse {
+                        0%, 100% { height: 30%; opacity: 0.4; }
+                        50% { height: 100%; opacity: 1; }
+                    }
+                `}</style>
+            </div>
+        );
+    }
+
     if (error) {
         return (
             <div className="p-8 animate-in fade-in duration-500">

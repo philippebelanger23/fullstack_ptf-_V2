@@ -144,7 +144,7 @@ export const SectorDeviationCard: React.FC<Props> = ({ currentHoldings, benchmar
         <div className="lg:col-span-1 bg-white p-6 rounded-xl border border-wallstreet-700 shadow-sm flex flex-col">
             <div className="mb-4">
                 <h3 className="font-mono font-bold text-wallstreet-text uppercase tracking-wider text-sm flex items-center gap-2">
-                    Sector Deviation vs Benchmark
+                    Benchmark Deviation
                 </h3>
             </div>
 

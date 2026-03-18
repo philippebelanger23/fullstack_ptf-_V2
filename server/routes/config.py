@@ -86,6 +86,44 @@ async def load_asset_geo():
         return {}
 
 
+@router.post("/save-manual-nav")
+async def save_manual_nav(request: dict):
+    """Add or update a single NAV entry in manual_navs.json."""
+    try:
+        ticker = request.get("ticker", "").upper().strip()
+        date_str = request.get("date", "").strip()
+        nav_value = request.get("nav")
+
+        if not ticker or not date_str or nav_value is None:
+            raise HTTPException(status_code=400, detail="ticker, date, and nav are required")
+
+        nav_value = float(nav_value)
+
+        manual_path = Path("data/manual_navs.json")
+        data = {}
+        if manual_path.exists():
+            with open(manual_path, "r") as f:
+                data = json.load(f)
+
+        if ticker not in data:
+            data[ticker] = {}
+        data[ticker][date_str] = nav_value
+
+        # Sort dates within ticker
+        data[ticker] = dict(sorted(data[ticker].items()))
+
+        with open(manual_path, "w") as f:
+            json.dump(data, f, indent=2)
+
+        logger.info(f"Saved manual NAV: {ticker} {date_str} = {nav_value}")
+        return {"success": True}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error saving manual NAV: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post("/check-nav-lag")
 async def check_nav_lag(request: dict):
     """
@@ -191,6 +229,67 @@ async def check_nav_lag(request: dict):
             results[ticker] = {"lagging": False, "error": str(e)}
 
     return results
+
+
+@router.get("/nav-audit")
+async def nav_audit():
+    """Return all NAV data with source attribution for auditing."""
+    try:
+        result = {}
+
+        # 1. Load manual NAVs
+        manual_path = Path("data/manual_navs.json")
+        manual_navs = {}
+        if manual_path.exists():
+            with open(manual_path, "r") as f:
+                manual_navs = json.load(f)
+
+        # 2. Load CSV NAVs
+        csv_navs = {}
+        try:
+            from data_loader import load_historic_nav_csvs
+            csv_navs = load_historic_nav_csvs("data/historic_navs")
+        except Exception as e:
+            logger.warning(f"nav-audit: Failed to load CSV NAVs: {e}")
+
+        # 3. Build unified result with source tags
+        all_tickers = set(manual_navs.keys()) | set(csv_navs.keys())
+
+        for ticker in sorted(all_tickers):
+            entries = []
+            seen_dates = set()
+
+            # CSV entries take priority (more recent uploads)
+            for dt, val in sorted(csv_navs.get(ticker, {}).items()):
+                date_str = dt.strftime("%Y-%m-%d") if hasattr(dt, "strftime") else str(dt)
+                entries.append({"date": date_str, "nav": round(float(val), 4), "source": "csv"})
+                seen_dates.add(date_str)
+
+            # Manual entries (only if not already covered by CSV)
+            for date_str, val in sorted(manual_navs.get(ticker, {}).items()):
+                if date_str not in seen_dates:
+                    entries.append({"date": date_str, "nav": round(float(val), 4), "source": "manual"})
+
+            # Sort by date
+            entries.sort(key=lambda e: e["date"])
+
+            # Add period return for each entry
+            for i, entry in enumerate(entries):
+                if i == 0:
+                    entry["returnPct"] = None
+                else:
+                    prev = entries[i - 1]["nav"]
+                    if prev and prev != 0:
+                        entry["returnPct"] = round((entry["nav"] - prev) / prev * 100, 4)
+                    else:
+                        entry["returnPct"] = None
+
+            result[ticker] = entries
+
+        return result
+    except Exception as e:
+        logger.error(f"nav-audit error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/upload-nav/{ticker}")

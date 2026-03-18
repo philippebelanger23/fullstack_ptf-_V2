@@ -120,8 +120,6 @@ export const fetchDividends = createCachedFetcher<number>(
 // NON-CACHED API FUNCTIONS
 // =============================================================================
 
-let indexExposureCache: { sectors: any[], geography: any[] } | null = null;
-
 export const analyzeManualPortfolio = async (items: PortfolioItem[]): Promise<PortfolioItem[]> => {
     try {
         const response = await fetch(`${API_Base_URL}/analyze-manual`, {
@@ -147,8 +145,7 @@ export const fetchIndexExposure = async (): Promise<{ sectors: any[], geography:
         const response = await fetch(`${API_Base_URL}/index-exposure`);
         if (!response.ok) throw new Error("Failed to fetch index exposure");
 
-        indexExposureCache = await response.json();
-        return indexExposureCache!;
+        return await response.json();
     } catch (error) {
         console.error("Error fetching index exposure:", error);
         return { sectors: [], geography: [] };
@@ -321,6 +318,26 @@ export const checkNavLag = async (tickers: string[], forceRefresh: boolean = fal
         return await response.json();
     } catch (error) {
         console.error("Error checking NAV lag:", error);
+        return {};
+    }
+};
+
+export const saveManualNav = async (ticker: string, date: string, nav: number): Promise<void> => {
+    const response = await fetch(`${API_Base_URL}/save-manual-nav`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ticker, date, nav }),
+    });
+    if (!response.ok) throw new Error("Failed to save manual NAV");
+};
+
+export const fetchNavAudit = async (): Promise<Record<string, { date: string, nav: number, source: string, returnPct: number | null }[]>> => {
+    try {
+        const response = await fetch(`${API_Base_URL}/nav-audit`);
+        if (!response.ok) throw new Error("Failed to fetch NAV audit data");
+        return await response.json();
+    } catch (error) {
+        console.error("Error fetching NAV audit:", error);
         return {};
     }
 };

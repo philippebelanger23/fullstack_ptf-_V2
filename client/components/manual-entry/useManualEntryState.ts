@@ -1380,6 +1380,8 @@ export function useManualEntryState(
         };
 
         if (isOpen) {
+            setIsSaving(false);
+            setSavedSuccess(false);
             fetchConfig();
         }
     }, [isOpen]);

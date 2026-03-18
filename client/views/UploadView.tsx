@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { AlertCircle, ArrowRight, Trash2, Database, Edit, FileSpreadsheet, CheckCircle2, AlertTriangle, Upload, PieChart, RefreshCw, Layers, ChevronDown, ChevronUp, HelpCircle } from 'lucide-react';
+import { AlertCircle, ArrowRight, Trash2, Database, Edit, FileSpreadsheet, CheckCircle2, AlertTriangle, Upload, PieChart, RefreshCw, Layers, ChevronDown, ChevronUp, HelpCircle, Search, Eye, Plus, Save } from 'lucide-react';
 import { PortfolioItem } from '../types';
-import { analyzeManualPortfolio, checkNavLag, loadSectorWeights, saveSectorWeights, uploadNav, saveAssetGeo } from '../services/api';
+import { analyzeManualPortfolio, checkNavLag, loadSectorWeights, saveSectorWeights, uploadNav, saveAssetGeo, fetchNavAudit, saveManualNav } from '../services/api';
 import { ManualEntryModal } from '../components/ManualEntryModal';
 import { SectorWeightsModal } from '../components/SectorWeightsModal';
 
@@ -28,6 +28,15 @@ export const UploadView: React.FC<UploadViewProps> = ({
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isCheckingLag, setIsCheckingLag] = useState(false);
 
+  // NAV Audit State
+  const [isNavAuditOpen, setIsNavAuditOpen] = useState(false);
+  const [navAuditData, setNavAuditData] = useState<Record<string, { date: string, nav: number, source: string, returnPct: number | null }[]>>({});
+  const [isLoadingAudit, setIsLoadingAudit] = useState(false);
+  const [auditExpandedTicker, setAuditExpandedTicker] = useState<string | null>(null);
+  const [addNavTicker, setAddNavTicker] = useState<string | null>(null);
+  const [addNavDate, setAddNavDate] = useState('');
+  const [addNavValue, setAddNavValue] = useState('');
+  const [isSavingNav, setIsSavingNav] = useState(false);
 
   // UI State
   const [isAssetSectionOpen, setIsAssetSectionOpen] = useState(true); // Default to open if data exists
@@ -80,6 +89,61 @@ export const UploadView: React.FC<UploadViewProps> = ({
   const [isManualModalOpen, setIsManualModalOpen] = useState(false);
   const [isSectorModalOpen, setIsSectorModalOpen] = useState(false);
   const [selectedTickerForSector, setSelectedTickerForSector] = useState<string>('');
+
+  const refreshAuditData = async () => {
+    try {
+      const data = await fetchNavAudit();
+      setNavAuditData(data);
+    } catch (err) {
+      console.error("Failed to refresh NAV audit data", err);
+    }
+  };
+
+  const handleSaveManualNav = async (ticker: string) => {
+    if (!addNavDate || !addNavValue) return;
+    const nav = parseFloat(addNavValue);
+    if (isNaN(nav)) return;
+    setIsSavingNav(true);
+    try {
+      await saveManualNav(ticker, addNavDate, nav);
+      await refreshAuditData();
+      setAddNavTicker(null);
+      setAddNavDate('');
+      setAddNavValue('');
+    } catch (err: any) {
+      setError(`Failed to save NAV for ${ticker}: ${err.message}`);
+    } finally {
+      setIsSavingNav(false);
+    }
+  };
+
+  const handleAuditCsvUpload = async (ticker: string, file: File) => {
+    try {
+      setError(null);
+      await uploadNav(ticker, file);
+      await new Promise(resolve => setTimeout(resolve, 300));
+      await refreshAuditData();
+    } catch (err: any) {
+      setError(`Upload failed for ${ticker}: ${err.message}`);
+    }
+  };
+
+  const handleOpenNavAudit = async () => {
+    if (isNavAuditOpen) {
+      setIsNavAuditOpen(false);
+      return;
+    }
+    setIsNavAuditOpen(true);
+    setIsLoadingAudit(true);
+    try {
+      const data = await fetchNavAudit();
+      setNavAuditData(data);
+    } catch (err) {
+      console.error("Failed to load NAV audit data", err);
+    } finally {
+      setIsLoadingAudit(false);
+    }
+  };
 
   const handleFullRefresh = async () => {
     setIsCheckingLag(true);
@@ -417,6 +481,207 @@ export const UploadView: React.FC<UploadViewProps> = ({
                 </div>
               )}
             </div>
+          </div>
+        )}
+
+        {/* NAV Audit Section — only show if MFs with weight exist in the selected year */}
+        {currentData.some(i => {
+          if (!i.isMutualFund || !i.weight) return false;
+          const yearStart = selectedYear === 2025 ? '2024-12-31' : '2025-12-31';
+          const yearEnd = selectedYear === 2025 ? '2025-12-31' : '2026-12-31';
+          return i.date >= yearStart && i.date <= yearEnd;
+        }) && (
+          <div className="bg-white/80 backdrop-blur-2xl rounded-2xl border border-white shadow-xl overflow-hidden">
+            <button
+              onClick={handleOpenNavAudit}
+              className="w-full bg-gradient-to-r from-slate-700 to-slate-900 p-4 flex items-center justify-center text-white gap-3 hover:from-slate-600 hover:to-slate-800 transition-all"
+            >
+              <Eye size={18} />
+              <h2 className="text-lg font-black uppercase tracking-tighter">NAV Audit</h2>
+              {isNavAuditOpen ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+            </button>
+
+            {isNavAuditOpen && (
+              <div className="p-5">
+                {isLoadingAudit ? (
+                  <div className="flex items-center justify-center py-8 gap-2 text-slate-400">
+                    <RefreshCw size={16} className="animate-spin" />
+                    <span className="text-sm font-medium">Loading NAV data...</span>
+                  </div>
+                ) : Object.keys(navAuditData).length === 0 ? (
+                  <p className="text-center text-slate-400 py-8 text-sm">No NAV data found on server.</p>
+                ) : (
+                  <div className="space-y-3">
+                    {(() => {
+                      const yearStart = selectedYear === 2025 ? '2024-12-31' : '2025-12-31';
+                      const yearEnd = selectedYear === 2025 ? '2025-12-31' : '2026-12-31';
+                      const activeMfTickers = new Set(
+                        currentData
+                          .filter(i => i.isMutualFund && i.weight && i.weight > 0 && i.date >= yearStart && i.date <= yearEnd)
+                          .map(i => i.ticker.toUpperCase())
+                      );
+                      return Object.entries(navAuditData)
+                        .filter(([ticker]) => activeMfTickers.has(ticker.toUpperCase()))
+                        .map(([ticker, entries]) => {
+                          const isExpanded = auditExpandedTicker === ticker;
+                          const yearEntries = entries.filter(e => e.date >= yearStart && e.date <= yearEnd);
+                          const allEntries = entries;
+                          const mostRecentNav = allEntries.length > 0 ? allEntries[allEntries.length - 1] : null;
+                          const latestYearEntry = yearEntries[yearEntries.length - 1];
+                          const manualCount = yearEntries.filter(e => e.source === 'manual').length;
+                          const csvCount = yearEntries.filter(e => e.source === 'csv').length;
+                          const isAddingNav = addNavTicker === ticker;
+
+                          // Portfolio holding status for this ticker
+                          const tickerHoldings = currentData
+                            .filter(i => i.ticker.toUpperCase() === ticker.toUpperCase() && i.date >= yearStart && i.date <= yearEnd)
+                            .sort((a, b) => a.date.localeCompare(b.date));
+                          const latestHolding = tickerHoldings[tickerHoldings.length - 1];
+                          const isCurrentlyHeld = latestHolding && latestHolding.weight > 0;
+                          // Find the last period where weight > 0
+                          const lastHeldRecord = [...tickerHoldings].reverse().find(h => h.weight > 0);
+                          const formatDateDMY = (d: string) => {
+                            const [y, m, day] = d.split('-');
+                            return `${day}/${m}/${y}`;
+                          };
+
+                          return (
+                            <div key={ticker} className="border border-slate-200 rounded-xl overflow-hidden">
+                              {/* Header row */}
+                              <button
+                                onClick={() => setAuditExpandedTicker(isExpanded ? null : ticker)}
+                                className="w-full flex items-center justify-between p-3 bg-slate-50 hover:bg-slate-100 transition-colors text-left"
+                              >
+                                <div className="flex items-center gap-3">
+                                  <div className="w-8 h-8 bg-purple-600 rounded-lg flex items-center justify-center">
+                                    <Database size={14} className="text-white" />
+                                  </div>
+                                  <div>
+                                    <div className="flex items-center gap-2">
+                                      <span className="font-bold text-slate-800">{ticker}</span>
+                                      {isCurrentlyHeld ? (
+                                        <span className="text-[10px] font-bold text-green-600 bg-green-50 px-1.5 py-0.5 rounded-full border border-green-200">Currently held</span>
+                                      ) : lastHeldRecord ? (
+                                        <span className="text-[10px] font-bold text-red-600 bg-red-50 px-1.5 py-0.5 rounded-full border border-red-200">Last held {formatDateDMY(lastHeldRecord.date)}</span>
+                                      ) : null}
+                                    </div>
+                                    <div className="flex items-center gap-2 mt-0.5">
+                                      <span className="text-[10px] font-bold text-slate-400">{yearEntries.length} entries</span>
+                                      {manualCount > 0 && <span className="text-[10px] font-bold text-amber-500 bg-amber-50 px-1.5 py-0.5 rounded">manual: {manualCount}</span>}
+                                      {csvCount > 0 && <span className="text-[10px] font-bold text-blue-500 bg-blue-50 px-1.5 py-0.5 rounded">csv: {csvCount}</span>}
+                                    </div>
+                                  </div>
+                                </div>
+                                <div className="flex items-center gap-4">
+                                  {/* Most recent NAV (across all data, not just year) */}
+                                  <div className="text-right">
+                                    <p className="text-[10px] text-slate-400 uppercase tracking-wider font-bold">Latest NAV</p>
+                                    {mostRecentNav ? (
+                                      <>
+                                        <p className="text-sm font-mono font-bold text-slate-800">{mostRecentNav.nav.toFixed(4)}</p>
+                                        <p className="text-[10px] font-mono text-slate-500">{mostRecentNav.date}</p>
+                                      </>
+                                    ) : (
+                                      <p className="text-xs text-slate-400">N/A</p>
+                                    )}
+                                  </div>
+                                  {isExpanded ? <ChevronUp size={16} className="text-slate-400" /> : <ChevronDown size={16} className="text-slate-400" />}
+                                </div>
+                              </button>
+
+                              {isExpanded && (
+                                <div>
+                                  {/* Action bar: Add NAV + Upload CSV */}
+                                  <div className="flex items-center gap-2 px-3 py-2 bg-slate-100/80 border-t border-slate-200">
+                                    <button
+                                      onClick={(e) => { e.stopPropagation(); setAddNavTicker(isAddingNav ? null : ticker); setAddNavDate(''); setAddNavValue(''); }}
+                                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${isAddingNav ? 'bg-purple-100 text-purple-700 border border-purple-300' : 'bg-white text-slate-600 border border-slate-200 hover:border-purple-300 hover:text-purple-600'}`}
+                                    >
+                                      <Plus size={12} /> Add NAV
+                                    </button>
+                                    <label className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-white text-slate-600 border border-slate-200 hover:border-blue-300 hover:text-blue-600 cursor-pointer transition-all">
+                                      <Upload size={12} /> Upload CSV
+                                      <input type="file" className="hidden" accept=".csv" onChange={(e) => {
+                                        const file = e.target.files?.[0];
+                                        if (file) handleAuditCsvUpload(ticker, file);
+                                        e.target.value = '';
+                                      }} />
+                                    </label>
+                                    <div className="flex-1" />
+                                    {latestYearEntry && (
+                                      <span className="text-[10px] text-slate-400 font-mono">
+                                        Year range: {yearEntries[0]?.date} to {latestYearEntry.date}
+                                      </span>
+                                    )}
+                                  </div>
+
+                                  {/* Inline add NAV form */}
+                                  {isAddingNav && (
+                                    <div className="flex items-center gap-2 px-3 py-2 bg-purple-50 border-t border-purple-200">
+                                      <input
+                                        type="date"
+                                        value={addNavDate}
+                                        onChange={(e) => setAddNavDate(e.target.value)}
+                                        className="px-2 py-1.5 rounded-lg border border-purple-200 text-xs font-mono bg-white focus:outline-none focus:ring-2 focus:ring-purple-400"
+                                      />
+                                      <input
+                                        type="number"
+                                        step="0.0001"
+                                        placeholder="NAV value"
+                                        value={addNavValue}
+                                        onChange={(e) => setAddNavValue(e.target.value)}
+                                        onKeyDown={(e) => { if (e.key === 'Enter') handleSaveManualNav(ticker); }}
+                                        className="px-2 py-1.5 rounded-lg border border-purple-200 text-xs font-mono bg-white w-32 focus:outline-none focus:ring-2 focus:ring-purple-400"
+                                      />
+                                      <button
+                                        onClick={() => handleSaveManualNav(ticker)}
+                                        disabled={isSavingNav || !addNavDate || !addNavValue}
+                                        className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                                      >
+                                        {isSavingNav ? <RefreshCw size={12} className="animate-spin" /> : <Save size={12} />} Save
+                                      </button>
+                                    </div>
+                                  )}
+
+                                  {/* NAV table */}
+                                  <div className="max-h-[400px] overflow-y-auto">
+                                    <table className="w-full text-xs">
+                                      <thead className="sticky top-0 bg-slate-100">
+                                        <tr className="text-left">
+                                          <th className="px-3 py-2 font-black text-slate-500 uppercase tracking-widest text-[10px]">Date</th>
+                                          <th className="px-3 py-2 font-black text-slate-500 uppercase tracking-widest text-[10px] text-right">NAV</th>
+                                          <th className="px-3 py-2 font-black text-slate-500 uppercase tracking-widest text-[10px] text-right">Return</th>
+                                          <th className="px-3 py-2 font-black text-slate-500 uppercase tracking-widest text-[10px] text-center">Source</th>
+                                        </tr>
+                                      </thead>
+                                      <tbody>
+                                        {[...yearEntries].reverse().map((entry, idx) => (
+                                          <tr key={entry.date} className={`border-t border-slate-100 ${idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'} hover:bg-blue-50/50 transition-colors`}>
+                                            <td className="px-3 py-2 font-mono text-slate-700">{entry.date}</td>
+                                            <td className="px-3 py-2 font-mono text-slate-800 font-bold text-right">{entry.nav.toFixed(4)}</td>
+                                            <td className={`px-3 py-2 font-mono text-right font-bold ${entry.returnPct === null ? 'text-slate-300' : entry.returnPct >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                              {entry.returnPct !== null ? `${entry.returnPct >= 0 ? '+' : ''}${entry.returnPct.toFixed(2)}%` : '-'}
+                                            </td>
+                                            <td className="px-3 py-2 text-center">
+                                              <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${entry.source === 'csv' ? 'bg-blue-100 text-blue-700' : 'bg-amber-100 text-amber-700'}`}>
+                                                {entry.source}
+                                              </span>
+                                            </td>
+                                          </tr>
+                                        ))}
+                                      </tbody>
+                                    </table>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        });
+                    })()}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
 
