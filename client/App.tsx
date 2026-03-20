@@ -185,9 +185,14 @@ function App() {
   }
   const visited = visitedViews.current;
 
-  // Helper: wrap each view in a div that hides when not active
+  // Helper: wrap each view with fade transition
   const viewPane = (view: ViewState, children: React.ReactNode) => (
-    <div key={view} style={{ display: currentView === view ? 'contents' : 'none' }}>
+    <div
+      key={view}
+      className={`transition-opacity duration-300 ease-in-out ${
+        currentView === view ? 'opacity-100' : 'opacity-0 pointer-events-none absolute inset-0'
+      }`}
+    >
       {children}
     </div>
   );

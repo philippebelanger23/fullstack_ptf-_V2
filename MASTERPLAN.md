@@ -367,18 +367,18 @@ Many components bypass CSS variables with hardcoded Tailwind. These MUST be conv
 
 ## Implementation Order (Recommended Session Sequence)
 
-| Session | Feature | Effort | Why this order |
-|---------|---------|--------|----------------|
-| 1 | **#7 Dark Mode** | Large | Foundation — touches CSS variables used by all future features. Must migrate hardcoded colors across ~15 files. |
-| 2 | **#9 KPI Trends** | Small | Quick visual win, enhances existing MetricCard/KPICard components |
-| 3 | **#13 Freshness Badges** | Small | Small scope, improves data trust across all views |
-| 4 | **#12 Animated Transitions** | Small | Quick polish, single file change in App.tsx viewPane helper |
-| 5 | **#1 Monthly Heatmap** | Medium | New visualization, computed client-side from existing backcast data |
-| 6 | **#3 Drawdown Analysis** | Medium | Extends existing backcast infra + existing drawdowns ChartView |
-| 7 | **#2 Rolling Metrics** | Medium | New backend computation, builds on backcast_service.py |
-| 8 | **#10 Rich Tooltips** | Medium | Enhancement to existing chart tooltips, needs data threading |
-| 9 | **#17 Peer Comparison** | Large | New backend + frontend, depends on stable backcast infra |
-| 10 | **#11 Report Export** | Large | Capstone — assembles all views, best done after others are polished |
+| Session | Feature | Effort | Status | Why this order |
+|---------|---------|--------|--------|----------------|
+| 1 | **#7 Dark Mode** | Large | | Foundation — touches CSS variables used by all future features. Must migrate hardcoded colors across ~15 files. |
+| 2 | **#9 KPI Trends** | Small | | Quick visual win, enhances existing MetricCard/KPICard components |
+| 3 | **#13 Freshness Badges** | Small | | Small scope, improves data trust across all views |
+| 4 | **#12 Animated Transitions** | Small | DONE | Quick polish, single file change in App.tsx viewPane helper |
+| 5 | **#1 Monthly Heatmap** | Medium | | New visualization, computed client-side from existing backcast data |
+| 6 | **#3 Drawdown Analysis** | Medium | | Extends existing backcast infra + existing drawdowns ChartView |
+| 7 | **#2 Rolling Metrics** | Medium | | New backend computation, builds on backcast_service.py |
+| 8 | **#10 Rich Tooltips** | Medium | | Enhancement to existing chart tooltips, needs data threading |
+| 9 | **#17 Peer Comparison** | Large | | New backend + frontend, depends on stable backcast infra |
+| 10 | **#11 Report Export** | Large | | Capstone — assembles all views, best done after others are polished |
 
 ---
 
