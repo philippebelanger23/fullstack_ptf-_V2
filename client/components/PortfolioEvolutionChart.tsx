@@ -24,8 +24,7 @@ const isTimestampMajorDate = (timestamp: number, xAxisTicks: number[]) => {
 const CustomAreaTooltip = ({ active, payload, label, xAxisTicks }: any) => {
     const isMajorDate = isTimestampMajorDate(label as number, xAxisTicks);
 
-    if (active && payload && payload.length && isMajorDate) {
-        // Filter out zero weights and sort by value, then take top 10 for this snapshot
+    if (active && payload && payload.length) {
         const filteredPayload = [...payload]
             .filter((p: any) => (p.value || 0) > 0.001)
             .sort((a: any, b: any) => b.value - a.value)
@@ -33,10 +32,19 @@ const CustomAreaTooltip = ({ active, payload, label, xAxisTicks }: any) => {
 
         const currentTotal = filteredPayload.reduce((sum: number, p: any) => sum + (p.value || 0), 0);
         const labelStr = label as string;
-
-        // Safety check for date formatting
         const dateDisplay = isNaN(new Date(labelStr).getTime()) ? labelStr : new Date(labelStr).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
 
+        // Light tooltip for non-rebalance dates
+        if (!isMajorDate) {
+            return (
+                <div className="bg-white/90 border border-slate-200 px-3 py-2 rounded-lg shadow-md text-xs font-mono">
+                    <span className="text-slate-400 uppercase tracking-wider">{dateDisplay}</span>
+                    <span className="text-slate-600 font-bold ml-2">{currentTotal.toFixed(1)}% Top 10</span>
+                </div>
+            );
+        }
+
+        // Full breakdown tooltip for rebalance dates
         return (
             <div className="bg-white border border-slate-200 p-4 rounded-lg shadow-2xl text-xs font-mono min-w-[280px] z-50">
                 <div className="mb-3 border-b border-slate-200 pb-2 flex justify-between items-center gap-4">

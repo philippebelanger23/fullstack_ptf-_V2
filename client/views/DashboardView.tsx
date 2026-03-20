@@ -329,6 +329,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ data, customSector
           currentHoldings.forEach(item => {
             const t = item.ticker.toUpperCase();
 
+            // Skip cash — no currency region
+            if (t === '*CASH*' || t.includes('CASH')) return;
+
             // New Logic for manual/suffix based check
             let region = 'US';
 

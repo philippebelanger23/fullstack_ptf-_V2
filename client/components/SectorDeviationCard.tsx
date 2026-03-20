@@ -205,7 +205,7 @@ export const SectorDeviationCard: React.FC<Props> = ({ currentHoldings, benchmar
                                                         {/* Left Half (Text for positive, Bar for negative) */}
                                                         <div className="flex-1 flex justify-end pr-1 relative h-full items-center">
                                                             {val < 0 && <div className="h-4 bg-rose-500 absolute right-0 top-1 rounded-l-sm" style={{ width: `${width}%` }} />}
-                                                            {val >= 0 && <span className="text-emerald-700 font-bold z-10">+{val.toFixed(2)}%</span>}
+                                                            {val >= 0 && <span className="text-emerald-700 font-bold z-10">{val > 0 ? '+' : ''}{val.toFixed(2)}%</span>}
                                                         </div>
 
                                                         {/* Center Divider */}
@@ -214,7 +214,7 @@ export const SectorDeviationCard: React.FC<Props> = ({ currentHoldings, benchmar
                                                         {/* Right Half (Bar for positive, Text for negative) */}
                                                         <div className="flex-1 flex justify-start pl-1 relative h-full items-center">
                                                             {val > 0 && <div className="h-4 bg-emerald-500 absolute left-0 top-1 rounded-r-sm" style={{ width: `${width}%` }} />}
-                                                            {val < 0 && <span className="text-rose-700 font-bold z-10">{val.toFixed(2)}%</span>}
+                                                            {val < 0 && <span className="text-rose-700 font-bold z-10">({Math.abs(val).toFixed(2)}%)</span>}
                                                         </div>
                                                     </div>
                                                 );

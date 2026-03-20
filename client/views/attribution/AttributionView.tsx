@@ -951,7 +951,7 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
 
                                                             return (
                                                                 <div className="w-full h-10 flex items-center justify-center font-mono font-bold cursor-default transition-transform hover:scale-110 hover:z-20 hover:shadow-sm relative text-[11px]" style={{ backgroundColor: displayBg, color }}>
-                                                                    {!showHyphen ? <span className="opacity-100">{val! > 0 ? '+' : ''}{val!.toFixed(2)}%</span> : <span className="text-gray-300">-</span>}
+                                                                    {!showHyphen ? <span className="opacity-100">{val! < 0 ? `(${Math.abs(val!).toFixed(2)}%)` : `${val! > 0 ? '+' : ''}${val!.toFixed(2)}%`}</span> : <span className="text-gray-300">-</span>}
                                                                     {!showHyphen && val !== null && (
                                                                         <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 px-3 py-2 bg-slate-900 text-white text-[10px] rounded opacity-0 group-hover/cell:opacity-100 pointer-events-none z-30 whitespace-nowrap shadow-xl flex flex-col items-center gap-1">
                                                                             <div className="font-bold border-b-0 pb-0 mb-0">{row.ticker} - {date.toLocaleDateString('en-US', { month: 'short' }).toUpperCase()}</div>
@@ -972,7 +972,7 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
                                                     if (showTotalHyphen) {
                                                         return <span className="text-gray-300">-</span>;
                                                     }
-                                                    return <span className={row.total >= 0 ? 'text-green-700' : 'text-red-700'}>{row.total > 0 ? '+' : ''}{row.total.toFixed(2)}%</span>;
+                                                    return <span className={row.total >= 0 ? 'text-green-700' : 'text-red-700'}>{row.total < 0 ? `(${Math.abs(row.total).toFixed(2)}%)` : `${row.total > 0 ? '+' : ''}${row.total.toFixed(2)}%`}</span>;
                                                 })()}
                                             </td>
                                         </tr>
@@ -987,12 +987,12 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
                                             const val = heatmapTotals.totals[key];
                                             return (
                                                 <td key={date.toISOString()} className="p-3 text-center font-mono font-bold text-xs border-b border-wallstreet-100 border-l border-white">
-                                                    {hasData ? <span className={val >= 0 ? 'text-green-700' : 'text-red-700'}>{val > 0 ? '+' : ''}{val.toFixed(2)}%</span> : <span className="text-gray-300">-</span>}
+                                                    {hasData ? <span className={val >= 0 ? 'text-green-700' : 'text-red-700'}>{val < 0 ? `(${Math.abs(val).toFixed(2)}%)` : `${val > 0 ? '+' : ''}${val.toFixed(2)}%`}</span> : <span className="text-gray-300">-</span>}
                                                 </td>
                                             )
                                         })}
                                         <td className="p-3 text-center font-mono font-bold text-xs border-l border-wallstreet-300 bg-wallstreet-200 text-wallstreet-text">
-                                            <span className={heatmapTotals.grandTotal >= 0 ? 'text-green-800' : 'text-red-800'}>{heatmapTotals.grandTotal > 0 ? '+' : ''}{heatmapTotals.grandTotal.toFixed(2)}%</span>
+                                            <span className={heatmapTotals.grandTotal >= 0 ? 'text-green-800' : 'text-red-800'}>{heatmapTotals.grandTotal < 0 ? `(${Math.abs(heatmapTotals.grandTotal).toFixed(2)}%)` : `${heatmapTotals.grandTotal > 0 ? '+' : ''}${heatmapTotals.grandTotal.toFixed(2)}%`}</span>
                                         </td>
                                     </tr>
                                 </tfoot>

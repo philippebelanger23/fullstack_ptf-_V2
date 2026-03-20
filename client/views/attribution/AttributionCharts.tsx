@@ -28,7 +28,7 @@ export const TornadoLabel = (props: any) => {
             dominantBaseline="central"
             className="text-[12px] font-mono font-bold"
         >
-            {realValue > 0 ? '+' : ''}{Number(realValue).toFixed(2)}%
+            {realValue < 0 ? `(${Math.abs(realValue).toFixed(2)}%)` : `${realValue > 0 ? '+' : ''}${Number(realValue).toFixed(2)}%`}
         </text>
     );
 };
@@ -50,14 +50,14 @@ export const WaterfallChart: React.FC<WaterfallChartProps> = ({ waterfallData, w
                 <BarChart data={waterfallData} margin={{ top: 30, right: 30, left: 0, bottom: 20 }}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                     <XAxis dataKey="name" tick={{ fontSize: 11, fontFamily: 'monospace', fill: '#64748b', fontWeight: 'bold' }} interval={0} axisLine={{ stroke: '#e2e8f0' }} tickLine={false} />
-                    <YAxis domain={waterfallDomain} tickFormatter={(val) => `${val.toFixed(1)}%`} tick={{ fontSize: 12, fontFamily: 'monospace', fill: '#64748b', fontWeight: 'bold' }} axisLine={false} tickLine={false} />
+                    <YAxis domain={waterfallDomain} tickFormatter={(val) => val < 0 ? `(${Math.abs(val).toFixed(1)}%)` : `${val.toFixed(1)}%`} tick={{ fontSize: 12, fontFamily: 'monospace', fill: '#64748b', fontWeight: 'bold' }} axisLine={false} tickLine={false} />
                     <Tooltip cursor={{ fill: '#f8fafc' }} content={({ active, payload }) => {
                         if (active && payload && payload.length) {
                             const d = payload[0].payload;
                             return (
                                 <div className="bg-white text-black text-xs p-2 rounded shadow-xl font-mono border border-wallstreet-200">
                                     <div className="font-bold border-b border-wallstreet-200 pb-1 mb-1">{d.name}</div>
-                                    <div>Impact: <span className={d.delta >= 0 ? 'text-green-600' : 'text-red-600'}>{d.delta > 0 ? '+' : ''}{d.delta.toFixed(2)}%</span></div>
+                                    <div>Impact: <span className={d.delta >= 0 ? 'text-green-600' : 'text-red-600'}>{d.delta < 0 ? `(${Math.abs(d.delta).toFixed(2)}%)` : `${d.delta > 0 ? '+' : ''}${d.delta.toFixed(2)}%`}</span></div>
                                     {!d.isTotal && <div className="text-slate-500 mt-1">Cumulative: {d.value[1].toFixed(2)}%</div>}
                                 </div>
                             );
@@ -67,7 +67,7 @@ export const WaterfallChart: React.FC<WaterfallChartProps> = ({ waterfallData, w
                     <ReferenceLine y={0} stroke="#94a3b8" />
                     <Bar dataKey="value" radius={[2, 2, 2, 2]}>
                         {waterfallData.map((entry, index) => <Cell key={`cell-${index}`} fill={entry.color} />)}
-                        <LabelList dataKey="delta" position="top" formatter={(val: number) => Math.abs(val) > 0.001 ? `${val > 0 ? '+' : ''}${val.toFixed(2)}%` : ''} style={{ fill: '#64748b', fontSize: '11px', fontWeight: 'black', fontFamily: 'monospace' }} />
+                        <LabelList dataKey="delta" position="top" formatter={(val: number) => Math.abs(val) > 0.001 ? (val < 0 ? `(${Math.abs(val).toFixed(2)}%)` : `+${val.toFixed(2)}%`) : ''} style={{ fill: '#64748b', fontSize: '11px', fontWeight: 'black', fontFamily: 'monospace' }} />
                     </Bar>
                 </BarChart>
             </ResponsiveContainer>
@@ -105,7 +105,7 @@ export const SectorAttributionCharts: React.FC<SectorAttributionChartsProps> = (
     const colorSpan = (val: number, text: string) =>
         `<strong class="${val >= 0 ? 'text-green-600' : 'text-red-600'}">${text}</strong>`;
 
-    const fmt = (val: number) => `${val > 0 ? '+' : ''}${val.toFixed(2)}%`;
+    const fmt = (val: number) => val < 0 ? `(${Math.abs(val).toFixed(2)}%)` : `${val > 0 ? '+' : ''}${val.toFixed(2)}%`;
 
     const buildExplanationHTML = useCallback((d: any, chart: string): string => {
         const regionLabel = regionFilter === 'ALL' ? '' : regionFilter === 'US' ? 'US ' : 'Canadian ';
@@ -249,15 +249,15 @@ export const SectorAttributionCharts: React.FC<SectorAttributionChartsProps> = (
                                                 <div className="space-y-1.5">
                                                     <div className="flex justify-between gap-4">
                                                         <span className="text-slate-500">Selection:</span>
-                                                        <span className={`font-bold ${d.selectionEffect >= 0 ? 'text-green-600' : 'text-red-600'}`}>{d.selectionEffect > 0 ? '+' : ''}{d.selectionEffect.toFixed(2)}%</span>
+                                                        <span className={`font-bold ${d.selectionEffect >= 0 ? 'text-green-600' : 'text-red-600'}`}>{d.selectionEffect < 0 ? `(${Math.abs(d.selectionEffect).toFixed(2)}%)` : `${d.selectionEffect > 0 ? '+' : ''}${d.selectionEffect.toFixed(2)}%`}</span>
                                                     </div>
                                                     <div className="flex justify-between gap-4">
                                                         <span className="text-slate-500">Portfolio Return:</span>
-                                                        <span className="font-bold">{d.portfolioReturn.toFixed(2)}%</span>
+                                                        <span className="font-bold">{d.portfolioReturn < 0 ? `(${Math.abs(d.portfolioReturn).toFixed(2)}%)` : `${d.portfolioReturn.toFixed(2)}%`}</span>
                                                     </div>
                                                     <div className="flex justify-between gap-4">
                                                         <span className="text-slate-500">Bench Return ({d.benchmarkETF}):</span>
-                                                        <span className="font-bold">{d.benchmarkReturn.toFixed(2)}%</span>
+                                                        <span className="font-bold">{d.benchmarkReturn < 0 ? `(${Math.abs(d.benchmarkReturn).toFixed(2)}%)` : `${d.benchmarkReturn.toFixed(2)}%`}</span>
                                                     </div>
                                                     <div className="flex justify-between gap-4">
                                                         <span className="text-slate-500">Benchmark Weight:</span>
@@ -268,19 +268,19 @@ export const SectorAttributionCharts: React.FC<SectorAttributionChartsProps> = (
                                                 {hasHoldings && d.stocks.length > 0 && (
                                                 <div className="border-t mt-3 pt-2">
                                                     <div className="text-[10px] text-slate-400 mb-2 uppercase text-center font-bold">Key Drivers (Selection):</div>
-                                                    {[...d.stocks].sort((a: any, b: any) => Math.abs(b.selectionContribution) - Math.abs(a.selectionContribution)).slice(0, 3).map((s: any, idx: number) => (
-                                                        <div key={idx} className="flex justify-between gap-4 py-1 text-[10px]">
-                                                            <span className="font-bold">{s.ticker}</span>
-                                                            <div className="text-right">
-                                                                <span className={s.returnPct >= 0 ? 'text-green-600' : 'text-red-600'}>
-                                                                    {s.returnPct >= 0 ? '+' : ''}{s.returnPct.toFixed(1)}%
+                                                    <div className="grid text-[10px] font-mono" style={{ gridTemplateColumns: 'auto 1fr 1fr', fontVariantNumeric: 'tabular-nums' }}>
+                                                        {[...d.stocks].sort((a: any, b: any) => Math.abs(b.selectionContribution) - Math.abs(a.selectionContribution)).map((s: any, idx: number) => (
+                                                            <React.Fragment key={idx}>
+                                                                <span className="font-bold py-1">{s.ticker}</span>
+                                                                <span className={`text-right py-1 ${s.returnPct >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                                                    {s.returnPct < 0 ? `(${Math.abs(s.returnPct).toFixed(1)}%)` : <><span style={{visibility:'hidden'}}>(</span>{`+${s.returnPct.toFixed(1)}%`}<span style={{visibility:'hidden'}}>)</span></>}
                                                                 </span>
-                                                                <span className="text-slate-400 ml-1">
-                                                                    ({s.selectionContribution >= 0 ? '+' : ''}{s.selectionContribution.toFixed(2)}%)
+                                                                <span className="text-slate-400 text-right py-1 pl-1">
+                                                                    {s.selectionContribution < 0 ? `(${Math.abs(s.selectionContribution).toFixed(2)}%)` : <><span style={{visibility:'hidden'}}>(</span>{`+${s.selectionContribution.toFixed(2)}%`}<span style={{visibility:'hidden'}}>)</span></>}
                                                                 </span>
-                                                            </div>
-                                                        </div>
-                                                    ))}
+                                                            </React.Fragment>
+                                                        ))}
+                                                    </div>
                                                 </div>
                                                 )}
                                             </div>
@@ -337,7 +337,7 @@ export const SectorAttributionCharts: React.FC<SectorAttributionChartsProps> = (
                                                 <div className="space-y-1.5 text-[12px]">
                                                     <div className="flex justify-between gap-4">
                                                         <span className="text-slate-500">Allocation:</span>
-                                                        <span className={`font-bold ${d.allocationEffect >= 0 ? 'text-green-600' : 'text-red-600'}`}>{d.allocationEffect > 0 ? '+' : ''}{d.allocationEffect.toFixed(2)}%</span>
+                                                        <span className={`font-bold ${d.allocationEffect >= 0 ? 'text-green-600' : 'text-red-600'}`}>{d.allocationEffect < 0 ? `(${Math.abs(d.allocationEffect).toFixed(2)}%)` : `${d.allocationEffect > 0 ? '+' : ''}${d.allocationEffect.toFixed(2)}%`}</span>
                                                     </div>
                                                     <div className="flex justify-between gap-4">
                                                         <span className="text-slate-500">Portfolio Weight:</span>
@@ -349,7 +349,7 @@ export const SectorAttributionCharts: React.FC<SectorAttributionChartsProps> = (
                                                     </div>
                                                     <div className="flex justify-between gap-4">
                                                         <span className="text-slate-500">Bench Return ({d.benchmarkETF}):</span>
-                                                        <span className="font-bold">{d.benchmarkReturn.toFixed(2)}%</span>
+                                                        <span className="font-bold">{d.benchmarkReturn < 0 ? `(${Math.abs(d.benchmarkReturn).toFixed(2)}%)` : `${d.benchmarkReturn.toFixed(2)}%`}</span>
                                                     </div>
                                                 </div>
                                             </div>
@@ -404,7 +404,7 @@ export const SectorAttributionCharts: React.FC<SectorAttributionChartsProps> = (
                                                 <div className="space-y-1.5 text-[12px]">
                                                     <div className="flex justify-between gap-4">
                                                         <span className="text-slate-500">Interaction:</span>
-                                                        <span className={`font-bold ${d.interactionEffect >= 0 ? 'text-green-600' : 'text-red-600'}`}>{d.interactionEffect > 0 ? '+' : ''}{d.interactionEffect.toFixed(2)}%</span>
+                                                        <span className={`font-bold ${d.interactionEffect >= 0 ? 'text-green-600' : 'text-red-600'}`}>{d.interactionEffect < 0 ? `(${Math.abs(d.interactionEffect).toFixed(2)}%)` : `${d.interactionEffect > 0 ? '+' : ''}${d.interactionEffect.toFixed(2)}%`}</span>
                                                     </div>
                                                     <div className="text-[10px] text-slate-400 mt-3 italic border-t pt-2">
                                                         Combined effect of selection and allocation. Usually small, but large when overweighting significant winners.

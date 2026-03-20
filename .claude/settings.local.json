@@ -6,7 +6,9 @@
       "Bash(grep -r \"index-exposure\\\\|fetchIndexExposure\\\\|benchmark\" /c/Users/Phili/Desktop/Local_GitHub/fullstack-ptf-V2/server --include=*.py)",
       "Bash(npx tsc:*)",
       "Bash(npx vite:*)",
-      "Bash(node_modules/.bin/tsc --noEmit)"
+      "Bash(node_modules/.bin/tsc --noEmit)",
+      "Bash(find /c/Users/Phili/Desktop/Local_GitHub/fullstack-ptf-V2 -name *.test.* -o -name *.spec.* -o -name *test* -type f)",
+      "Bash(grep -E \"\\\\.\\(ts|py|tsx|js\\)$\")"
     ]
   }
 }

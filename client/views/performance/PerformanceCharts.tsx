@@ -174,7 +174,7 @@ export const PerformanceCharts: React.FC<PerformanceChartsProps> = ({
                                         ticks={getMonthlyTicks}
                                     />
                                     <YAxis
-                                        tickFormatter={(val) => `${val > 0 ? '+' : ''}${val.toFixed(0)}%`}
+                                        tickFormatter={(val) => val < 0 ? `(${Math.abs(val).toFixed(0)}%)` : `${val > 0 ? '+' : ''}${val.toFixed(0)}%`}
                                         tick={{ fontSize: 11, fill: '#64748b' }}
                                         tickLine={false}
                                         axisLine={false}
@@ -190,7 +190,7 @@ export const PerformanceCharts: React.FC<PerformanceChartsProps> = ({
                                                     <div className="flex justify-between items-center gap-4 py-0.5">
                                                         <span className={`font-medium ${val >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>Excess Return:</span>
                                                         <span className={`font-bold ${val >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                                                            {val > 0 ? '+' : ''}{val.toFixed(2)}%
+                                                            {val < 0 ? `(${Math.abs(val).toFixed(2)}%)` : `${val > 0 ? '+' : ''}${val.toFixed(2)}%`}
                                                         </span>
                                                     </div>
                                                 </div>
@@ -219,7 +219,7 @@ export const PerformanceCharts: React.FC<PerformanceChartsProps> = ({
                                         ticks={getMonthlyTicks}
                                     />
                                     <YAxis
-                                        tickFormatter={(val) => `${val > 0 ? '+' : ''}${val.toFixed(0)}%`}
+                                        tickFormatter={(val) => val < 0 ? `(${Math.abs(val).toFixed(0)}%)` : `${val > 0 ? '+' : ''}${val.toFixed(0)}%`}
                                         tick={{ fontSize: 11, fill: '#64748b' }}
                                         tickLine={false}
                                         axisLine={false}
@@ -235,7 +235,7 @@ export const PerformanceCharts: React.FC<PerformanceChartsProps> = ({
                                                         <div key={entry.dataKey as string} className="flex justify-between items-center gap-4 py-0.5">
                                                             <span style={{ color: entry.color }} className="font-medium">{entry.dataKey}:</span>
                                                             <span style={{ color: entry.color }} className="font-bold">
-                                                                {(entry.value as number) > 0 ? '+' : ''}{(entry.value as number).toFixed(2)}%
+                                                                {(entry.value as number) < 0 ? `(${Math.abs(entry.value as number).toFixed(2)}%)` : `${(entry.value as number) > 0 ? '+' : ''}${(entry.value as number).toFixed(2)}%`}
                                                             </span>
                                                         </div>
                                                     ))}
@@ -285,8 +285,8 @@ export const PerformanceCharts: React.FC<PerformanceChartsProps> = ({
                             </tr>
                             <tr className="hover:bg-slate-50 transition-colors">
                                 <td className="px-4 py-3 font-medium text-slate-700">Sharpe Ratio</td>
-                                <td className="px-4 py-3 text-right font-mono font-bold text-slate-900">{periodMetrics?.sharpeRatio.toFixed(2) ?? '--'}</td>
-                                <td className="px-4 py-3 text-right font-mono text-slate-500">{periodMetrics?.benchmarkSharpe.toFixed(2) ?? '--'}</td>
+                                <td className="px-4 py-3 text-right font-mono font-bold text-slate-900">{periodMetrics ? (periodMetrics.sharpeRatio < 0 ? `(${Math.abs(periodMetrics.sharpeRatio).toFixed(2)})` : periodMetrics.sharpeRatio.toFixed(2)) : '--'}</td>
+                                <td className="px-4 py-3 text-right font-mono text-slate-500">{periodMetrics ? (periodMetrics.benchmarkSharpe < 0 ? `(${Math.abs(periodMetrics.benchmarkSharpe).toFixed(2)})` : periodMetrics.benchmarkSharpe.toFixed(2)) : '--'}</td>
                             </tr>
                             <tr className="hover:bg-slate-50 transition-colors">
                                 <td className="px-4 py-3 font-medium text-slate-700">Volatility</td>
@@ -318,7 +318,7 @@ export const PerformanceCharts: React.FC<PerformanceChartsProps> = ({
                         </div>
                         <div className="p-4 bg-slate-50 rounded-xl border border-slate-100">
                             <p className="text-xs text-slate-500 uppercase font-bold tracking-wider mb-2">Max Drawdown</p>
-                            <p className="text-2xl font-bold text-red-600 font-mono">{periodMetrics ? `${periodMetrics.maxDrawdown.toFixed(1)}%` : '--'}</p>
+                            <p className="text-2xl font-bold text-red-600 font-mono">{periodMetrics ? (periodMetrics.maxDrawdown < 0 ? `(${Math.abs(periodMetrics.maxDrawdown).toFixed(1)}%)` : `${periodMetrics.maxDrawdown.toFixed(1)}%`) : '--'}</p>
                             <p className="text-xs text-slate-400 mt-1">Largest decline from peak</p>
                         </div>
                     </div>

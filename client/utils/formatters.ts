@@ -18,10 +18,23 @@ export const formatBps = (val: number | undefined): string => {
     return val < 0 ? `(${abs})` : `${bps}`;
 };
 
-/** Format a percentage with explicit +/- sign: +1.23% or -1.23% */
+/** Format a percentage with explicit +/- sign: +1.23% or (1.23%) */
 export const formatPercent = (val: number | undefined): string => {
     if (val === undefined) return 'N/A';
+    if (val < 0) return `(${Math.abs(val).toFixed(2)}%)`;
     return `${val > 0 ? '+' : ''}${val.toFixed(2)}%`;
+};
+
+/** Format a number (non-%) with parentheses for negatives: +1.23 or (1.23) */
+export const formatNum = (val: number, decimals = 2): string => {
+    if (val < 0) return `(${Math.abs(val).toFixed(decimals)})`;
+    return `${val > 0 ? '+' : ''}${val.toFixed(decimals)}`;
+};
+
+/** Format a value with % and parentheses for negatives, no + prefix: 1.23% or (1.23%) */
+export const formatPctSigned = (val: number, decimals = 2): string => {
+    if (val < 0) return `(${Math.abs(val).toFixed(decimals)}%)`;
+    return `${val > 0 ? '+' : ''}${val.toFixed(decimals)}%`;
 };
 
 /** Format a date string for X-axis display. Supports multi-year and short periods. */

@@ -48,23 +48,23 @@ export const PerformanceKPIs: React.FC<PerformanceKPIsProps> = ({ periodMetrics,
         />
         <MetricCard
             title="Sharpe"
-            value={periodMetrics ? periodMetrics.sharpeRatio.toFixed(2) : '--'}
-            subtitle={periodMetrics ? `Benchmark: ${periodMetrics.benchmarkSharpe.toFixed(2)}` : undefined}
+            value={periodMetrics ? (periodMetrics.sharpeRatio < 0 ? `(${Math.abs(periodMetrics.sharpeRatio).toFixed(2)})` : periodMetrics.sharpeRatio.toFixed(2)) : '--'}
+            subtitle={periodMetrics ? `Benchmark: ${periodMetrics.benchmarkSharpe < 0 ? `(${Math.abs(periodMetrics.benchmarkSharpe).toFixed(2)})` : periodMetrics.benchmarkSharpe.toFixed(2)}` : undefined}
             isPositive={periodMetrics ? periodMetrics.sharpeRatio > periodMetrics.benchmarkSharpe : undefined}
             icon={Award}
             loading={loading}
         />
         <MetricCard
             title="Sortino"
-            value={periodMetrics ? periodMetrics.sortinoRatio.toFixed(2) : '--'}
-            subtitle={periodMetrics ? `Benchmark: ${periodMetrics.benchmarkSortino.toFixed(2)}` : undefined}
+            value={periodMetrics ? (periodMetrics.sortinoRatio < 0 ? `(${Math.abs(periodMetrics.sortinoRatio).toFixed(2)})` : periodMetrics.sortinoRatio.toFixed(2)) : '--'}
+            subtitle={periodMetrics ? `Benchmark: ${periodMetrics.benchmarkSortino < 0 ? `(${Math.abs(periodMetrics.benchmarkSortino).toFixed(2)})` : periodMetrics.benchmarkSortino.toFixed(2)}` : undefined}
             isPositive={periodMetrics ? periodMetrics.sortinoRatio > periodMetrics.benchmarkSortino : undefined}
             icon={Award}
             loading={loading}
         />
         <MetricCard
             title="Info Ratio"
-            value={periodMetrics ? periodMetrics.informationRatio.toFixed(2) : '--'}
+            value={periodMetrics ? (periodMetrics.informationRatio < 0 ? `(${Math.abs(periodMetrics.informationRatio).toFixed(2)})` : periodMetrics.informationRatio.toFixed(2)) : '--'}
             subtitle={periodMetrics ? `T.E.: ${periodMetrics.trackingError.toFixed(1)}%` : undefined}
             isPositive={periodMetrics ? periodMetrics.informationRatio > 0 : undefined}
             icon={Target}
@@ -87,8 +87,8 @@ export const PerformanceKPIs: React.FC<PerformanceKPIsProps> = ({ periodMetrics,
         />
         <MetricCard
             title="Max Drawdown"
-            value={periodMetrics ? `${periodMetrics.maxDrawdown.toFixed(1)}%` : '--'}
-            subtitle={periodMetrics ? `Benchmark: ${periodMetrics.benchmarkMaxDrawdown.toFixed(1)}%` : undefined}
+            value={periodMetrics ? (periodMetrics.maxDrawdown < 0 ? `(${Math.abs(periodMetrics.maxDrawdown).toFixed(1)}%)` : `${periodMetrics.maxDrawdown.toFixed(1)}%`) : '--'}
+            subtitle={periodMetrics ? `Benchmark: ${periodMetrics.benchmarkMaxDrawdown < 0 ? `(${Math.abs(periodMetrics.benchmarkMaxDrawdown).toFixed(1)}%)` : `${periodMetrics.benchmarkMaxDrawdown.toFixed(1)}%`}` : undefined}
             isPositive={periodMetrics ? periodMetrics.maxDrawdown > periodMetrics.benchmarkMaxDrawdown : undefined}
             icon={ShieldAlert}
             loading={loading}

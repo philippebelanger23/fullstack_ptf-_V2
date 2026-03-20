@@ -124,7 +124,7 @@ export const RiskTable: React.FC<RiskTableProps> = ({ loading, sortedPositions, 
                                                 <td className="px-4 py-3 font-mono text-slate-700">{p.mctr.toFixed(2)}%</td>
                                                 <td className="px-4 py-3 font-mono font-bold text-slate-800">{p.pctOfTotalRisk.toFixed(1)}%</td>
                                                 <td className={`px-4 py-3 font-mono font-medium ${p.riskAdjustedReturn >= 0 ? 'text-green-700' : 'text-red-600'}`}>
-                                                    {p.riskAdjustedReturn.toFixed(2)}
+                                                    {p.riskAdjustedReturn < 0 ? `(${Math.abs(p.riskAdjustedReturn).toFixed(2)})` : p.riskAdjustedReturn.toFixed(2)}
                                                 </td>
                                                 <td className="px-4 py-3">
                                                     <div className="flex items-center gap-2">
@@ -135,7 +135,7 @@ export const RiskTable: React.FC<RiskTableProps> = ({ loading, sortedPositions, 
                                                             />
                                                         </div>
                                                         <span className={`text-xs font-mono ${isRisky ? 'text-red-600' : isDiversifier ? 'text-green-600' : 'text-slate-400'}`}>
-                                                            {riskOverweight > 0 ? '+' : ''}{riskOverweight.toFixed(1)}
+                                                            {riskOverweight < 0 ? `(${Math.abs(riskOverweight).toFixed(1)})` : `${riskOverweight > 0 ? '+' : ''}${riskOverweight.toFixed(1)}`}
                                                         </span>
                                                     </div>
                                                 </td>

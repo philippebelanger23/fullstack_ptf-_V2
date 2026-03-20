@@ -314,7 +314,7 @@ export const IndexPerformanceChart: React.FC<IndexPerformanceChartProps> = ({ da
                             ticks={getMonthlyTicks}
                         />
                         <YAxis
-                            tickFormatter={(val) => `${val > 0 ? '+' : ''}${val.toFixed(0)}%`}
+                            tickFormatter={(val) => val < 0 ? `(${Math.abs(val).toFixed(0)}%)` : `${val > 0 ? '+' : ''}${val.toFixed(0)}%`}
                             tick={{ fontSize: 11, fill: '#64748b' }}
                             tickLine={false}
                             axisLine={false}
@@ -343,7 +343,7 @@ export const IndexPerformanceChart: React.FC<IndexPerformanceChartProps> = ({ da
                                                     {getDisplayName(entry.dataKey as string)}:
                                                 </span>
                                                 <span style={{ color: entry.color }} className="font-bold">
-                                                    {(entry.value as number) > 0 ? '+' : ''}{(entry.value as number).toFixed(2)}%
+                                                    {(entry.value as number) < 0 ? `(${Math.abs(entry.value as number).toFixed(2)}%)` : `${(entry.value as number) > 0 ? '+' : ''}${(entry.value as number).toFixed(2)}%`}
                                                 </span>
                                             </div>
                                         ))}

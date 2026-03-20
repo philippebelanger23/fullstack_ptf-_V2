@@ -58,7 +58,9 @@ const CURRENCY_CODE_TO_TICKER: Record<string, string> = {
 const formatPerf = (val: number | undefined) => {
     if (val === undefined) return '-';
     const color = val > 0 ? 'text-green-600' : val < 0 ? 'text-red-500' : 'text-slate-400';
-    return <span className={color}>{(val * 100).toFixed(1)}%</span>;
+    const pct = val * 100;
+    const display = pct < 0 ? `(${Math.abs(pct).toFixed(1)}%)` : `${pct.toFixed(1)}%`;
+    return <span className={color}>{display}</span>;
 };
 
 /** Format "YYYY-MM-DD" → "DD / MM / YYYY" */
