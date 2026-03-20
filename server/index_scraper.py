@@ -74,7 +74,7 @@ def clean_percentage(val):
         s = str(val).replace('%', '').replace(',', '').strip()
         if not s or s.lower() == '-': return 0.0
         return float(s)
-    except:
+    except (ValueError, TypeError):
         return 0.0
 
 def aggregate_holdings(df):
@@ -198,14 +198,14 @@ def extract_date(df):
             try:
                 dt = datetime.strptime(d_str, "%b %d %Y")
                 return dt.strftime("%Y-%m-%d")
-            except: pass
+            except ValueError: pass
             
         match2 = re.search(r'(\d{1,2}-[A-Za-z]{3}-\d{4})', row_str)
         if match2:
             try:
                 dt = datetime.strptime(match2.group(1), "%d-%b-%Y")
                 return dt.strftime("%Y-%m-%d")
-            except: pass
+            except ValueError: pass
             
     return datetime.now().strftime("%Y-%m-%d")
 

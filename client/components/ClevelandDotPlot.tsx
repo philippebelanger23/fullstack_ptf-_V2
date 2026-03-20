@@ -80,16 +80,22 @@ export const ClevelandDotPlot: React.FC<DotPlotProps> = ({ data }) => {
                 />
                 <Tooltip
                     cursor={{ fill: '#f8fafc', opacity: 0.5 }}
-                    contentStyle={{ backgroundColor: '#fff', color: '#000', border: '1px solid #e2e8f0', borderRadius: '8px' }}
-                    itemStyle={{ fontFamily: 'monospace', fontSize: '12px' }}
-                    formatter={(value: number | number[] | string, name: string) => {
-                        if (Array.isArray(value)) return null;
-                        if (name === 'displaySector' || name === 'range' || name === 'sector') return null;
-                        const numVal = Number(value);
-                        if (isNaN(numVal)) return null;
-                        return [`${numVal.toFixed(2)}%`, name];
+                    content={({ active, payload, label }) => {
+                        if (!active || !payload?.length) return null;
+                        const HIDDEN = new Set(['displaySector', 'range', 'sector']);
+                        const items = payload.filter(p => !HIDDEN.has(p.dataKey as string) && !Array.isArray(p.value));
+                        if (!items.length) return null;
+                        return (
+                            <div style={{ backgroundColor: '#fff', border: '1px solid #e2e8f0', borderRadius: 8, padding: '8px 12px' }}>
+                                <div style={{ fontWeight: 'bold', marginBottom: 6, fontFamily: 'monospace', fontSize: 13 }}>{label}</div>
+                                {items.map(item => (
+                                    <div key={item.dataKey as string} style={{ fontFamily: 'monospace', fontSize: 12, fontWeight: 'bold', color: item.color, marginBottom: 2 }}>
+                                        {item.name} : {Number(item.value).toFixed(2)}%
+                                    </div>
+                                ))}
+                            </div>
+                        );
                     }}
-                    labelStyle={{ fontWeight: 'bold', marginBottom: '8px' }}
                 />
                 <Legend
                     verticalAlign="top"

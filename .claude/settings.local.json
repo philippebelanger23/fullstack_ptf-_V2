@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 -c \"import json; d=json.load\\(open\\(''c:/Users/Phili/Desktop/Local_GitHub/fullstack-ptf-V2/server/data/sectors_cache.json''\\)\\); print\\(''ATD.TO:'', d.get\\(''ATD.TO'', ''NOT FOUND''\\)\\)\")",
+      "Bash(grep -r Holdings /c/Users/Phili/Desktop/Local_GitHub/fullstack-ptf-V2/client/views --include=*.tsx --include=*.ts)",
+      "Bash(grep -r \"index-exposure\\\\|fetchIndexExposure\\\\|benchmark\" /c/Users/Phili/Desktop/Local_GitHub/fullstack-ptf-V2/server --include=*.py)",
+      "Bash(npx tsc:*)",
+      "Bash(npx vite:*)",
+      "Bash(node_modules/.bin/tsc --noEmit)",
+      "Bash(find /c/Users/Phili/Desktop/Local_GitHub/fullstack-ptf-V2 -name *.test.* -o -name *.spec.* -o -name *test* -type f)",
+      "Bash(grep -E \"\\\\.\\(ts|py|tsx|js\\)$\")"
+    ]
+  }
+}

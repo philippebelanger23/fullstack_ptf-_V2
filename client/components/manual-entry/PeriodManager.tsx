@@ -1,0 +1,126 @@
+import React from 'react';
+import { X, Calendar, Plus } from 'lucide-react';
+import { AllocationPeriod, TickerRow } from './useManualEntryState';
+
+export interface PeriodManagerProps {
+    filteredPeriods: AllocationPeriod[];
+    periods: AllocationPeriod[];
+    displayTickers: TickerRow[];
+    handleRemovePeriod: (id: string) => void;
+    handleDateChange: (id: string, field: 'startDate' | 'endDate', val: string) => void;
+    handleWeightChange: (periodId: string, ticker: string, val: string) => void;
+    handleWeightBlur: (periodId: string, ticker: string, val: string) => void;
+    calculateTotal: (period: AllocationPeriod) => number;
+    handleAddPeriod: () => void;
+}
+
+export const PeriodManager: React.FC<PeriodManagerProps> = ({
+    filteredPeriods,
+    periods,
+    displayTickers,
+    handleRemovePeriod,
+    handleDateChange,
+    handleWeightChange,
+    handleWeightBlur,
+    calculateTotal,
+    handleAddPeriod,
+}) => {
+    return (
+        <div className="flex-1 flex gap-4 pl-4">
+            {filteredPeriods.map((period) => {
+                const total = calculateTotal(period);
+                const isTotalValid = Math.abs(total - 100) < 0.1;
+
+                // Fallback to original periods for comparison
+                const originalIdx = periods.findIndex(p => p.id === period.id);
+
+                // Determine display dates
+                // For the endDate display, we look at the 'next' period in original periods if it exists
+                const nextInOriginal = originalIdx < periods.length - 1 ? periods[originalIdx + 1] : null;
+
+                return (
+                    <div key={period.id} className="w-64 bg-white border border-gray-200 rounded-xl shadow-sm flex flex-col flex-shrink-0">
+                        {/* Header - Fixed Height 120px */}
+                        <div className="h-[120px] p-4 border-b border-gray-200 bg-slate-50 rounded-t-xl flex flex-col justify-between">
+                            <div className="flex items-center justify-between">
+                                <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider">Period {originalIdx + 1}</h4>
+                                {periods.length > 1 && (
+                                    <button onClick={() => handleRemovePeriod(period.id)} className="text-slate-400 hover:text-red-500 transition-colors">
+                                        <X size={14} />
+                                    </button>
+                                )}
+                            </div>
+
+                            <div className="space-y-1">
+                                <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-md px-2 py-1.5 shadow-sm">
+                                    <Calendar size={12} className="text-slate-400 flex-shrink-0" />
+                                    <input
+                                        type="date"
+                                        value={period.startDate}
+                                        onChange={(e) => handleDateChange(period.id, 'startDate', e.target.value)}
+                                        className="w-full text-xs font-semibold text-slate-700 focus:outline-none bg-transparent"
+                                    />
+                                </div>
+                                <div className="text-[10px] text-center font-medium text-slate-400">
+                                    to {nextInOriginal ? nextInOriginal.startDate : <span className="text-slate-600 font-bold">Present</span>}
+                                </div>
+                            </div>
+
+                            <div className={`text-center py-1 rounded text-xs font-bold border ${isTotalValid ? 'bg-green-50 text-green-700 border-green-200' : 'bg-amber-50 text-amber-600 border-amber-200'}`}>
+                                Allocated: {total.toFixed(2)}%
+                            </div>
+                        </div>
+
+                        {/* Weights */}
+                        <div>
+                            {displayTickers.map(t => {
+                                const currentWeight = parseFloat(period.weights[t.ticker] || '0');
+                                const prevWeight = originalIdx > 0 ? parseFloat(periods[originalIdx - 1].weights[t.ticker] || '0') : currentWeight;
+
+                                let bgClass = "bg-slate-50 hover:bg-slate-100";
+                                let borderClass = "border-slate-200";
+
+                                if (originalIdx > 0) {
+                                    if (currentWeight > prevWeight + 0.001) {
+                                        bgClass = "bg-green-50 hover:bg-green-100 text-green-800";
+                                        borderClass = "border-green-200";
+                                    } else if (currentWeight < prevWeight - 0.001) {
+                                        bgClass = "bg-red-50 hover:bg-red-100 text-red-800";
+                                        borderClass = "border-red-200";
+                                    }
+                                }
+
+                                return (
+                                    <div key={`${period.id}-${t.ticker}`} className="h-11 flex items-center justify-center px-2">
+                                        <div className="relative w-full">
+                                            <input
+                                                type="text"
+                                                inputMode="decimal"
+                                                value={period.weights[t.ticker] || ''}
+                                                onChange={(e) => handleWeightChange(period.id, t.ticker, e.target.value)}
+                                                onBlur={(e) => handleWeightBlur(period.id, t.ticker, e.target.value)}
+                                                className={`w-full text-right pr-5 pl-2 py-1.5 text-sm ${bgClass} border ${borderClass} rounded-lg font-mono font-medium focus:ring-1 focus:ring-blue-400 focus:outline-none transition-colors`}
+                                                placeholder="0.00"
+                                            />
+                                            <span className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 text-[10px] font-bold">%</span>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+                );
+            })}
+
+            {/* New Allocation Button */}
+            <div className="pt-4 flex-shrink-0">
+                <button
+                    onClick={handleAddPeriod}
+                    className="flex items-center gap-2 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg font-semibold text-sm transition-colors whitespace-nowrap"
+                >
+                    <Plus size={16} /> New Allocation
+                </button>
+            </div>
+        </div>
+    );
+};

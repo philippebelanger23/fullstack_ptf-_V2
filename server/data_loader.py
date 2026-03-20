@@ -121,12 +121,7 @@ def load_historic_nav_csvs(directory_path):
                     if date_val is None:
                         failed_count += 1
                         continue
-                    
-                    param_val = date_val # no-op line or just delete lines logically by not including them.
-                    # We want to KEEP date_val as Timestamp.
-                    # So we just remove the conversion block.
 
-                        
                     nav_val = float(str(row[value_col]).replace(',', ''))
                     nav_dict[ticker][date_val] = nav_val
                     parsed_count += 1

@@ -1,10 +1,10 @@
-import React, { useState, Component, ErrorInfo, useEffect } from 'react';
+import React, { useState, useRef, Component, ErrorInfo, useEffect } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { UploadView } from './views/UploadView';
 import { DashboardView } from './views/DashboardView';
 import { AnalysisView } from './views/AnalysisView';
 import { CorrelationView } from './views/CorrelationView';
-import { AttributionView } from './views/AttributionView';
+import { AttributionView } from './views/attribution/AttributionView';
 import { IndexView } from './views/IndexView';
 import { PerformanceView } from './views/PerformanceView';
 import { RiskContributionView } from './views/RiskContributionView';
@@ -173,64 +173,24 @@ function App() {
     }
   };
 
-  const renderContent = () => {
-    switch (currentView) {
-      case ViewState.UPLOAD:
-        return (
-          <UploadView
-            onDataLoaded={handleDataLoaded}
-            onProceed={() => setCurrentView(ViewState.DASHBOARD)}
-            currentData={portfolioData}
-            selectedYear={selectedYear}
-            setSelectedYear={setSelectedYear}
-            customSectors={customSectors}
-            setCustomSectors={setCustomSectors}
-            assetGeo={assetGeo}
-            setAssetGeo={setAssetGeo}
-            lagStatus={lagStatus}
-            setLagStatus={setLagStatus}
-          />
-        );
-      case ViewState.DASHBOARD:
-        return <DashboardView data={portfolioData} customSectors={customSectors} assetGeo={assetGeo} />;
-      case ViewState.INDEX:
-        return <IndexView />;
-      case ViewState.ANALYSIS:
-        return <AnalysisView data={portfolioData} />;
-      case ViewState.ATTRIBUTION:
-        return <AttributionView data={portfolioData} selectedYear={selectedYear} setSelectedYear={setSelectedYear} />;
-      case ViewState.PERFORMANCE:
-        return <PerformanceView />;
-      case ViewState.RISK_CONTRIBUTION:
-        return <RiskContributionView />;
-      case ViewState.CORRELATION:
-        return (
-          <CorrelationView
-            data={portfolioData}
-            result={correlationResult}
-            status={correlationStatus}
-            setResult={setCorrelationResult}
-            setStatus={setCorrelationStatus}
-          />
-        );
-      default:
-        return (
-          <UploadView
-            onDataLoaded={handleDataLoaded}
-            onProceed={() => setCurrentView(ViewState.DASHBOARD)}
-            currentData={portfolioData}
-            selectedYear={selectedYear}
-            setSelectedYear={setSelectedYear}
-            customSectors={customSectors}
-            setCustomSectors={setCustomSectors}
-            assetGeo={assetGeo}
-            setAssetGeo={setAssetGeo}
-            lagStatus={lagStatus}
-            setLagStatus={setLagStatus}
-          />
-        );
-    }
-  };
+  // Trigger resize so Recharts ResponsiveContainer recalculates dimensions after tab switch
+  useEffect(() => {
+    window.dispatchEvent(new Event('resize'));
+  }, [currentView]);
+
+  // Track which views have been visited so we mount them once and keep them alive
+  const visitedViews = useRef(new Set<ViewState>([ViewState.UPLOAD]));
+  if (!visitedViews.current.has(currentView)) {
+    visitedViews.current.add(currentView);
+  }
+  const visited = visitedViews.current;
+
+  // Helper: wrap each view in a div that hides when not active
+  const viewPane = (view: ViewState, children: React.ReactNode) => (
+    <div key={view} style={{ display: currentView === view ? 'contents' : 'none' }}>
+      {children}
+    </div>
+  );
 
   return (
     <GlobalErrorBoundary>
@@ -244,7 +204,52 @@ function App() {
 
         <main className="flex-1 overflow-y-auto max-h-screen relative">
           <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-wallstreet-100 via-white to-white -z-10 pointer-events-none"></div>
-          {renderContent()}
+
+          {/* Always render Upload */}
+          {viewPane(ViewState.UPLOAD,
+            <UploadView
+              onDataLoaded={handleDataLoaded}
+              onProceed={() => setCurrentView(ViewState.DASHBOARD)}
+              currentData={portfolioData}
+              selectedYear={selectedYear}
+              setSelectedYear={setSelectedYear}
+              customSectors={customSectors}
+              setCustomSectors={setCustomSectors}
+              assetGeo={assetGeo}
+              setAssetGeo={setAssetGeo}
+              lagStatus={lagStatus}
+              setLagStatus={setLagStatus}
+            />
+          )}
+
+          {/* Mount once visited, then keep alive */}
+          {visited.has(ViewState.DASHBOARD) && viewPane(ViewState.DASHBOARD,
+            <DashboardView data={portfolioData} customSectors={customSectors} assetGeo={assetGeo} />
+          )}
+          {visited.has(ViewState.INDEX) && viewPane(ViewState.INDEX,
+            <IndexView />
+          )}
+          {visited.has(ViewState.ATTRIBUTION) && viewPane(ViewState.ATTRIBUTION,
+            <AttributionView data={portfolioData} selectedYear={selectedYear} setSelectedYear={setSelectedYear} customSectors={customSectors} />
+          )}
+          {visited.has(ViewState.PERFORMANCE) && viewPane(ViewState.PERFORMANCE,
+            <PerformanceView />
+          )}
+          {visited.has(ViewState.RISK_CONTRIBUTION) && viewPane(ViewState.RISK_CONTRIBUTION,
+            <RiskContributionView />
+          )}
+          {visited.has(ViewState.CORRELATION) && viewPane(ViewState.CORRELATION,
+            <CorrelationView
+              data={portfolioData}
+              result={correlationResult}
+              status={correlationStatus}
+              setResult={setCorrelationResult}
+              setStatus={setCorrelationStatus}
+            />
+          )}
+          {visited.has(ViewState.ANALYSIS) && viewPane(ViewState.ANALYSIS,
+            <AnalysisView data={portfolioData} />
+          )}
         </main>
       </div>
     </GlobalErrorBoundary>

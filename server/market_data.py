@@ -1,9 +1,12 @@
 """Market data fetching and return calculations."""
 
+import logging
 import pandas as pd
 import yfinance as yf
 from constants import CASH_TICKER, FX_TICKER, INDICES
 from cache_manager import load_cache, save_cache
+
+logger = logging.getLogger(__name__)
 
 
 def needs_fx_adjustment(ticker: str, is_mutual_fund: bool = False, nav_dict: dict = None) -> bool:
@@ -59,10 +62,6 @@ def get_price_on_date(ticker, date, cache):
         cache[cache_key] = price
         return price
     except Exception as e:
-        # Instead of crashing, return a default price and log a warning.
-        # This prevents invalid tickers from breaking the entire analysis.
-        import logging
-        logger = logging.getLogger(__name__)
         logger.warning(f"Error fetching price for {ticker} on {date}: {str(e)}. Defaulting to 1.0")
         return 1.0
 
@@ -107,11 +106,6 @@ def calculate_returns(weights_dict, nav_dict, dates, cache, mutual_fund_tickers=
                         last_date = available_dates[-1]
                         prices[ticker][date_val] = nav_dict[ticker][last_date]
                     else:
-                        # No previous NAV data available.
-                        # Mark as None to skip this period in return calculations rather than
-                        # defaulting to 1.0 which causes wildly incorrect returns.
-                        import logging
-                        logger = logging.getLogger(__name__)
                         logger.warning(f"No NAV data available for {ticker} on or before {date_val}. Marking as None.")
                         prices[ticker][date_val] = None
             else:
@@ -207,8 +201,10 @@ def build_results_dataframe(weights_dict, returns, prices, dates, cache, mutual_
         
         for period_idx, period in enumerate(periods):
             start_date, end_date = period
-            # Weights are keyed by their startDate in the config, which corresponds to the end_date of the analysis period.
-            weight = weights_dict.get(ticker, {}).get(end_date, 0.0)
+            # Weights are keyed by their startDate in the config — the weight at start_date
+            # is the allocation in effect DURING this period, not the one at end_date
+            # (which may reflect a rebalance that takes effect after the period).
+            weight = weights_dict.get(ticker, {}).get(start_date, 0.0)
             period_return = returns.get(ticker, {}).get(period, 0.0)
             contribution = weight * period_return
             
@@ -238,10 +234,10 @@ def build_results_dataframe(weights_dict, returns, prices, dates, cache, mutual_
             else:
                 ytd_return = 0.0
             
-            # BUG FIX: Use period[1] (end_date) for weight lookup, not period[0] (start_date)
-            # Weights are keyed by end_date as per the config structure
+            # Use period[0] (start_date) for weight lookup — the weight at the start of the
+            # period is the allocation that was in effect during that period.
             ytd_contrib = sum(
-                returns.get(ticker, {}).get(period, 0.0) * weights_dict.get(ticker, {}).get(period[1], 0.0)
+                returns.get(ticker, {}).get(period, 0.0) * weights_dict.get(ticker, {}).get(period[0], 0.0)
                 for period in periods
             )
         
