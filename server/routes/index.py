@@ -102,7 +102,12 @@ def get_index_exposure():
             w_composite = (w_acwi * 0.75) + (w_tsx * 0.25)
 
             if w_composite > 0.01:
-                geo_list.append({"region": region, "weight": round(w_composite, 2)})
+                geo_list.append({
+                    "region": region,
+                    "weight": round(w_composite, 2),
+                    "ACWI": round(w_acwi, 2),
+                    "TSX": round(w_tsx, 2),
+                })
 
         geo_list.sort(key=lambda x: x["weight"], reverse=True)
 

@@ -1,5 +1,6 @@
 import React from 'react';
 import { ArrowUpRight, ArrowDownRight } from 'lucide-react';
+import { LineChart, Line, ResponsiveContainer } from 'recharts';
 import { LoadingSpinner } from './LoadingSpinner';
 
 export interface MetricCardProps {
@@ -11,6 +12,8 @@ export interface MetricCardProps {
     negativeLabel?: string;
     icon: React.ElementType;
     loading?: boolean;
+    delta?: number;
+    trend?: number[];
 }
 
 export const MetricCard: React.FC<MetricCardProps> = ({
@@ -22,6 +25,8 @@ export const MetricCard: React.FC<MetricCardProps> = ({
     negativeLabel = 'Below',
     icon: Icon,
     loading,
+    delta,
+    trend,
 }) => (
     <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm hover:shadow-md transition-shadow">
         <div className="flex justify-between items-start mb-3">
@@ -41,7 +46,31 @@ export const MetricCard: React.FC<MetricCardProps> = ({
                 <LoadingSpinner size={20} />
             </div>
         ) : (
-            <p className="text-xl font-bold text-slate-900 font-mono">{value}</p>
+            <div className="flex items-end gap-2">
+                <div className="flex-1">
+                    <p className="text-xl font-bold text-slate-900 font-mono">{value}</p>
+                    {delta !== undefined && (
+                        <span className={`text-[10px] font-mono font-semibold ${delta >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                            {delta > 0 ? '+' : ''}{delta.toFixed(2)} vs 30d ago
+                        </span>
+                    )}
+                </div>
+                {trend && trend.length > 1 && (
+                    <div className="w-12 h-6 flex-shrink-0">
+                        <ResponsiveContainer width="100%" height="100%">
+                            <LineChart data={trend.map((v, i) => ({ i, v }))}>
+                                <Line
+                                    type="monotone"
+                                    dataKey="v"
+                                    stroke={trend[trend.length - 1] >= trend[0] ? '#16a34a' : '#dc2626'}
+                                    strokeWidth={1.5}
+                                    dot={false}
+                                />
+                            </LineChart>
+                        </ResponsiveContainer>
+                    </div>
+                )}
+            </div>
         )}
         {subtitle && !loading && <p className="text-xs text-slate-400 mt-1">{subtitle}</p>}
     </div>

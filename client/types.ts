@@ -65,6 +65,7 @@ export interface BackcastResponse {
   metrics: BackcastMetrics;
   series: BackcastSeriesPoint[];
   missingTickers: string[];
+  fetchedAt?: string;
   error?: string;
 }
 
@@ -97,6 +98,7 @@ export interface RiskContributionResponse {
   positions: RiskPosition[];
   sectorRisk: SectorRisk[];
   missingTickers: string[];
+  fetchedAt?: string;
   error?: string;
 }
 

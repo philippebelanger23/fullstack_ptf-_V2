@@ -2,6 +2,7 @@
 
 import json
 import logging
+from datetime import datetime, timezone
 from pathlib import Path
 
 import numpy as np
@@ -62,6 +63,7 @@ async def portfolio_backcast(request: BackcastRequest):
     # 4. Compute metrics and series
     result = compute_backcast_metrics(portfolio_returns, benchmark_returns)
     result["missingTickers"] = missing_tickers
+    result["fetchedAt"] = datetime.now(timezone.utc).isoformat()
 
     return result
 
@@ -231,4 +233,5 @@ async def risk_contribution(request: BackcastRequest):
         "positions": positions,
         "sectorRisk": sector_risk,
         "missingTickers": missing_tickers,
+        "fetchedAt": datetime.now(timezone.utc).isoformat(),
     }

@@ -1,9 +1,16 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { PortfolioItem } from '../types';
 
 interface IndexSector {
     sector: string;
-    Index: number; // The benchmark weight
+    Index: number;
+    ACWI?: number;
+    TSX?: number;
+}
+
+interface GeoEntry {
+    region: string;
+    weight: number;
     ACWI?: number;
     TSX?: number;
 }
@@ -11,9 +18,12 @@ interface IndexSector {
 interface Props {
     currentHoldings: PortfolioItem[];
     benchmarkData: IndexSector[];
+    benchmarkGeography?: GeoEntry[];
+    assetGeo?: Record<string, string>;
 }
 
-export const SectorDeviationCard: React.FC<Props> = ({ currentHoldings, benchmarkData }) => {
+export const SectorDeviationCard: React.FC<Props> = ({ currentHoldings, benchmarkData, benchmarkGeography, assetGeo }) => {
+    const [deviationView, setDeviationView] = useState<'SECTOR' | 'GEOGRAPHY'>('SECTOR');
 
     // The 11 GICS Sectors
     const GICS_SECTORS = [
@@ -65,7 +75,6 @@ export const SectorDeviationCard: React.FC<Props> = ({ currentHoldings, benchmar
             // Check for explicit sector weights (ETFs/MFs)
             if (item.sectorWeights) {
                 Object.entries(item.sectorWeights).forEach(([rawSector, weightVal]) => {
-                    // Normalize the key just in case
                     const normalized = SECTOR_MAP[rawSector] || (GICS_SECTORS.includes(rawSector as any) ? rawSector : null);
 
                     if (normalized && typeof weightVal === 'number') {
@@ -86,7 +95,6 @@ export const SectorDeviationCard: React.FC<Props> = ({ currentHoldings, benchmar
         benchmarkData.forEach(item => {
             const normalized = SECTOR_MAP[item.sector];
             if (normalized) {
-                // Benchmark data: assumption is field 'Index' is %
                 benchmarkWeights[normalized] = item.Index;
             }
         });
@@ -140,103 +148,201 @@ export const SectorDeviationCard: React.FC<Props> = ({ currentHoldings, benchmar
         return { groups: resultGroups, totalActual };
     }, [currentHoldings, benchmarkData]);
 
+    // Geography deviation data
+    const geoDeviationData = useMemo(() => {
+        if (!benchmarkGeography || benchmarkGeography.length === 0) return [];
+
+        // Portfolio by geography (respecting manual overrides via assetGeo)
+        const portfolioGeo: Record<string, number> = { CA: 0, US: 0, INTL: 0 };
+        currentHoldings.forEach(item => {
+            if (item.sector === 'CASH') return;
+
+            let region = 'US'; // default
+            const t = item.ticker.toUpperCase();
+
+            // Check manual override first
+            if (assetGeo && assetGeo[item.ticker]) {
+                region = assetGeo[item.ticker];
+            } else if (t.endsWith('.TO')) {
+                region = 'CA';
+            }
+
+            if (portfolioGeo[region] !== undefined) {
+                portfolioGeo[region] += item.weight;
+            } else {
+                portfolioGeo['INTL'] += item.weight;
+            }
+        });
+
+        // Benchmark by geography — bucket each country into CA/US/INTL
+        const benchmarkGeo: Record<string, number> = { CA: 0, US: 0, INTL: 0 };
+        benchmarkGeography.forEach(entry => {
+            let region = 'INTL';
+            if (entry.region === 'Canada') region = 'CA';
+            if (entry.region === 'United States') region = 'US';
+            benchmarkGeo[region] += entry.weight;
+        });
+
+        return [
+            { region: 'CA', label: 'Canada', benchmark: benchmarkGeo.CA, actual: portfolioGeo.CA, delta: portfolioGeo.CA - benchmarkGeo.CA },
+            { region: 'US', label: 'United States', benchmark: benchmarkGeo.US, actual: portfolioGeo.US, delta: portfolioGeo.US - benchmarkGeo.US },
+            { region: 'INTL', label: 'International', benchmark: benchmarkGeo.INTL, actual: portfolioGeo.INTL, delta: portfolioGeo.INTL - benchmarkGeo.INTL },
+        ];
+    }, [currentHoldings, benchmarkGeography, assetGeo]);
+
+    const DeltaBar = ({ val }: { val: number }) => {
+        const absVal = Math.abs(val);
+        const maxScale = 5;
+        const width = Math.min((absVal / maxScale) * 100, 100);
+        return (
+            <div className="flex items-center w-full h-6 font-mono text-sm">
+                <div className="flex-1 flex justify-end pr-1 relative h-full items-center">
+                    {val < 0 && <div className="h-4 bg-rose-500 absolute right-0 top-1 rounded-l-sm" style={{ width: `${width}%` }} />}
+                    {val >= 0 && <span className="text-emerald-700 font-bold z-10">{val > 0 ? '+' : ''}{val.toFixed(2)}%</span>}
+                </div>
+                <div className="w-px h-full bg-slate-300 z-10" />
+                <div className="flex-1 flex justify-start pl-1 relative h-full items-center">
+                    {val > 0 && <div className="h-4 bg-emerald-500 absolute left-0 top-1 rounded-r-sm" style={{ width: `${width}%` }} />}
+                    {val < 0 && <span className="text-rose-700 font-bold z-10">({Math.abs(val).toFixed(2)}%)</span>}
+                </div>
+            </div>
+        );
+    };
+
     return (
-        <div className="lg:col-span-1 bg-white p-6 rounded-xl border border-wallstreet-700 shadow-sm flex flex-col">
-            <div className="mb-4">
-                <h3 className="font-mono font-bold text-wallstreet-text uppercase tracking-wider text-sm flex items-center gap-2">
+        <div className="lg:col-span-1 bg-white p-6 rounded-xl border border-wallstreet-700 shadow-sm flex flex-col h-full">
+            <div className="flex items-center justify-between mb-4">
+                <h3 className="font-mono font-bold text-wallstreet-text uppercase tracking-wider text-sm">
                     Benchmark Deviation
                 </h3>
+                <div className="flex gap-0.5 bg-wallstreet-50 rounded-lg p-0.5">
+                    <button
+                        onClick={() => setDeviationView('SECTOR')}
+                        className={`px-2.5 py-1 text-xs font-mono rounded-md transition-all ${
+                            deviationView === 'SECTOR'
+                                ? 'bg-white text-wallstreet-text shadow-sm'
+                                : 'text-wallstreet-500 hover:text-wallstreet-600'
+                        }`}
+                    >
+                        Sectors
+                    </button>
+                    <button
+                        onClick={() => setDeviationView('GEOGRAPHY')}
+                        className={`px-2.5 py-1 text-xs font-mono rounded-md transition-all ${
+                            deviationView === 'GEOGRAPHY'
+                                ? 'bg-white text-wallstreet-text shadow-sm'
+                                : 'text-wallstreet-500 hover:text-wallstreet-600'
+                        }`}
+                    >
+                        Geography
+                    </button>
+                </div>
             </div>
 
             <div className="flex-1 w-full overflow-auto">
-                <table className="w-full text-sm font-mono border-collapse">
-                    <thead className="bg-wallstreet-50 text-wallstreet-500 text-xs uppercase sticky top-0">
-                        <tr>
-                            <th className="w-8 p-2"></th>
-                            <th className="p-2 text-left w-[26%]">Sector</th>
-                            <th className="p-2 text-right w-[22%]">Bench</th>
-                            <th className="p-2 text-right w-[22%]">Actual</th>
-                            <th className="p-2 text-center w-[30%] pb-2">
-                                <span className="border-b border-wallstreet-300 pb-0.5">Delta</span>
-                            </th>
-                        </tr>
-                    </thead>
-                    <tbody className="divide-y divide-wallstreet-100">
-                        {sectorData.groups.map((group, gIdx) => (
-                            <React.Fragment key={gIdx}>
-                                {group.sectors.map((sector, sIdx) => (
-                                    <tr key={sector.name} className="hover:bg-wallstreet-50">
-                                        {sIdx === 0 && (
-                                            <td
-                                                rowSpan={group.sectors.length}
-                                                className={`p-0 text-center border-r-2 ${group.name === 'Cyclical' ? 'border-red-100 bg-red-50/10' : group.name === 'Sensitive' ? 'border-blue-100 bg-blue-50/10' : 'border-green-100 bg-green-50/10'} align-middle relative`}
-                                            >
-                                                {/* Container for vertical text */}
-                                                <div className="h-full w-full flex items-center justify-center py-4">
-                                                    <span
-                                                        className={`text-[11px] uppercase -rotate-90 whitespace-nowrap font-black tracking-widest ${group.color}`}
-                                                        style={{ writingMode: 'vertical-rl', textOrientation: 'mixed', transform: 'rotate(180deg)' }}
-                                                    >
-                                                        {group.name}
-                                                    </span>
-                                                </div>
-                                            </td>
-                                        )}
-                                        <td className="p-2 font-bold">
-                                            <span className={`${group.color} text-sm`}>
-                                                {sector.name}
-                                            </span>
-                                        </td>
-                                        <td className="p-2 text-right text-slate-500 text-sm">
-                                            {sector.benchmark.toFixed(2)}%
-                                        </td>
-                                        <td className="p-2 text-right font-bold text-wallstreet-text text-sm">
-                                            {sector.actual.toFixed(2)}%
-                                        </td>
-                                        <td className="p-2">
-                                            {(() => {
-                                                const val = sector.delta;
-                                                const absVal = Math.abs(val);
-                                                const maxScale = 5;
-                                                const width = Math.min((absVal / maxScale) * 100, 100);
-
-                                                return (
-                                                    <div className="flex items-center w-full h-6 font-mono text-sm">
-                                                        {/* Left Half (Text for positive, Bar for negative) */}
-                                                        <div className="flex-1 flex justify-end pr-1 relative h-full items-center">
-                                                            {val < 0 && <div className="h-4 bg-rose-500 absolute right-0 top-1 rounded-l-sm" style={{ width: `${width}%` }} />}
-                                                            {val >= 0 && <span className="text-emerald-700 font-bold z-10">{val > 0 ? '+' : ''}{val.toFixed(2)}%</span>}
-                                                        </div>
-
-                                                        {/* Center Divider */}
-                                                        <div className="w-px h-full bg-slate-300 z-10" />
-
-                                                        {/* Right Half (Bar for positive, Text for negative) */}
-                                                        <div className="flex-1 flex justify-start pl-1 relative h-full items-center">
-                                                            {val > 0 && <div className="h-4 bg-emerald-500 absolute left-0 top-1 rounded-r-sm" style={{ width: `${width}%` }} />}
-                                                            {val < 0 && <span className="text-rose-700 font-bold z-10">({Math.abs(val).toFixed(2)}%)</span>}
-                                                        </div>
+                {deviationView === 'SECTOR' ? (
+                    <table className="w-full text-sm font-mono border-collapse">
+                        <thead className="bg-wallstreet-50 text-wallstreet-500 text-xs uppercase sticky top-0">
+                            <tr>
+                                <th className="w-8 p-2"></th>
+                                <th className="p-2 text-left w-[26%]">Sector</th>
+                                <th className="p-2 text-right w-[22%]">Bench</th>
+                                <th className="p-2 text-right w-[22%]">Actual</th>
+                                <th className="p-2 text-center w-[30%] pb-2">
+                                    <span className="border-b border-wallstreet-300 pb-0.5">Delta</span>
+                                </th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-wallstreet-100">
+                            {sectorData.groups.map((group, gIdx) => (
+                                <React.Fragment key={gIdx}>
+                                    {group.sectors.map((sector, sIdx) => (
+                                        <tr key={sector.name} className="hover:bg-wallstreet-50">
+                                            {sIdx === 0 && (
+                                                <td
+                                                    rowSpan={group.sectors.length}
+                                                    className={`p-0 text-center border-r-2 ${group.name === 'Cyclical' ? 'border-red-100 bg-red-50/10' : group.name === 'Sensitive' ? 'border-blue-100 bg-blue-50/10' : 'border-green-100 bg-green-50/10'} align-middle relative`}
+                                                >
+                                                    <div className="h-full w-full flex items-center justify-center py-4">
+                                                        <span
+                                                            className={`text-[11px] uppercase -rotate-90 whitespace-nowrap font-black tracking-widest ${group.color}`}
+                                                            style={{ writingMode: 'vertical-rl', textOrientation: 'mixed', transform: 'rotate(180deg)' }}
+                                                        >
+                                                            {group.name}
+                                                        </span>
                                                     </div>
-                                                );
-                                            })()}
-                                        </td>
+                                                </td>
+                                            )}
+                                            <td className="p-2 font-bold">
+                                                <span className={`${group.color} text-sm`}>{sector.name}</span>
+                                            </td>
+                                            <td className="p-2 text-right text-slate-500 text-sm">
+                                                {sector.benchmark.toFixed(2)}%
+                                            </td>
+                                            <td className="p-2 text-right font-bold text-wallstreet-text text-sm">
+                                                {sector.actual.toFixed(2)}%
+                                            </td>
+                                            <td className="p-2">
+                                                <DeltaBar val={sector.delta} />
+                                            </td>
+                                        </tr>
+                                    ))}
+                                    {gIdx < sectorData.groups.length - 1 && (
+                                        <tr className="h-1 bg-white border-0"></tr>
+                                    )}
+                                </React.Fragment>
+                            ))}
+                        </tbody>
+                        <tfoot className="bg-wallstreet-100 border-t-2 border-wallstreet-300">
+                            <tr>
+                                <td className="p-2 font-bold text-right text-xs uppercase" colSpan={3}>Total Allocated:</td>
+                                <td className="p-2 text-right font-bold text-wallstreet-text text-sm">{sectorData.totalActual.toFixed(2)}%</td>
+                                <td></td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                ) : (
+                    /* Geography view */
+                    <div className="flex flex-col h-full">
+                        {geoDeviationData.length === 0 ? (
+                            <p className="text-xs text-wallstreet-400 italic mt-4 text-center">Geography benchmark data not available.</p>
+                        ) : (
+                            <table className="w-full text-sm font-mono border-collapse">
+                                <thead className="bg-wallstreet-50 text-wallstreet-500 text-xs uppercase sticky top-0">
+                                    <tr>
+                                        <th className="p-2 text-left w-[28%]">Region</th>
+                                        <th className="p-2 text-right w-[24%]">Bench</th>
+                                        <th className="p-2 text-right w-[24%]">Actual</th>
+                                        <th className="p-2 text-center w-[24%]">
+                                            <span className="border-b border-wallstreet-300 pb-0.5">Delta</span>
+                                        </th>
                                     </tr>
-                                ))}
-                                {/* Spacer Row between groups? Optional but good for visual separation */}
-                                {gIdx < sectorData.groups.length - 1 && (
-                                    <tr className="h-1 bg-white border-0"></tr>
-                                )}
-                            </React.Fragment>
-                        ))}
-                    </tbody>
-                    <tfoot className="bg-wallstreet-100 border-t-2 border-wallstreet-300">
-                        <tr>
-                            <td className="p-2 font-bold text-right text-xs uppercase" colSpan={3}>Total Allocated:</td>
-                            <td className="p-2 text-right font-bold text-wallstreet-text text-sm">{sectorData.totalActual.toFixed(2)}%</td>
-                            <td></td>
-                        </tr>
-                    </tfoot>
-                </table>
+                                </thead>
+                                <tbody className="divide-y divide-wallstreet-100">
+                                    {geoDeviationData.map(row => (
+                                        <tr key={row.region} className="hover:bg-wallstreet-50">
+                                            <td className="p-2 font-bold text-wallstreet-text">{row.label}</td>
+                                            <td className="p-2 text-right text-slate-500">{row.benchmark.toFixed(2)}%</td>
+                                            <td className="p-2 text-right font-bold text-wallstreet-text">{row.actual.toFixed(2)}%</td>
+                                            <td className="p-2">
+                                                <DeltaBar val={row.delta} />
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                                <tfoot className="bg-wallstreet-100 border-t-2 border-wallstreet-300">
+                                    <tr>
+                                        <td className="p-2 font-bold text-right text-xs uppercase" colSpan={2}>Total Portfolio:</td>
+                                        <td className="p-2 text-right font-bold text-wallstreet-text text-sm">
+                                            {geoDeviationData.reduce((s, r) => s + r.actual, 0).toFixed(2)}%
+                                        </td>
+                                        <td></td>
+                                    </tr>
+                                </tfoot>
+                            </table>
+                        )}
+                    </div>
+                )}
             </div>
         </div>
     );

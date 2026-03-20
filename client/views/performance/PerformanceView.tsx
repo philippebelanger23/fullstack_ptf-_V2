@@ -1,9 +1,67 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { AlertCircle } from 'lucide-react';
 import { loadPortfolioConfig, convertConfigToItems, fetchPortfolioBackcast } from '../../services/api';
-import { BackcastResponse } from '../../types';
+import { BackcastResponse, BackcastSeriesPoint } from '../../types';
+import { FreshnessBadge } from '../../components/ui/FreshnessBadge';
 import { PerformanceKPIs, Period, PeriodMetrics } from './PerformanceKPIs';
 import { PerformanceCharts, ChartView } from './PerformanceCharts';
+
+const computeMetricsFromSeries = (filtered: BackcastSeriesPoint[]): PeriodMetrics | null => {
+    if (filtered.length < 5) return null;
+
+    const ptfRets: number[] = [];
+    const bmkRets: number[] = [];
+    for (let i = 1; i < filtered.length; i++) {
+        ptfRets.push((filtered[i].portfolio - filtered[i - 1].portfolio) / filtered[i - 1].portfolio);
+        bmkRets.push((filtered[i].benchmark - filtered[i - 1].benchmark) / filtered[i - 1].benchmark);
+    }
+    if (ptfRets.length === 0) return null;
+
+    const mean = (arr: number[]) => arr.reduce((a, b) => a + b, 0) / arr.length;
+    const std = (arr: number[]) => {
+        const m = mean(arr);
+        return Math.sqrt(arr.reduce((acc, v) => acc + (v - m) ** 2, 0) / arr.length);
+    };
+    const covariance = (a: number[], b: number[]) => {
+        const mA = mean(a), mB = mean(b);
+        return a.reduce((acc, v, i) => acc + (v - mA) * (b[i] - mB), 0) / a.length;
+    };
+
+    const totalReturn = ((filtered[filtered.length - 1].portfolio - filtered[0].portfolio) / filtered[0].portfolio) * 100;
+    const benchmarkReturn = ((filtered[filtered.length - 1].benchmark - filtered[0].benchmark) / filtered[0].benchmark) * 100;
+    const alpha = totalReturn - benchmarkReturn;
+    const volatility = std(ptfRets) * Math.sqrt(ptfRets.length) * 100;
+    const benchmarkVolatility = std(bmkRets) * Math.sqrt(bmkRets.length) * 100;
+    const sharpeRatio = volatility > 0 ? totalReturn / volatility : 0;
+    const benchmarkSharpe = benchmarkVolatility > 0 ? benchmarkReturn / benchmarkVolatility : 0;
+    const negRets = ptfRets.filter(r => r < 0);
+    const downsideStd = negRets.length > 0 ? std(negRets) * Math.sqrt(ptfRets.length) * 100 : volatility;
+    const sortinoRatio = downsideStd > 0 ? totalReturn / downsideStd : 0;
+    const bmkNegRets = bmkRets.filter(r => r < 0);
+    const bmkDownsideStd = bmkNegRets.length > 0 ? std(bmkNegRets) * Math.sqrt(bmkRets.length) * 100 : benchmarkVolatility;
+    const benchmarkSortino = bmkDownsideStd > 0 ? benchmarkReturn / bmkDownsideStd : 0;
+    const bmkVar = std(bmkRets) ** 2;
+    const beta = bmkVar > 0 ? covariance(ptfRets, bmkRets) / bmkVar : 1;
+    const excessRets = ptfRets.map((r, i) => r - bmkRets[i]);
+    const trackingError = std(excessRets) * Math.sqrt(excessRets.length) * 100;
+    const informationRatio = trackingError > 0 ? (totalReturn - benchmarkReturn) / trackingError : 0;
+    let maxPtf = filtered[0].portfolio;
+    let maxDrawdown = 0;
+    let maxBmk = filtered[0].benchmark;
+    let benchmarkMaxDrawdown = 0;
+    for (const pt of filtered) {
+        maxPtf = Math.max(maxPtf, pt.portfolio);
+        maxDrawdown = Math.min(maxDrawdown, (pt.portfolio - maxPtf) / maxPtf);
+        maxBmk = Math.max(maxBmk, pt.benchmark);
+        benchmarkMaxDrawdown = Math.min(benchmarkMaxDrawdown, (pt.benchmark - maxBmk) / maxBmk);
+    }
+
+    return {
+        totalReturn, benchmarkReturn, alpha, sharpeRatio, sortinoRatio, informationRatio,
+        trackingError, volatility, benchmarkVolatility, benchmarkSharpe, benchmarkSortino,
+        beta, maxDrawdown: maxDrawdown * 100, benchmarkMaxDrawdown: benchmarkMaxDrawdown * 100,
+    };
+};
 
 const getDateRangeForPeriod = (period: Period): { start: Date; end?: Date } => {
     const now = new Date();
@@ -110,67 +168,24 @@ export const PerformanceView: React.FC = () => {
         }
     }, [data, selectedPeriod, chartView]);
 
-    const periodMetrics = useMemo((): PeriodMetrics | null => {
-        if (!data?.series || data.series.length < 5) return null;
+    const filteredSeries = useMemo(() => {
+        if (!data?.series || data.series.length < 5) return [];
         const { start, end } = getDateRangeForPeriod(selectedPeriod);
         const startDateStr = start.toISOString().split('T')[0];
         const endDateStr = end ? end.toISOString().split('T')[0] : '9999-12-31';
-        const filtered = data.series.filter(pt => pt.date >= startDateStr && pt.date <= endDateStr);
-        if (filtered.length < 5) return null;
-
-        const ptfRets: number[] = [];
-        const bmkRets: number[] = [];
-        for (let i = 1; i < filtered.length; i++) {
-            ptfRets.push((filtered[i].portfolio - filtered[i - 1].portfolio) / filtered[i - 1].portfolio);
-            bmkRets.push((filtered[i].benchmark - filtered[i - 1].benchmark) / filtered[i - 1].benchmark);
-        }
-        if (ptfRets.length === 0) return null;
-
-        const mean = (arr: number[]) => arr.reduce((a, b) => a + b, 0) / arr.length;
-        const std = (arr: number[]) => {
-            const m = mean(arr);
-            return Math.sqrt(arr.reduce((acc, v) => acc + (v - m) ** 2, 0) / arr.length);
-        };
-        const covariance = (a: number[], b: number[]) => {
-            const mA = mean(a), mB = mean(b);
-            return a.reduce((acc, v, i) => acc + (v - mA) * (b[i] - mB), 0) / a.length;
-        };
-
-        const totalReturn = ((filtered[filtered.length - 1].portfolio - filtered[0].portfolio) / filtered[0].portfolio) * 100;
-        const benchmarkReturn = ((filtered[filtered.length - 1].benchmark - filtered[0].benchmark) / filtered[0].benchmark) * 100;
-        const alpha = totalReturn - benchmarkReturn;
-        const volatility = std(ptfRets) * Math.sqrt(ptfRets.length) * 100;
-        const benchmarkVolatility = std(bmkRets) * Math.sqrt(bmkRets.length) * 100;
-        const sharpeRatio = volatility > 0 ? totalReturn / volatility : 0;
-        const benchmarkSharpe = benchmarkVolatility > 0 ? benchmarkReturn / benchmarkVolatility : 0;
-        const negRets = ptfRets.filter(r => r < 0);
-        const downsideStd = negRets.length > 0 ? std(negRets) * Math.sqrt(ptfRets.length) * 100 : volatility;
-        const sortinoRatio = downsideStd > 0 ? totalReturn / downsideStd : 0;
-        const bmkNegRets = bmkRets.filter(r => r < 0);
-        const bmkDownsideStd = bmkNegRets.length > 0 ? std(bmkNegRets) * Math.sqrt(bmkRets.length) * 100 : benchmarkVolatility;
-        const benchmarkSortino = bmkDownsideStd > 0 ? benchmarkReturn / bmkDownsideStd : 0;
-        const bmkVar = std(bmkRets) ** 2;
-        const beta = bmkVar > 0 ? covariance(ptfRets, bmkRets) / bmkVar : 1;
-        const excessRets = ptfRets.map((r, i) => r - bmkRets[i]);
-        const trackingError = std(excessRets) * Math.sqrt(excessRets.length) * 100;
-        const informationRatio = trackingError > 0 ? (totalReturn - benchmarkReturn) / trackingError : 0;
-        let maxPtf = filtered[0].portfolio;
-        let maxDrawdown = 0;
-        let maxBmk = filtered[0].benchmark;
-        let benchmarkMaxDrawdown = 0;
-        for (const pt of filtered) {
-            maxPtf = Math.max(maxPtf, pt.portfolio);
-            maxDrawdown = Math.min(maxDrawdown, (pt.portfolio - maxPtf) / maxPtf);
-            maxBmk = Math.max(maxBmk, pt.benchmark);
-            benchmarkMaxDrawdown = Math.min(benchmarkMaxDrawdown, (pt.benchmark - maxBmk) / maxBmk);
-        }
-
-        return {
-            totalReturn, benchmarkReturn, alpha, sharpeRatio, sortinoRatio, informationRatio,
-            trackingError, volatility, benchmarkVolatility, benchmarkSharpe, benchmarkSortino,
-            beta, maxDrawdown: maxDrawdown * 100, benchmarkMaxDrawdown: benchmarkMaxDrawdown * 100,
-        };
+        return data.series.filter(pt => pt.date >= startDateStr && pt.date <= endDateStr);
     }, [data, selectedPeriod]);
+
+    const periodMetrics = useMemo((): PeriodMetrics | null => {
+        return computeMetricsFromSeries(filteredSeries);
+    }, [filteredSeries]);
+
+    const previousPeriodMetrics = useMemo((): PeriodMetrics | null => {
+        if (filteredSeries.length < 10) return null;
+        // Compute metrics as of ~30 days ago (cut off the last 30 data points)
+        const cutoff = Math.max(5, filteredSeries.length - 30);
+        return computeMetricsFromSeries(filteredSeries.slice(0, cutoff));
+    }, [filteredSeries]);
 
     if (loading) {
         return (
@@ -216,11 +231,14 @@ export const PerformanceView: React.FC = () => {
         <div className="p-8 space-y-6 animate-in fade-in duration-500">
             <div className="flex justify-between items-end">
                 <div>
-                    <h1 className="text-3xl font-bold text-slate-900 tracking-tight">Performance Deep Dive</h1>
+                    <div className="flex items-center gap-3">
+                        <h1 className="text-3xl font-bold text-slate-900 tracking-tight">Performance Deep Dive</h1>
+                        <FreshnessBadge fetchedAt={data?.fetchedAt ?? null} />
+                    </div>
                     <p className="text-slate-500 mt-1">Portfolio backcast based on current holdings vs. 75/25 Global Index (75% ACWI in CAD + 25% XIU.TO).</p>
                 </div>
             </div>
-            <PerformanceKPIs periodMetrics={periodMetrics} selectedPeriod={selectedPeriod} loading={loading} />
+            <PerformanceKPIs periodMetrics={periodMetrics} previousPeriodMetrics={previousPeriodMetrics} selectedPeriod={selectedPeriod} loading={loading} />
             <PerformanceCharts
                 data={data}
                 chartData={chartData}

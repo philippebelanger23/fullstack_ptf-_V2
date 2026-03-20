@@ -8,7 +8,11 @@
       "Bash(npx vite:*)",
       "Bash(node_modules/.bin/tsc --noEmit)",
       "Bash(find /c/Users/Phili/Desktop/Local_GitHub/fullstack-ptf-V2 -name *.test.* -o -name *.spec.* -o -name *test* -type f)",
-      "Bash(grep -E \"\\\\.\\(ts|py|tsx|js\\)$\")"
+      "Bash(grep -E \"\\\\.\\(ts|py|tsx|js\\)$\")",
+      "Bash(npm install:*)",
+      "Bash(curl -sL \"https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json\" -o c:/Users/Phili/Desktop/Local_GitHub/fullstack-ptf-V2/client/data/world-110m.json)",
+      "Bash(xargs grep:*)",
+      "Bash(node -e \"const d=require\\(''./data/world-110m.json''\\); const geo=d.objects.countries; console.log\\(''type:'', geo.type\\); const feats=geo.geometries.slice\\(0,10\\); feats.forEach\\(f => console.log\\(''id:'', f.id, ''props:'', JSON.stringify\\(f.properties\\)\\)\\);\")"
     ]
   }
 }

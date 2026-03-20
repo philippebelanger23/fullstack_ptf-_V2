@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Globe, DollarSign, TrendingUp, PieChart } from 'lucide-react';
 import { fetchIndexExposure, fetchCurrencyPerformance, fetchIndexHistory } from '../services/api';
-import { CountryTreemap } from '../components/CountryTreemap';
+import { FreshnessBadge } from '../components/ui/FreshnessBadge';
+import { WorldChoroplethMap } from '../components/WorldChoroplethMap';
 import { ClevelandDotPlot } from '../components/ClevelandDotPlot';
 import { IndexPerformanceChart } from '../components/IndexPerformanceChart';
 
@@ -16,6 +17,8 @@ interface SectorExposure {
 interface GeoExposure {
     region: string;
     weight: number;
+    ACWI: number;
+    TSX: number;
 }
 
 interface IndexExposureData {
@@ -63,21 +66,13 @@ const formatPerf = (val: number | undefined) => {
     return <span className={color}>{display}</span>;
 };
 
-/** Format "YYYY-MM-DD" → "DD / MM / YYYY" */
-const formatDateDMY = (dateStr: string): string => {
-    const parts = dateStr.split('-');
-    if (parts.length === 3) {
-        const [y, m, d] = parts;
-        return `${d} / ${m} / ${y}`;
-    }
-    return dateStr;
-};
 
 export const IndexView: React.FC = () => {
     const [exposure, setExposure] = useState<IndexExposureData>({ sectors: [], geography: [] });
     const [currencyPerf, setCurrencyPerf] = useState<Record<string, Record<string, number>>>({});
     const [indexHistory, setIndexHistory] = useState<Record<string, { date: string, value: number }[]>>({});
     const [loading, setLoading] = useState(true);
+    const [fetchedAt, setFetchedAt] = useState<string | null>(null);
     const [loadProgress, setLoadProgress] = useState<Record<string, 'pending' | 'done' | 'error'>>({
         exposure: 'pending',
         currency: 'pending',
@@ -117,6 +112,7 @@ export const IndexView: React.FC = () => {
                 console.error("Failed to load index data:", err);
             } finally {
                 setLoading(false);
+                setFetchedAt(new Date().toISOString());
             }
         };
         load();
@@ -167,28 +163,8 @@ export const IndexView: React.FC = () => {
         return rows;
     }, [currencyExposure]);
 
-    // Treemap data: top 9 countries + Others bucket
-    const treemapData = useMemo(() => {
-        const data = exposure.geography
-            .map(g => ({ name: g.region, value: g.weight }))
-            .sort((a, b) => b.value - a.value);
-
-        const top9 = data.slice(0, 9);
-        const others = data.slice(9);
-
-        let othersVal = others.reduce((sum, item) => sum + item.value, 0);
-        const top9Total = top9.reduce((sum, item) => sum + item.value, 0);
-
-        if (top9Total + othersVal < 99.9) {
-            othersVal += (100 - (top9Total + othersVal));
-        }
-
-        if (othersVal > 0.01) {
-            top9.push({ name: 'Others', value: othersVal });
-        }
-
-        return top9;
-    }, [exposure.geography]);
+    // Geography data for choropleth map (no bucketing needed — map shows all countries)
+    const geoMapData = exposure.geography;
 
     if (loading) {
         const steps = [
@@ -278,11 +254,7 @@ export const IndexView: React.FC = () => {
                         <h2 className="text-3xl font-bold font-mono text-wallstreet-text flex items-center gap-3"><Globe className="text-wallstreet-accent" /> Global 75/25 Index</h2>
                         <p className="text-wallstreet-500 mt-2 max-w-2xl">A custom synthetic benchmark. <span className="font-bold text-wallstreet-text ml-2">75% ACWI (USD) + 25% XIU.TO (CAD)</span></p>
                     </div>
-                    {exposure.last_scraped && (
-                        <div className="text-red-500 font-mono font-bold text-sm flex-shrink-0 ml-4 mt-1">
-                            last updated : {formatDateDMY(exposure.last_scraped)}
-                        </div>
-                    )}
+                    <FreshnessBadge fetchedAt={fetchedAt} />
                 </div>
             </div>
 
@@ -381,7 +353,7 @@ export const IndexView: React.FC = () => {
                         </h3>
                     </div>
                     <div className="flex-1 w-full relative min-h-0">
-                        <CountryTreemap data={treemapData} />
+                        <WorldChoroplethMap data={geoMapData} />
                     </div>
                 </div>
 

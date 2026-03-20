@@ -4,6 +4,7 @@ import { Dropdown } from '../../components/Dropdown';
 import { TrendingUp, Target, AlertTriangle, Calendar, Grid, Activity, Percent, Layers, Zap, Scale, Info, Printer, Download, Loader2, ArrowUpRight, ArrowDownRight, Briefcase } from 'lucide-react';
 import { fetchSectorHistory, fetchSectors, fetchIndexExposure, SectorHistoryData } from '../../services/api';
 import { PortfolioItem } from '../../types';
+import { FreshnessBadge } from '../../components/ui/FreshnessBadge';
 import { formatPct, formatBps } from '../../utils/formatters';
 import { aggregatePeriodData } from './attributionUtils';
 import { AttributionTable } from './AttributionTable';
@@ -97,6 +98,11 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
     const [benchmarkExposure, setBenchmarkExposure] = useState<any[]>([]);
 
     const isAttributionLoading = loadingSectors || loadingExposure || loadingTickerSectors;
+    const [fetchedAt, setFetchedAt] = useState<string | null>(null);
+
+    React.useEffect(() => {
+        if (!isAttributionLoading) setFetchedAt(new Date().toISOString());
+    }, [isAttributionLoading]);
 
     const isFuture = useMemo(() => {
         const now = new Date();
@@ -832,7 +838,10 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
         <div className="max-w-[100vw] mx-auto p-4 md:p-6 space-y-6 min-h-screen">
             <header className="border-b border-wallstreet-700 pb-4 flex flex-col md:flex-row justify-between items-start md:items-end gap-4 print:hidden">
                 <div>
-                    <h2 className="text-3xl font-bold font-mono text-wallstreet-text">Performance Attribution</h2>
+                    <div className="flex items-center gap-3">
+                        <h2 className="text-3xl font-bold font-mono text-wallstreet-text">Performance Attribution</h2>
+                        <FreshnessBadge fetchedAt={fetchedAt} />
+                    </div>
                     <p className="text-wallstreet-500 mt-1 text-sm">Allocation vs. Selection Effect Analysis (Excl. Cash)</p>
                 </div>
                 <div className="flex items-center gap-4">

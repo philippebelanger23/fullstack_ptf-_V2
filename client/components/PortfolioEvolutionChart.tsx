@@ -162,9 +162,16 @@ export const PortfolioEvolutionChart = memo(({ data, topTickers, dates, colors }
             return topTickers.reduce((sum, t) => sum + (d[t] || 0), 0);
         }));
 
-        const step = 20;
-        // Ensure we have some buffer (10% or at least a bit) before snapping to next 20
-        const maxTick = Math.ceil((maxDataValue * 1.05) / step) * step;
+        // Dynamic step calculation: aim for 4-5 ticks by rounding to nearest 5
+        const targetSteps = 4;
+        const roughStep = maxDataValue / targetSteps;
+        const step = Math.ceil(roughStep / 5) * 5; // Round up to nearest 5
+
+        // Top Y value is 1.10x the max data, capped at 100%
+        const targetMax = Math.min(maxDataValue * 1.10, 100);
+        // Calculate the number of ticks needed to reach targetMax, then get the last tick value
+        const numTicks = Math.ceil(targetMax / step);
+        const maxTick = (numTicks - 1) * step;
 
         const ticks = [];
         for (let i = 0; i <= maxTick; i += step) {

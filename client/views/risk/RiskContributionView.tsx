@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { ShieldAlert, Activity, Target, Layers, AlertCircle } from 'lucide-react';
+import { FreshnessBadge } from '../../components/ui/FreshnessBadge';
 import { MetricCard } from '../../components/ui/MetricCard';
 import { loadPortfolioConfig, convertConfigToItems, fetchRiskContribution } from '../../services/api';
 import { PortfolioItem, RiskContributionResponse } from '../../types';
@@ -172,9 +173,12 @@ export const RiskContributionView: React.FC = () => {
         <div className="p-8 space-y-6">
             <div className="flex items-start justify-between mb-2">
                 <div>
-                    <h2 className="text-3xl font-bold text-wallstreet-900 font-mono tracking-tighter">
-                        RISK <span className="text-wallstreet-accent">CONTRIBUTION</span>
-                    </h2>
+                    <div className="flex items-center gap-3">
+                        <h2 className="text-3xl font-bold text-wallstreet-900 font-mono tracking-tighter">
+                            RISK <span className="text-wallstreet-accent">CONTRIBUTION</span>
+                        </h2>
+                        <FreshnessBadge fetchedAt={data?.fetchedAt ?? null} />
+                    </div>
                     <p className="text-wallstreet-500 mt-2">Marginal contribution to risk (MCTR), diversification analysis, and position-level risk decomposition.</p>
                 </div>
                 <div className="flex items-center bg-slate-100 rounded-lg p-0.5 shrink-0">

@@ -4,7 +4,9 @@ import { PortfolioTable } from '../components/PortfolioTable';
 import { KPICard } from '../components/KPICard';
 import { PortfolioEvolutionChart } from '../components/PortfolioEvolutionChart';
 import { SectorDeviationCard } from '../components/SectorDeviationCard';
+import { SectorGeographyDeviationCard } from '../components/SectorGeographyDeviationCard';
 import { Wallet, Layers, PieChart as PieChartIcon, Wallet2Icon, WalletIcon, AlertCircle, RefreshCw } from 'lucide-react';
+import { FreshnessBadge } from '../components/ui/FreshnessBadge';
 
 interface DashboardViewProps {
   data: PortfolioItem[];
@@ -77,10 +79,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ data, customSector
   const [betaMap, setBetaMap] = React.useState<Record<string, number>>({});
   const [divYieldMap, setDivYieldMap] = React.useState<Record<string, number>>({});
   const [benchmarkSectors, setBenchmarkSectors] = React.useState<any[]>([]);
+  const [benchmarkGeography, setBenchmarkGeography] = React.useState<any[]>([]);
 
   // Error and loading state for better UX
   const [dataFetchError, setDataFetchError] = React.useState<string | null>(null);
   const [isLoadingMarketData, setIsLoadingMarketData] = React.useState(true);
+  const [fetchedAt, setFetchedAt] = React.useState<string | null>(null);
 
   // Fetch Sectors and Betas effect
   React.useEffect(() => {
@@ -166,6 +170,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ data, customSector
           if (exposure && exposure.sectors) {
             setBenchmarkSectors(exposure.sectors);
           }
+          if (exposure && exposure.geography) {
+            setBenchmarkGeography(exposure.geography);
+          }
         } catch (e) {
           console.error("Failed to fetch benchmark data:", e);
           errors.push("benchmark");
@@ -181,6 +188,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ data, customSector
         setDataFetchError("Failed to connect to market data service. Please check your connection and try again.");
       } finally {
         setIsLoadingMarketData(false);
+        setFetchedAt(new Date().toISOString());
       }
     };
 
@@ -243,7 +251,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ data, customSector
     <div className="max-w-[100vw] mx-auto p-4 md:p-6 space-y-6 overflow-x-hidden min-h-screen">
       <header className="border-b border-wallstreet-700 pb-4 flex flex-col md:flex-row justify-between items-start md:items-end gap-4">
         <div>
-          <h2 className="text-3xl font-bold font-mono text-wallstreet-text">Portfolio Holdings</h2>
+          <div className="flex items-center gap-3">
+            <h2 className="text-3xl font-bold font-mono text-wallstreet-text">Portfolio Holdings</h2>
+            <FreshnessBadge fetchedAt={fetchedAt} />
+          </div>
           <p className="text-wallstreet-500 mt-1 text-sm">Exposure analysis and allocation breakdown as of {latestDate}.</p>
         </div>
         <div className="flex items-center gap-2 bg-wallstreet-200 px-3 py-1 rounded text-xs font-mono text-wallstreet-500">
@@ -433,9 +444,20 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ data, customSector
         />
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 min-h-[450px] mb-8">
+      <div className="grid grid-cols-1 gap-6 mb-8 items-stretch" style={{ gridTemplateColumns: 'minmax(0, 2fr) minmax(0, 1.5fr) minmax(0, 1.5fr)' }}>
         <PortfolioEvolutionChart data={areaChartData} topTickers={topTickers} dates={dates} colors={COLORS} />
-        <SectorDeviationCard currentHoldings={enrichedCurrentHoldings} benchmarkData={benchmarkSectors} />
+        <SectorDeviationCard
+          currentHoldings={enrichedCurrentHoldings}
+          benchmarkData={benchmarkSectors}
+          benchmarkGeography={benchmarkGeography}
+          assetGeo={effectiveAssetGeo}
+        />
+        <SectorGeographyDeviationCard
+          currentHoldings={enrichedCurrentHoldings}
+          benchmarkSectors={benchmarkSectors}
+          benchmarkGeography={benchmarkGeography}
+          assetGeo={effectiveAssetGeo}
+        />
       </div>
 
       <PortfolioTable
