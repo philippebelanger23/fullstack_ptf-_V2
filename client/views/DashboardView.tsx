@@ -204,7 +204,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ data, customSector
       let sector = sectorMap[cleanTicker] || sectorMap[item.ticker] || item.sector;
 
       // Explicitly set sector for Cash
-      if (cleanTicker.toLowerCase() === '*cash*' || cleanTicker.toUpperCase().includes('CASH')) {
+      if (item.isCash || cleanTicker.toUpperCase() === '*CASH*') {
         sector = 'CASH';
       }
 
@@ -296,12 +296,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ data, customSector
               value={
                 <div className="flex w-full items-center mt-1">
                   <div className="flex-1 flex flex-col items-center justify-center">
-                    <div className="flex items-center gap-1.5 mb-1"><span className="text-xs font-extrabold text-slate-600 uppercase tracking-wider">Invested</span></div>
+                    <div className="flex items-center gap-1.5 mb-1"><span className="text-xs font-extrabold text-wallstreet-500 uppercase tracking-wider">Invested</span></div>
                     <span className="text-xl font-bold text-wallstreet-text font-mono">{investedWeight.toFixed(2)}%</span>
                   </div>
                   <div className="w-px h-8 bg-wallstreet-100"></div>
                   <div className="flex-1 flex flex-col items-center justify-center">
-                    <div className="flex items-center gap-1.5 mb-1"><span className="text-xs font-extrabold text-slate-600 uppercase tracking-wider">Cash or Equivalents</span></div>
+                    <div className="flex items-center gap-1.5 mb-1"><span className="text-xs font-extrabold text-wallstreet-500 uppercase tracking-wider">Cash or Equivalents</span></div>
                     <span className="text-xl font-bold text-wallstreet-text font-mono">{cashWeight.toFixed(2)}%</span>
                   </div>
                 </div> as any
@@ -316,12 +316,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ data, customSector
           value={
             <div className="flex w-full items-center mt-1">
               <div className="flex-1 flex flex-col items-center justify-center">
-                <div className="flex items-center gap-1.5 mb-1"><span className="text-xs font-extrabold text-slate-600 uppercase tracking-wider">Positions</span></div>
+                <div className="flex items-center gap-1.5 mb-1"><span className="text-xs font-extrabold text-wallstreet-500 uppercase tracking-wider">Positions</span></div>
                 <span className="text-xl font-bold text-wallstreet-text font-mono">{currentHoldings.filter(h => h.weight > 0.01).length}</span>
               </div>
               <div className="w-px h-8 bg-wallstreet-100"></div>
               <div className="flex-1 flex flex-col items-center justify-center">
-                <div className="flex items-center gap-1.5 mb-1"><span className="text-xs font-extrabold text-slate-600 uppercase tracking-wider">Top 10</span></div>
+                <div className="flex items-center gap-1.5 mb-1"><span className="text-xs font-extrabold text-wallstreet-500 uppercase tracking-wider">Top 10</span></div>
                 <span className="text-xl font-bold text-wallstreet-text font-mono">{top10TotalWeight.toFixed(2)}%</span>
               </div>
             </div> as any
@@ -341,7 +341,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ data, customSector
             const t = item.ticker.toUpperCase();
 
             // Skip cash — no currency region
-            if (t === '*CASH*' || t.includes('CASH')) return;
+            if (item.isCash || item.ticker.toUpperCase() === '*CASH*') return;
 
             // New Logic for manual/suffix based check
             let region = 'US';
@@ -371,17 +371,17 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ data, customSector
               value={
                 <div className="flex w-full items-center mt-1">
                   <div className="flex-1 flex flex-col items-center justify-center">
-                    <div className="flex items-center gap-1.5 mb-1"><span className="text-xs font-extrabold text-slate-600 uppercase tracking-wider">USD</span></div>
+                    <div className="flex items-center gap-1.5 mb-1"><span className="text-xs font-extrabold text-wallstreet-500 uppercase tracking-wider">USD</span></div>
                     <span className="text-xl font-bold text-blue-600 font-mono">{usWeight.toFixed(2)}%</span>
                   </div>
                   <div className="w-px h-8 bg-wallstreet-100"></div>
                   <div className="flex-1 flex flex-col items-center justify-center">
-                    <div className="flex items-center gap-1.5 mb-1"><span className="text-xs font-extrabold text-slate-600 uppercase tracking-wider">CAD</span></div>
+                    <div className="flex items-center gap-1.5 mb-1"><span className="text-xs font-extrabold text-wallstreet-500 uppercase tracking-wider">CAD</span></div>
                     <span className="text-xl font-bold text-red-600 font-mono">{cadWeight.toFixed(2)}%</span>
                   </div>
                   <div className="w-px h-8 bg-wallstreet-100"></div>
                   <div className="flex-1 flex flex-col items-center justify-center">
-                    <div className="flex items-center gap-1.5 mb-1"><span className="text-xs font-extrabold text-slate-600 uppercase tracking-wider">INTL</span></div>
+                    <div className="flex items-center gap-1.5 mb-1"><span className="text-xs font-extrabold text-wallstreet-500 uppercase tracking-wider">INTL</span></div>
                     <span className="text-xl font-bold text-slate-600 font-mono">{intlWeight.toFixed(2)}%</span>
                   </div>
                 </div> as any
@@ -397,7 +397,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ data, customSector
           value={
             <div className="flex w-full items-center mt-1">
               <div className="flex-1 flex flex-col items-center justify-center">
-                <div className="flex items-center gap-1.5 mb-1"><span className="text-xs font-extrabold text-slate-600 uppercase tracking-wider">Beta</span></div>
+                <div className="flex items-center gap-1.5 mb-1"><span className="text-xs font-extrabold text-wallstreet-500 uppercase tracking-wider">Beta</span></div>
                 <span className="text-xl font-bold text-wallstreet-text font-mono">
                   {(() => {
                     let weightedBetaSum = 0;
@@ -418,7 +418,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ data, customSector
               </div>
               <div className="w-px h-8 bg-wallstreet-100"></div>
               <div className="flex-1 flex flex-col items-center justify-center">
-                <div className="flex items-center gap-1.5 mb-1"><span className="text-xs font-extrabold text-slate-600 uppercase tracking-wider">Div Yield</span></div>
+                <div className="flex items-center gap-1.5 mb-1"><span className="text-xs font-extrabold text-wallstreet-500 uppercase tracking-wider">Div Yield</span></div>
                 <span className="text-xl font-bold text-green-600 font-mono">
                   {(() => {
                     let weightedDivSum = 0;

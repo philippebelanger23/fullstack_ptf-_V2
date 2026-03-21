@@ -17,6 +17,7 @@ from services.backcast_service import (
     build_benchmark_returns,
     build_portfolio_returns,
     compute_backcast_metrics,
+    compute_rolling_metrics,
     fetch_returns_df,
 )
 
@@ -58,7 +59,7 @@ async def portfolio_backcast(request: BackcastRequest):
     )
     missing_tickers = list(set(missing_tickers + extra_missing))
 
-    benchmark_returns = build_benchmark_returns(returns_df)
+    benchmark_returns = build_benchmark_returns(returns_df, benchmark=request.benchmark)
 
     # 4. Compute metrics and series
     result = compute_backcast_metrics(portfolio_returns, benchmark_returns)
@@ -235,3 +236,31 @@ async def risk_contribution(request: BackcastRequest):
         "missingTickers": missing_tickers,
         "fetchedAt": datetime.now(timezone.utc).isoformat(),
     }
+
+
+@router.post("/rolling-metrics")
+async def rolling_metrics_endpoint(request: BackcastRequest):
+    """
+    Compute rolling Sharpe, volatility, and beta for portfolio and benchmark.
+    Windows: 21 (1M), 63 (3M), 126 (6M) trading days.
+    """
+    items = request.items
+    if not items:
+        return {"error": "No portfolio items provided"}
+
+    weights_by_ticker, mutual_fund_tickers = aggregate_weights(items)
+    if not weights_by_ticker:
+        return {"error": "No valid tickers found"}
+
+    try:
+        returns_df, _ = fetch_returns_df(list(weights_by_ticker.keys()))
+    except ValueError as e:
+        return {"error": str(e)}
+    except Exception as e:
+        logger.error(f"Rolling metrics - error downloading prices: {e}")
+        return {"error": str(e)}
+
+    portfolio_returns, _ = build_portfolio_returns(returns_df, weights_by_ticker, mutual_fund_tickers)
+    benchmark_returns = build_benchmark_returns(returns_df, benchmark=request.benchmark)
+
+    return compute_rolling_metrics(portfolio_returns, benchmark_returns)

@@ -14,6 +14,7 @@ export const AllocationGrid: React.FC<AllocationGridProps> = (props) => {
         handleRemoveTicker: props.handleRemoveTicker,
         handleToggleMutualFund: props.handleToggleMutualFund,
         handleToggleEtf: props.handleToggleEtf,
+        handleToggleCash: props.handleToggleCash,
     };
 
     const periodManagerProps: PeriodManagerProps = {

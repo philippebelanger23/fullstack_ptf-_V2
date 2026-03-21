@@ -112,32 +112,7 @@ The app is a full-stack portfolio analytics platform (React 19 + FastAPI) for a 
 
 ---
 
-## Feature 4: Monthly Performance Heatmap
-**Goal:** Calendar-style grid showing monthly returns, color-coded by magnitude. Reveals seasonality and streaks.
-
-### Where in the app
-- **Location:** Inside the Performance view, as a new section BELOW the existing `<PerformanceCharts>` and ABOVE the bottom grid (Period Snapshot / Risk Interpretation tables)
-- **Insertion point:** [PerformanceView.tsx:234](client/views/performance/PerformanceView.tsx#L234) — after `<PerformanceCharts ... />` closing tag (line 235), before `</div>` closing the main container
-
-### Backend Changes
-- **No new endpoint needed** — compute client-side from existing `data.series` (already contains daily `{date, portfolio, benchmark}` values)
-- Client groups by `(year, month)`, compounds daily returns into monthly return
-
-### Frontend Changes
-- **New file:** `client/components/MonthlyHeatmap.tsx`
-  - Grid: rows = years (2025, 2026), cols = Jan–Dec
-  - Each cell: colored div (green shades for positive, red for negative, intensity = magnitude)
-  - Tooltip on hover: exact return %, benchmark comparison for that month
-  - Build using simple `<div>` grid with Tailwind classes — no Recharts needed
-  - Props: `series: BackcastSeriesPoint[]`
-- **Modify:** [PerformanceView.tsx](client/views/performance/PerformanceView.tsx)
-  - Import `MonthlyHeatmap`
-  - Add `<MonthlyHeatmap series={data.series} />` at line ~235
-- **Reuse:** `formatPercent()` from [formatters.ts](client/utils/formatters.ts)
-
----
-
-## Feature 5: Drawdown Analysis Panel
+## Feature 4: Drawdown Analysis Panel
 **Goal:** Visual drawdown analysis — top 5 drawdown episodes, underwater chart, duration stats.
 
 ### Where in the app
@@ -163,36 +138,54 @@ The app is a full-stack portfolio analytics platform (React 19 + FastAPI) for a 
 
 ---
 
-## Feature 6: Rolling Metrics Dashboard
-**Goal:** Line charts showing rolling 30/60/90-day Sharpe, volatility, and beta over time.
+## Feature 5: Rolling Metrics Dashboard
+**Goal:** Line charts showing rolling 1M/3M/6M Sharpe, volatility, and beta over time. Portfolio + benchmark on each chart.
 
 ### Where in the app
-- **Location:** Inside the Performance view, as a new collapsible section BELOW the Monthly Heatmap (Feature 4), or directly below `<PerformanceCharts>` if heatmap not yet built
-- **Insertion point:** Same area — [PerformanceView.tsx:235](client/views/performance/PerformanceView.tsx#L235) region
+- **Location:** Inside the Performance view, section directly below `<PerformanceCharts>`
+- **Insertion point:** [PerformanceView.tsx:235](client/views/performance/PerformanceView.tsx#L235) region
 
 ### Backend Changes
-- **New endpoint:** `POST /rolling-metrics` in [risk.py](server/routes/risk.py) (after line 235, end of file)
-  - Accepts same `BackcastRequest` model
-  - Calls new `compute_rolling_metrics()` in [backcast_service.py](server/services/backcast_service.py)
-  - Returns: `{windows: {30: [{date, sharpe, vol, beta}, ...], 60: [...], 90: [...]}}`
 - **New function in** [backcast_service.py](server/services/backcast_service.py) (after `compute_backcast_metrics` ~line 220):
   ```python
-  def compute_rolling_metrics(portfolio_returns, benchmark_returns, windows=[30, 60, 90]):
-      # For each window, slide and compute sharpe/vol/beta at each date
+  def compute_rolling_metrics(portfolio_returns: pd.Series, benchmark_returns: pd.Series, windows=[21, 63, 126]):
+      # Both args are pd.Series with DatetimeIndex — same params as compute_backcast_metrics()
+      # For each window, slide and compute sharpe/vol/beta at each date for portfolio AND benchmark
   ```
+  - Returns:
+    ```python
+    {
+      "windows": {
+        21:  [{"date": "YYYY-MM-DD", "portfolio": {"sharpe": float, "vol": float, "beta": float},
+                                      "benchmark": {"sharpe": float, "vol": float, "beta": float}}, ...],
+        63:  [...],
+        126: [...]
+      }
+    }
+    ```
+
+- **New endpoint:** `POST /rolling-metrics` in [risk.py](server/routes/risk.py) at line 239+
+  - Accepts same `BackcastRequest` model
+  - Reuses same 4-step pipeline: `aggregate_weights → fetch_returns_df → build_portfolio_returns → build_benchmark_returns`
+  - Then calls `compute_rolling_metrics(portfolio_returns, benchmark_returns)`
 
 ### Frontend Changes
 - **New file:** `client/components/RollingMetricsChart.tsx`
   - 3 Recharts `<LineChart>` panels (Sharpe, Volatility, Beta) stacked vertically
-  - Window toggle buttons (30/60/90 day)
-  - Portfolio line + benchmark reference dashed line
+  - **Single window toggle (1M / 3M / 6M)** — applies to ALL 3 charts simultaneously
+  - Each metric has **independent Y-axis scale**
+  - Portfolio line (solid) + Benchmark line (dashed) on each chart
   - Reuse chart styling from [PerformanceCharts.tsx](client/views/performance/PerformanceCharts.tsx) (CartesianGrid, XAxis, YAxis, Tooltip patterns)
+
 - **New API call in** [api.ts](client/services/api.ts): `fetchRollingMetrics(items)`
-- **Modify:** [PerformanceView.tsx](client/views/performance/PerformanceView.tsx) — import and render below charts
+
+- **Modify:** [PerformanceView.tsx](client/views/performance/PerformanceView.tsx)
+  - Import and render `<RollingMetricsChart>` below `<PerformanceCharts>` at line ~235
+  - No collapsible — render as visible section
 
 ---
 
-## Feature 7: Interactive Tooltip Drill-Down
+## Feature 6: Interactive Tooltip Drill-Down
 **Goal:** Richer chart tooltips that show contextual breakdowns (top holdings in a sector, etc.).
 
 ### Where in the app
@@ -227,7 +220,7 @@ The app is a full-stack portfolio analytics platform (React 19 + FastAPI) for a 
 
 ---
 
-## Feature 8: Dark Mode Toggle
+## Feature 7: Dark Mode Toggle
 **Goal:** Toggle between light/dark themes using the existing CSS variable system.
 
 ### Where in the app
@@ -285,7 +278,7 @@ Many components bypass CSS variables with hardcoded Tailwind. These MUST be conv
 
 ---
 
-## Feature 9: Peer Comparison (Model Portfolios)
+## Feature 8: Peer Comparison (Model Portfolios)
 **Goal:** Compare portfolio against model portfolios (60/40, All-World, Couch Potato, etc.).
 
 ### Where in the app
@@ -334,7 +327,7 @@ Many components bypass CSS variables with hardcoded Tailwind. These MUST be conv
 
 ---
 
-## Feature 10: Print/Export Report Mode
+## Feature 9: Print/Export Report Mode
 **Goal:** One-click portfolio summary report rendered as a clean, printable multi-page layout.
 
 ### Where in the app
@@ -418,6 +411,183 @@ Many components bypass CSS variables with hardcoded Tailwind. These MUST be conv
 
 ---
 
+## Extra Feature: Risk Contribution Tab Overhaul
+
+**Goal:** Elevate the Risk Contribution tab from a basic MCTR table into a full risk intelligence dashboard — adding a correlation matrix, return-vs-risk quadrant, tail risk metrics (VaR/CVaR), and a portfolio treemap.
+
+### Current State (what already exists)
+- 4 KPI cards: Portfolio Vol, Diversification Ratio, Effective Bets, Top-3 Concentration
+- Bar chart: Risk % vs Weight (absolute / ratio toggle, expand modal for >10 positions)
+- Scatter plot: Weight vs Risk contribution (diagonal "fair share" line)
+- Sector Risk Decomposition bar chart
+- Sortable RiskTable with: Weight, Vol, Beta, MCTR, Risk %, Risk-Adj Return columns
+- Actual / Historical position mode toggle
+
+### What's Missing / Improvable
+1. **Correlation Matrix** — most glaring gap; no way to see how holdings move together
+2. **Return vs Risk Quadrant** — data already exists (annualizedReturn + pctOfTotalRisk per position), just needs a dedicated chart
+3. **Tail Risk KPIs** — Vol only; missing historical VaR (95/99%) and CVaR (Expected Shortfall)
+4. **Portfolio Treemap** — intuitive size=weight, color=risk_ratio view; more scannable than bars for 20+ positions
+5. **Portfolio Beta KPI** — current KPIs don't show overall portfolio beta vs benchmark
+
+---
+
+### Sub-feature A: Correlation Matrix
+
+**Where in the app:** New panel inside `RiskCharts.tsx`, added below the existing scatter plot row.
+
+**Backend Changes — [risk.py](server/routes/risk.py)**
+- Inside the `compute_risk_contribution()` function (currently ends at line ~238), add correlation matrix computation:
+  ```python
+  corr_matrix = returns_df[ticker_list].corr().round(3)
+  correlation = {
+      "tickers": ticker_list,
+      "matrix": corr_matrix.values.tolist()   # row-major 2D list
+  }
+  ```
+- Add `"correlation": correlation` to the return dict (line ~227)
+
+**Frontend Changes — [types.ts](client/types.ts)**
+- Extend `RiskContributionResponse` with:
+  ```ts
+  correlation?: { tickers: string[]; matrix: number[][] };
+  ```
+
+**Frontend Changes — New file: `client/components/CorrelationMatrix.tsx`**
+- Renders an N×N grid using `<div>` grid layout (no Recharts needed)
+- Cell background: red gradient for high positive correlation (> 0.7), white/neutral for ~0, blue for negative
+- Color scale: `interpolate(value, -1, 1)` → `hsl(220, 70%, 55%)` … `white` … `hsl(0, 70%, 55%)`
+- Diagonal cells: gray fill (correlation with self = 1.0, not meaningful)
+- Hover tooltip: "{tickerA} / {tickerB}: {value}"
+- Props: `tickers: string[]`, `matrix: number[][]`
+- Collapse to top 10 by risk if N > 15 (too dense otherwise), with "Show all" toggle
+
+**Frontend Changes — [RiskCharts.tsx](client/views/risk/RiskCharts.tsx)**
+- Import `CorrelationMatrix`
+- Add as a full-width panel below the 2-column scatter/bar row:
+  ```tsx
+  {correlation && <CorrelationMatrix tickers={correlation.tickers} matrix={correlation.matrix} />}
+  ```
+
+---
+
+### Sub-feature B: Return vs Risk Quadrant Chart
+
+**Where in the app:** Replace the current standalone scatter plot (Weight vs Risk) with a tabbed/toggle pair: **Weight vs Risk** (existing) and **Return vs Risk** (new). The toggle sits in the chart header, same pattern as the Absolute/Ratio toggle in the bar chart.
+
+**No backend changes needed** — all data already in `positions[].annualizedReturn` and `positions[].pctOfTotalRisk`.
+
+**Frontend Changes — [RiskCharts.tsx](client/views/risk/RiskCharts.tsx)**
+- Add state: `const [scatterMode, setScatterMode] = useState<'weight' | 'return'>('weight')`
+- Add toggle buttons to the scatter chart header (same pill toggle style as barChartMode)
+- **Return vs Risk mode:**
+  - X-axis: `pctOfTotalRisk` (risk contribution %)
+  - Y-axis: `annualizedReturn` (%)
+  - Quadrant lines: `ReferenceLine x={portfolioAvgRisk}` and `ReferenceLine y={0}`
+  - Quadrant labels (small text, corner of each quadrant):
+    - Top-left: "Efficient" (green text)
+    - Top-right: "High Cost" (amber)
+    - Bottom-left: "Deadweight" (blue)
+    - Bottom-right: "Drag" (red)
+  - Cell color: same `entry.y > 0 ? '#22c55e' : '#ef4444'` pattern
+  - Pass `portfolioAvgRisk` from parent = `100 / positions.length` (equal-weight reference)
+
+---
+
+### Sub-feature C: Tail Risk KPIs (VaR / CVaR)
+
+**Where in the app:** Extend the 4-card KPI row to a 6-card row (or replace the least useful card — "Top-3 Concentration" is already shown in the table — with VaR + CVaR).
+
+**Backend Changes — [risk.py](server/routes/risk.py)**
+- Inside `compute_risk_contribution()`, after computing `port_vol`, add:
+  ```python
+  import scipy.stats as stats
+  port_returns_series = (returns_df[ticker_list] * w).sum(axis=1).dropna()
+  var_95 = float(np.percentile(port_returns_series, 5)) * 100          # daily VaR 95%
+  var_99 = float(np.percentile(port_returns_series, 1)) * 100          # daily VaR 99%
+  cvar_95 = float(port_returns_series[port_returns_series <= np.percentile(port_returns_series, 5)].mean()) * 100
+  ```
+- Add to return dict: `"var95": round(var_95, 2)`, `"var99": round(var_99, 2)`, `"cvar95": round(cvar_95, 2)`
+- These are daily figures; annualized by ×√252 is optional — show as daily (cleaner for interpretation)
+
+**Frontend Changes — [types.ts](client/types.ts)**
+- Extend `RiskContributionResponse`: `var95?: number; var99?: number; cvar95?: number;`
+
+**Frontend Changes — [RiskContributionView.tsx](client/views/risk/RiskContributionView.tsx)**
+- Change KPI grid from `grid-cols-4` to `grid-cols-3 lg:grid-cols-6` (or keep 4 and swap Top-3 for VaR 95%)
+- Proposed final 6-card layout:
+  1. Portfolio Volatility (existing)
+  2. Portfolio Beta *(new — see sub-feature D)*
+  3. Diversification Ratio (existing)
+  4. Effective Bets (existing)
+  5. VaR 95% (daily) *(new)*
+  6. CVaR 95% (daily) *(new)*
+
+---
+
+### Sub-feature D: Portfolio Beta KPI
+
+**Where in the app:** New KPI card alongside existing 4; becomes part of the 6-card row in sub-feature C.
+
+**Backend Changes — [risk.py](server/routes/risk.py)**
+- Portfolio beta vs benchmark already computed implicitly via MCTR. Add explicit weighted-average beta:
+  ```python
+  portfolio_beta = float(np.dot(w, betas))
+  ```
+  where `betas` already exists (line ~191 in current code). Add `"portfolioBeta": round(portfolio_beta, 2)` to return dict.
+
+**Frontend Changes — [types.ts](client/types.ts)**
+- Extend `RiskContributionResponse`: `portfolioBeta?: number;`
+
+**Frontend Changes — [RiskContributionView.tsx](client/views/risk/RiskContributionView.tsx)**
+- New `<MetricCard>` for Beta:
+  ```tsx
+  <MetricCard title="Portfolio Beta" value={data ? `${data.portfolioBeta.toFixed(2)}` : '—'}
+    subtitle="vs blended benchmark" isPositive={data ? Math.abs(data.portfolioBeta - 1) < 0.2 : undefined}
+    icon={Activity} loading={loading} />
+  ```
+
+---
+
+### Sub-feature E: Portfolio Treemap
+
+**Where in the app:** New full-width panel in RiskCharts, toggled on/off by a button in the section header. Position: below the correlation matrix (bottom of the view), as it's supplemental.
+
+**No backend changes needed** — uses existing `positions[].weight` and `positions[].pctOfTotalRisk`.
+
+**Frontend Changes — New file: `client/components/RiskTreemap.tsx`**
+- Use Recharts `<Treemap>` (already available in recharts package)
+- Data: `positions.map(p => ({ name: p.ticker, size: p.weight, riskRatio: p.pctOfTotalRisk / p.weight }))`
+- Cell color: same green/red palette as scatter — `riskRatio > 1 ? red gradient : green gradient`
+- Cell label: ticker + "\n" + weight% (two lines, fontSize 10/11)
+- Tooltip: full position card (same content as existing bar chart tooltip — ticker, weight, risk%, ratio, beta)
+- Props: `positions: RiskPosition[]`
+
+**Frontend Changes — [RiskCharts.tsx](client/views/risk/RiskCharts.tsx)**
+- Import `RiskTreemap`
+- Add state `showTreemap: boolean` (default false) — lifted from `RiskContributionView` or local
+- Add toggle button in a new "Views" section header:
+  ```tsx
+  <button onClick={() => setShowTreemap(v => !v)}>
+    {showTreemap ? 'Hide Treemap' : 'Show Treemap'}
+  </button>
+  ```
+- Render `{showTreemap && <RiskTreemap positions={positions} />}` as full-width panel
+
+---
+
+### Implementation Order for this Feature
+
+| Step | Sub-feature | Effort | Backend? | Frontend? |
+|------|-------------|--------|----------|-----------|
+| 1 | **D: Portfolio Beta KPI** | XS | 1 line | 1 card |
+| 2 | **C: Tail Risk KPIs (VaR/CVaR)** | Small | ~10 lines | 2 cards + type |
+| 3 | **B: Return vs Risk Quadrant** | Small | None | Toggle + chart mode |
+| 4 | **E: Portfolio Treemap** | Medium | None | New component |
+| 5 | **A: Correlation Matrix** | Medium | ~10 lines | New component (most visual work) |
+
+---
+
 ## Implementation Order (Easiest → Heaviest)
 
 | Session | Feature | Effort | Status | Why this order |
@@ -426,17 +596,19 @@ Many components bypass CSS variables with hardcoded Tailwind. These MUST be conv
 | 2 | **#2 KPI Trends** | Small | DONE | Quick visual win, enhances existing MetricCard/KPICard components |
 | 3 | **#3 Freshness Badges** | Small | DONE | Small scope, new component + backend timestamps across views |
 | Extra | **Dashboard Geographic Analysis** | Medium | DONE | Custom request — enhances Holdings tab with geo decomposition & cross-analysis table |
-| 4 | **#4 Monthly Heatmap** | Medium | | New visualization, computed client-side from existing backcast data |
-| 5 | **#5 Drawdown Analysis** | Medium | | Extends existing backcast infra + existing drawdowns ChartView |
-| 6 | **#6 Rolling Metrics** | Medium | | New backend computation, builds on backcast_service.py |
-| 7 | **#7 Rich Tooltips** | Medium | | Enhancement to existing chart tooltips, needs data threading |
-| 8 | **#8 Dark Mode** | Large | | Foundation — touches CSS variables, must migrate hardcoded colors across ~15 files |
-| 9 | **#9 Peer Comparison** | Large | | New backend + frontend, depends on stable backcast infra |
-| 10 | **#10 Report Export** | Large | | Capstone — assembles all views, best done after others are polished |
+| 4 | **#4 Drawdown Analysis** | Medium | DONE | Extends existing backcast infra + existing drawdowns ChartView |
+| 5 | **#5 Rolling Metrics** | Medium | DONE | New backend computation, builds on backcast_service.py |
+| 6 | **#6 Rich Tooltips** | Medium | DONE | Enhancement to existing chart tooltips, needs data threading |
+| Extra | **Risk Contribution Overhaul** | Medium-Large | | 5 sub-features: Beta KPI → VaR/CVaR → Return/Risk quadrant → Treemap → Correlation matrix |
+| 7 | **#7 Dark Mode** | Large | DONE | Foundation — touches CSS variables, must migrate hardcoded colors across ~15 files |
+| 8 | **#8 Peer Comparison** | Large | | New backend + frontend, depends on stable backcast infra |
+| 9 | **#9 Report Export** | Large | | Capstone — assembles all views, best done after others are polished |
 
 ---
 
-## Verification (Per Feature)
+## Verification & Approval Workflow
+
+### Per Feature Testing
 1. `cd server && python main.py` (start backend on :8000)
 2. `cd client && npm run dev` (start frontend on :3000)
 3. Load portfolio config from Upload view
@@ -444,3 +616,60 @@ Many components bypass CSS variables with hardcoded Tailwind. These MUST be conv
 5. Verify new components render with real data
 6. Check browser console for errors
 7. Test edge cases: empty data, single period, missing tickers
+
+### Status Update Process
+When coding is complete for a feature:
+1. **Agent** asks you to test the feature in the browser
+2. **You** test it and report back ✅ good / ❌ issues
+3. **If good:** Agent updates the Status column to `DONE` in the Implementation Order table
+4. **If issues:** Agent helps debug, then re-test
+
+Current feature markers:
+- `DONE` = Feature tested, approved, and committed
+- _(blank)_ = Feature pending or in progress
+
+---
+
+## Potential Ideas (Backlog)
+
+### Monthly Performance Heatmap
+**Goal:** Calendar-style grid showing monthly returns, color-coded by magnitude. Reveals seasonality and streaks.
+
+**Rationale:** Skipped because monthly contribution totals are already visible in the contribution heatmap's last line. Low ROI for dedicated visualization unless year-over-year seasonality patterns are a priority. Can be revisited as a lighter micro-visualization in the Performance view sidebar if needed.
+
+### Where in the app (if implemented)
+- **Location:** Inside the Performance view, as a new section BELOW the existing `<PerformanceCharts>` and ABOVE the bottom grid (Period Snapshot / Risk Interpretation tables)
+- **Insertion point:** [PerformanceView.tsx:234](client/views/performance/PerformanceView.tsx#L234) — after `<PerformanceCharts ... />` closing tag (line 235), before `</div>` closing the main container
+
+### Implementation (if revisited)
+- **New file:** `client/components/MonthlyHeatmap.tsx`
+  - Grid: rows = years (2025, 2026), cols = Jan–Dec
+  - Each cell: colored div (green shades for positive, red for negative, intensity = magnitude)
+  - Tooltip on hover: exact return %, benchmark comparison for that month
+  - Build using simple `<div>` grid with Tailwind classes — no Recharts needed
+  - Props: `series: BackcastSeriesPoint[]`
+- **Modify:** [PerformanceView.tsx](client/views/performance/PerformanceView.tsx)
+  - Import `MonthlyHeatmap`
+  - Add `<MonthlyHeatmap series={data.series} />` at line ~235
+- **Reuse:** `formatPercent()` from [formatters.ts](client/utils/formatters.ts)
+
+---
+
+### Group Row Highlighting (Sector × Geography Table)
+**Goal:** Apply consistent group background color to all sectors within a group (Cyclical/Sensitive/Defensive) in the SectorGeographyDeviationCard table.
+
+**Status:** Attempted but blocked by inline style specificity. The delta cells use `getDeltaBg()` computed colors with inline `backgroundColor` styles, which override Tailwind background classes even when set to `undefined` for near-zero values.
+
+**Challenge:**
+- Delta visualization (green for positive, red for negative gradient) is intentional design for showing magnitude
+- Group highlighting would conflict with or be hidden behind delta coloring
+- Inline styles have higher CSS specificity than Tailwind classes
+
+**Potential solutions (if revisited):**
+1. **Layer backgrounds:** Use CSS `background-image: linear-gradient()` to blend group color + delta color
+2. **Box-shadow approach:** Apply group color as `inset box-shadow` instead of background
+3. **Pseudo-element overlay:** Add `::before` with group color at low opacity
+4. **Redesign delta visualization:** Use text color or border accent instead of background color for delta magnitude
+5. **Split cells:** Separate "group background" container from "delta magnitude" indicator
+
+**Where:** [SectorGeographyDeviationCard.tsx:230-240](client/components/SectorGeographyDeviationCard.tsx#L230-L240) (DeltaCell component)

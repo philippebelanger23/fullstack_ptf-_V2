@@ -81,7 +81,7 @@ export const AnalysisView: React.FC<AnalysisViewProps> = ({ data }) => {
       )}
 
       {status === 'complete' && (
-        <div className="prose prose-slate max-w-none bg-white p-8 rounded-xl border border-wallstreet-700 shadow-lg">
+        <div className="prose prose-slate max-w-none bg-wallstreet-800 p-8 rounded-xl border border-wallstreet-700 shadow-lg">
           <ReactMarkdown
             components={{
               h1: ({node, ...props}) => <h1 className="text-2xl font-mono font-bold text-wallstreet-accent border-b border-wallstreet-700 pb-2 mb-6 uppercase" {...props} />,

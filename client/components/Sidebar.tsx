@@ -1,4 +1,5 @@
-import { LayoutDashboard, FileText, Upload, PieChart, Network, BarChart2, Globe, TrendingUp } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { LayoutDashboard, FileText, Upload, PieChart, Network, BarChart2, Globe, TrendingUp, Sun, Moon } from 'lucide-react';
 import { ViewState } from '../types';
 
 interface SidebarProps {
@@ -9,6 +10,27 @@ interface SidebarProps {
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({ currentView, setView, hasData, isAssetSpecsComplete }) => {
+  const [isDark, setIsDark] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('theme') === 'dark';
+    }
+    return false;
+  });
+
+  useEffect(() => {
+    if (isDark) {
+      document.documentElement.setAttribute('data-theme', 'dark');
+    } else {
+      document.documentElement.removeAttribute('data-theme');
+    }
+  }, [isDark]);
+
+  const toggleTheme = () => {
+    const next = !isDark;
+    setIsDark(next);
+    localStorage.setItem('theme', next ? 'dark' : 'light');
+  };
+
   const navItemClass = (view: ViewState, disabled: boolean) => `
     flex items-center gap-3 px-4 py-3 rounded-lg transition-all duration-200
     ${disabled ? 'opacity-30 cursor-not-allowed grayscale pointer-events-none' : 'cursor-pointer hover:bg-wallstreet-700 hover:text-wallstreet-text'}
@@ -68,6 +90,16 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, setView, hasData,
           <span className="font-medium">Portfolio Deep Dive</span>
         </div>
       </nav>
+
+      <div className="p-4 border-t border-wallstreet-700">
+        <button
+          onClick={toggleTheme}
+          className="flex items-center gap-3 w-full px-4 py-2.5 rounded-lg text-wallstreet-500 hover:bg-wallstreet-700 hover:text-wallstreet-text transition-all duration-200"
+        >
+          {isDark ? <Sun size={18} /> : <Moon size={18} />}
+          <span className="text-sm font-medium">{isDark ? 'Light Mode' : 'Dark Mode'}</span>
+        </button>
+      </div>
     </div>
   );
 };

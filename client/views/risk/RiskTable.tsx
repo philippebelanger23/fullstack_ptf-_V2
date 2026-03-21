@@ -65,9 +65,9 @@ export const RiskTable: React.FC<RiskTableProps> = ({ loading, sortedPositions, 
 
     return (
         <>
-            <div className="bg-white rounded-xl border border-slate-200 shadow-sm">
-                <div className="px-6 py-4 border-b border-slate-100">
-                    <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider">Position Risk Detail</h3>
+            <div className="bg-wallstreet-800 rounded-xl border border-wallstreet-700 shadow-sm">
+                <div className="px-6 py-4 border-b border-wallstreet-700">
+                    <h3 className="text-sm font-bold text-wallstreet-text uppercase tracking-wider">Position Risk Detail</h3>
                 </div>
                 {loading ? (
                     <div className="h-32 flex items-center justify-center"><Loader2 className="animate-spin text-slate-400" size={24} /></div>
@@ -75,7 +75,7 @@ export const RiskTable: React.FC<RiskTableProps> = ({ loading, sortedPositions, 
                     <div className="overflow-x-auto">
                         <table className="w-full text-sm">
                             <thead>
-                                <tr className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wider">
+                                <tr className="bg-wallstreet-900 text-wallstreet-500 text-xs uppercase tracking-wider">
                                     {([
                                         ['ticker', 'Ticker'],
                                         ['weight', 'Weight'],
@@ -87,10 +87,10 @@ export const RiskTable: React.FC<RiskTableProps> = ({ loading, sortedPositions, 
                                     ] as [SortKey, string][]).map(([key, label]) => (
                                         <th
                                             key={key}
-                                            className="px-4 py-3 text-left cursor-pointer hover:bg-slate-100 transition-colors select-none"
+                                            className="px-4 py-3 text-left cursor-pointer hover:bg-wallstreet-700 transition-colors select-none"
                                             onClick={() => handleSort(key)}
                                         >
-                                            <div className="flex items-center gap-1.5">
+                                            <div className="flex items-center gap-1.5 text-wallstreet-500">
                                                 {label}
                                                 <InfoBubble tooltipKey={key} />
                                                 <SortIcon column={key} />
@@ -115,20 +115,20 @@ export const RiskTable: React.FC<RiskTableProps> = ({ loading, sortedPositions, 
                                         return (
                                             <tr
                                                 key={p.ticker}
-                                                className={`border-t border-slate-100 hover:bg-slate-50 transition-colors ${idx % 2 === 0 ? 'bg-white' : 'bg-slate-25'}`}
+                                                className={`border-t border-wallstreet-700 hover:bg-wallstreet-900 transition-colors`}
                                             >
-                                                <td className="px-4 py-3 font-mono font-bold text-slate-800">{p.ticker}</td>
-                                                <td className="px-4 py-3 font-mono text-slate-700">{p.weight.toFixed(1)}%</td>
-                                                <td className="px-4 py-3 font-mono text-slate-700">{p.individualVol.toFixed(1)}%</td>
-                                                <td className="px-4 py-3 font-mono text-slate-700">{p.beta.toFixed(2)}</td>
-                                                <td className="px-4 py-3 font-mono text-slate-700">{p.mctr.toFixed(2)}%</td>
-                                                <td className="px-4 py-3 font-mono font-bold text-slate-800">{p.pctOfTotalRisk.toFixed(1)}%</td>
+                                                <td className="px-4 py-3 font-mono font-bold text-wallstreet-text">{p.ticker}</td>
+                                                <td className="px-4 py-3 font-mono text-wallstreet-text">{p.weight.toFixed(1)}%</td>
+                                                <td className="px-4 py-3 font-mono text-wallstreet-text">{p.individualVol.toFixed(1)}%</td>
+                                                <td className="px-4 py-3 font-mono text-wallstreet-text">{p.beta.toFixed(2)}</td>
+                                                <td className="px-4 py-3 font-mono text-wallstreet-text">{p.mctr.toFixed(2)}%</td>
+                                                <td className="px-4 py-3 font-mono font-bold text-wallstreet-text">{p.pctOfTotalRisk.toFixed(1)}%</td>
                                                 <td className={`px-4 py-3 font-mono font-medium ${p.riskAdjustedReturn >= 0 ? 'text-green-700' : 'text-red-600'}`}>
                                                     {p.riskAdjustedReturn < 0 ? `(${Math.abs(p.riskAdjustedReturn).toFixed(2)})` : p.riskAdjustedReturn.toFixed(2)}
                                                 </td>
                                                 <td className="px-4 py-3">
                                                     <div className="flex items-center gap-2">
-                                                        <div className="w-24 h-2 bg-slate-100 rounded-full overflow-hidden relative">
+                                                        <div className="w-24 h-2 bg-wallstreet-900 rounded-full overflow-hidden relative">
                                                             <div
                                                                 className={`h-full rounded-full ${isRisky ? 'bg-red-400' : isDiversifier ? 'bg-green-400' : 'bg-slate-300'}`}
                                                                 style={{ width: `${Math.min(100, (Math.abs(riskOverweight) / maxAbsDelta) * 100)}%` }}

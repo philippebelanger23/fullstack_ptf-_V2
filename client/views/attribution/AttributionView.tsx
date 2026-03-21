@@ -1,4 +1,5 @@
 import React, { useMemo, useState, Component, ErrorInfo } from 'react';
+import { useThemeColors } from '../../hooks/useThemeColors';
 import { KPICard } from '../../components/KPICard';
 import { Dropdown } from '../../components/Dropdown';
 import { TrendingUp, Target, AlertTriangle, Calendar, Grid, Activity, Percent, Layers, Zap, Scale, Info, Printer, Download, Loader2, ArrowUpRight, ArrowDownRight, Briefcase } from 'lucide-react';
@@ -33,7 +34,7 @@ class ErrorBoundary extends Component<{ children: React.ReactNode }, { hasError:
                 <div className="p-8 bg-red-50 text-red-900 border border-red-200 rounded-lg m-4">
                     <h2 className="text-xl font-bold mb-4">Something went wrong in Attribution View</h2>
                     <p className="font-mono text-sm mb-2">{this.state.error && this.state.error.toString()}</p>
-                    <details className="whitespace-pre-wrap font-mono text-xs bg-white p-4 border border-red-100 rounded">
+                    <details className="whitespace-pre-wrap font-mono text-xs bg-wallstreet-900 p-4 border border-red-100 rounded">
                         {this.state.errorInfo && this.state.errorInfo.componentStack}
                     </details>
                 </div>
@@ -57,24 +58,24 @@ interface AttributionViewProps {
 
 const FuturePeriodMessage = () => (
     <div className="flex flex-col items-center justify-center min-h-[400px] p-12 text-center animate-in fade-in zoom-in duration-500">
-        <div className="bg-white p-10 rounded-2xl border border-wallstreet-200 shadow-xl max-w-2xl relative overflow-hidden">
+        <div className="bg-wallstreet-800 p-10 rounded-2xl border border-wallstreet-700 shadow-xl max-w-2xl relative overflow-hidden">
             {/* Subtle background decoration */}
-            <div className="absolute top-0 right-0 w-32 h-32 bg-slate-50 rounded-full -mr-16 -mt-16 z-0" />
+            <div className="absolute top-0 right-0 w-32 h-32 bg-wallstreet-900 rounded-full -mr-16 -mt-16 z-0" />
 
             <div className="relative z-10">
-                <div className="w-20 h-20 bg-slate-900 rounded-2xl flex items-center justify-center mx-auto mb-8 shadow-lg rotate-3">
+                <div className="w-20 h-20 bg-wallstreet-accent rounded-2xl flex items-center justify-center mx-auto mb-8 shadow-lg rotate-3">
                     <Calendar size={40} className="text-white -rotate-3" />
                 </div>
 
-                <h2 className="text-2xl font-black text-slate-900 mb-4 uppercase tracking-tight font-mono">Future Period Selected</h2>
+                <h2 className="text-2xl font-black text-wallstreet-text mb-4 uppercase tracking-tight font-mono">Future Period Selected</h2>
 
                 <div className="h-1 w-20 bg-wallstreet-accent mx-auto mb-6 rounded-full" />
 
-                <p className="text-slate-600 mb-8 leading-relaxed font-medium">
-                    The requested analysis period is currently in the future. To populate this panel with data once available, please ensure your data is correctly implemented in the <span className="text-slate-900 font-bold uppercase tracking-tight">Data Import</span> tab.
+                <p className="text-wallstreet-500 mb-8 leading-relaxed font-medium">
+                    The requested analysis period is currently in the future. To populate this panel with data once available, please ensure your data is correctly implemented in the <span className="text-wallstreet-text font-bold uppercase tracking-tight">Data Import</span> tab.
                 </p>
 
-                <div className="flex items-center justify-center gap-3 text-wallstreet-500 font-mono text-xs font-bold uppercase tracking-widest bg-slate-50 py-3 px-6 rounded-xl border border-slate-100">
+                <div className="flex items-center justify-center gap-3 text-wallstreet-500 font-mono text-xs font-bold uppercase tracking-widest bg-wallstreet-900 py-3 px-6 rounded-xl border border-wallstreet-700">
                     <Info size={16} />
                     <span>Action Required in Data Import Tab</span>
                 </div>
@@ -86,6 +87,7 @@ const FuturePeriodMessage = () => (
 // ── AttributionViewContent ───────────────────────────────────────────────────
 
 const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selectedYear, setSelectedYear, customSectors }) => {
+    const tc = useThemeColors();
     const [viewMode, setViewMode] = useState<'OVERVIEW' | 'TABLES'>('OVERVIEW');
     const [timeRange, setTimeRange] = useState<'YTD' | 'Q1' | 'Q2' | 'Q3' | 'Q4'>('YTD');
     const [sectorHistory, setSectorHistory] = useState<{ US: SectorHistoryData, CA: SectorHistoryData, OVERALL: SectorHistoryData }>({ US: {}, CA: {}, OVERALL: {} });
@@ -369,7 +371,18 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
         top10.forEach(item => {
             const start = currentVal;
             const end = currentVal + item.totalContrib;
-            dataPoints.push({ name: item.ticker, value: [start < end ? start : end, start < end ? end : start], delta: item.totalContrib, isTotal: false, color: item.totalContrib >= 0 ? '#16a34a' : '#dc2626' });
+            const portfolioItem = data.find(d => d.ticker === item.ticker);
+            dataPoints.push({
+                name: item.ticker,
+                value: [start < end ? start : end, start < end ? end : start],
+                delta: item.totalContrib,
+                isTotal: false,
+                color: item.totalContrib >= 0 ? '#16a34a' : '#dc2626',
+                sector: portfolioItem?.sector,
+                weight: item.latestWeight,
+                totalReturn: item.totalReturn,
+                beta: item.beta,
+            });
             currentVal = end;
         });
 
@@ -847,9 +860,9 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
                 <div className="flex items-center gap-4">
                     {/* Time Range Selector - Only visible in Overview */}
                     {viewMode === 'OVERVIEW' && (
-                        <div className="flex items-center bg-white border border-wallstreet-700 rounded-lg p-1 shadow-sm">
+                        <div className="flex items-center bg-wallstreet-800 border border-wallstreet-700 rounded-lg p-1 shadow-sm">
                             {['YTD', 'Q1', 'Q2', 'Q3', 'Q4'].map((period) => (
-                                <button key={period} onClick={() => setTimeRange(period as any)} className={`px-3 py-1.5 text-xs font-mono font-bold rounded transition-all ${timeRange === period ? 'bg-wallstreet-text text-white shadow-md' : 'text-wallstreet-500 hover:bg-slate-100'}`}>{period}</button>
+                                <button key={period} onClick={() => setTimeRange(period as any)} className={`px-3 py-1.5 text-xs font-mono font-bold rounded transition-all ${timeRange === period ? 'bg-wallstreet-accent text-white shadow-md' : 'text-wallstreet-500 hover:bg-wallstreet-900'}`}>{period}</button>
                             ))}
                         </div>
                     )}
@@ -877,8 +890,8 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
 
                     {/* View Mode Toggle */}
                     <div className="flex p-1 bg-wallstreet-200 rounded-xl">
-                        <button onClick={() => setViewMode('OVERVIEW')} className={`px-4 py-2 rounded-lg text-xs font-bold font-mono transition-all flex items-center gap-2 ${viewMode === 'OVERVIEW' ? 'bg-white text-wallstreet-accent shadow-sm' : 'text-wallstreet-500 hover:text-wallstreet-text'}`}><Grid size={14} /> Overview</button>
-                        <button onClick={() => setViewMode('TABLES')} className={`px-4 py-2 rounded-lg text-xs font-bold font-mono transition-all flex items-center gap-2 ${viewMode === 'TABLES' ? 'bg-white text-wallstreet-accent shadow-sm' : 'text-wallstreet-500 hover:text-wallstreet-text'}`}><Layers size={14} /> Tables</button>
+                        <button onClick={() => setViewMode('OVERVIEW')} className={`px-4 py-2 rounded-lg text-xs font-bold font-mono transition-all flex items-center gap-2 ${viewMode === 'OVERVIEW' ? 'bg-wallstreet-800 text-wallstreet-accent shadow-sm' : 'text-wallstreet-500 hover:text-wallstreet-text'}`}><Grid size={14} /> Overview</button>
+                        <button onClick={() => setViewMode('TABLES')} className={`px-4 py-2 rounded-lg text-xs font-bold font-mono transition-all flex items-center gap-2 ${viewMode === 'TABLES' ? 'bg-wallstreet-800 text-wallstreet-accent shadow-sm' : 'text-wallstreet-500 hover:text-wallstreet-text'}`}><Layers size={14} /> Tables</button>
                     </div>
                 </div>
             </header>
@@ -915,8 +928,8 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
 
 
 
-                    <div className="bg-white rounded-xl border border-wallstreet-700 shadow-lg flex flex-col mt-6">
-                        <div className="flex justify-between items-center p-6 border-b border-wallstreet-700 bg-wallstreet-50/50">
+                    <div className="bg-wallstreet-800 rounded-xl border border-wallstreet-700 shadow-lg flex flex-col mt-6">
+                        <div className="flex justify-between items-center p-6 border-b border-wallstreet-700 bg-wallstreet-900/50">
                             <div>
                                 <h3 className="text-lg font-mono font-black text-wallstreet-text uppercase tracking-widest">Contribution Heatmap</h3>
                                 <p className="text-[11px] text-wallstreet-500 mt-2 font-mono font-bold uppercase tracking-tight">BPS contribution per ticker. Bottom row represents aggregate portfolio return.</p>
@@ -937,18 +950,21 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
                                 </thead>
                                 <tbody>
                                     {matrixData.map((row) => (
-                                        <tr key={row.ticker} className="hover:bg-gray-50 transition-colors group">
+                                        <tr key={row.ticker} className="hover:bg-wallstreet-900/50 transition-colors group">
                                             <td className="p-3 font-mono font-bold text-wallstreet-text border-b border-wallstreet-100 truncate text-sm">{row.ticker}</td>
                                             {allMonths.map(date => {
                                                 const val = row[`${date.getFullYear()}-${date.getMonth()}`];
-                                                const intensity = val !== null ? Math.min(Math.abs(val) / 2.0, 1) : 0;
-                                                let bg = '#f8fafc';
-                                                if (val !== null) bg = val >= 0 ? `rgba(22, 163, 74, ${0.1 + (intensity * 0.9)})` : `rgba(220, 38, 38, ${0.1 + (intensity * 0.9)})`;
-                                                if (val !== null && Math.abs(val) < 0.0001) bg = '#ffffff';
-                                                const color = (val !== null && intensity > 0.5) ? 'white' : (val !== null && val >= 0 ? '#14532d' : '#7f1d1d');
+                                                const intensity = val !== null ? Math.min(Math.abs(val) / 0.75, 1) : 0;
+                                                const emptyBg = tc.isDark ? '#1e293b' : '#f8fafc';
+                                                let bg = emptyBg;
+                                                if (val !== null) bg = val >= 0 ? `rgba(22, 163, 74, ${0.3 + (intensity * 0.7)})` : `rgba(220, 38, 38, ${0.3 + (intensity * 0.7)})`;
+                                                if (val !== null && Math.abs(val) < 0.0001) bg = tc.isDark ? '#1e293b' : '#ffffff';
+                                                const color = val !== null
+                                                    ? (intensity > 0.45 ? 'white' : (tc.isDark ? (val >= 0 ? '#4ade80' : '#f87171') : (val >= 0 ? '#14532d' : '#7f1d1d')))
+                                                    : tc.tickFill;
 
                                                 return (
-                                                    <td key={date.toISOString()} className="p-0 border-b border-white relative group/cell">
+                                                    <td key={date.toISOString()} className="p-0 border-b border-wallstreet-700 relative group/cell">
                                                         {(() => {
                                                             const maxW = row[`w-${date.getFullYear()}-${date.getMonth()}`];
                                                             const isZeroVal = val !== null && Math.abs(val) < 0.0001;
@@ -956,7 +972,7 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
                                                             const showHyphen = val === null || (isZeroVal && isZeroWeight);
 
                                                             // Adjust bg if showing hyphen to match "no data" style
-                                                            const displayBg = showHyphen ? '#f8fafc' : bg;
+                                                            const displayBg = showHyphen ? emptyBg : bg;
 
                                                             return (
                                                                 <div className="w-full h-10 flex items-center justify-center font-mono font-bold cursor-default transition-transform hover:scale-110 hover:z-20 hover:shadow-sm relative text-[11px]" style={{ backgroundColor: displayBg, color }}>
@@ -972,7 +988,7 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
                                                     </td>
                                                 );
                                             })}
-                                            <td className="p-3 text-right font-mono font-bold border-b border-wallstreet-100 border-l border-wallstreet-300 bg-gray-50/80 text-sm">
+                                            <td className="p-3 text-right font-mono font-bold border-b border-wallstreet-100 border-l border-wallstreet-300 bg-wallstreet-900/80 text-sm">
                                                 {(() => {
                                                     const isZeroTotal = Math.abs(row.total) < 0.0001;
                                                     const isZeroLatestWeight = (row.latestWeight || 0) < 0.0001; // Use latestWeight
@@ -995,7 +1011,7 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
                                             const hasData = heatmapTotals.hasDataMap[key];
                                             const val = heatmapTotals.totals[key];
                                             return (
-                                                <td key={date.toISOString()} className="p-3 text-center font-mono font-bold text-xs border-b border-wallstreet-100 border-l border-white">
+                                                <td key={date.toISOString()} className="p-3 text-center font-mono font-bold text-xs border-b border-wallstreet-100 border-l border-wallstreet-700">
                                                     {hasData ? <span className={val >= 0 ? 'text-green-700' : 'text-red-700'}>{val < 0 ? `(${Math.abs(val).toFixed(2)}%)` : `${val > 0 ? '+' : ''}${val.toFixed(2)}%`}</span> : <span className="text-gray-300">-</span>}
                                                 </td>
                                             )

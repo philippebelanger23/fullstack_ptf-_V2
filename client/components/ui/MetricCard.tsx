@@ -28,9 +28,9 @@ export const MetricCard: React.FC<MetricCardProps> = ({
     delta,
     trend,
 }) => (
-    <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm hover:shadow-md transition-shadow">
+    <div className="bg-wallstreet-800 p-5 rounded-xl border border-wallstreet-700 shadow-sm hover:shadow-md transition-shadow">
         <div className="flex justify-between items-start mb-3">
-            <div className="p-2 bg-slate-50 rounded-lg text-slate-600">
+            <div className="p-2 bg-wallstreet-900 rounded-lg text-wallstreet-500">
                 <Icon size={18} />
             </div>
             {isPositive !== undefined && !loading && (
@@ -40,7 +40,7 @@ export const MetricCard: React.FC<MetricCardProps> = ({
                 </span>
             )}
         </div>
-        <h3 className="text-slate-500 text-xs font-medium mb-1 uppercase tracking-wider">{title}</h3>
+        <h3 className="text-wallstreet-500 text-xs font-medium mb-1 uppercase tracking-wider">{title}</h3>
         {loading ? (
             <div className="h-8 flex items-center">
                 <LoadingSpinner size={20} />
@@ -48,7 +48,7 @@ export const MetricCard: React.FC<MetricCardProps> = ({
         ) : (
             <div className="flex items-end gap-2">
                 <div className="flex-1">
-                    <p className="text-xl font-bold text-slate-900 font-mono">{value}</p>
+                    <p className="text-xl font-bold text-wallstreet-text font-mono">{value}</p>
                     {delta !== undefined && (
                         <span className={`text-[10px] font-mono font-semibold ${delta >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                             {delta > 0 ? '+' : ''}{delta.toFixed(2)} vs 30d ago
@@ -72,6 +72,6 @@ export const MetricCard: React.FC<MetricCardProps> = ({
                 )}
             </div>
         )}
-        {subtitle && !loading && <p className="text-xs text-slate-400 mt-1">{subtitle}</p>}
+        {subtitle && !loading && <p className="text-xs text-wallstreet-500 mt-1">{subtitle}</p>}
     </div>
 );

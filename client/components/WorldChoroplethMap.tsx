@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useCallback } from 'react';
 import { Map as MapIcon, Table2 } from 'lucide-react';
 import { ComposableMap, Geographies, Geography, ZoomableGroup } from 'react-simple-maps';
-import { scaleSqrt } from 'd3-scale';
+import { scaleLog } from 'd3-scale';
 import { backendToTopoName, topoToBackendName, getMarketType } from '../utils/countryCodeMap';
 
 const GEO_URL = '/data/world-110m.json';
@@ -73,20 +73,24 @@ export const WorldChoroplethMap: React.FC<WorldChoroplethMapProps> = ({ data }) 
         return entry.weight;
     }, [view]);
 
-    // Color scale
+    // Color scale — log scale so US/Canada saturate at full dark while
+    // smaller countries (1–5%) get genuine mid-range colors, not near-gray.
+    // LOG_MIN is the effective floor: any allocation > 0 is clamped up to it,
+    // ensuring even tiny holdings are visibly distinct from no-data countries.
     const colorScale = useMemo(() => {
-        const weights = data.map(d => getWeight(d)).filter(w => w > 0).sort((a, b) => b - a);
-        // Cap the domain at the 3rd-largest weight so US/Canada saturate at full dark
-        // and smaller countries get meaningful color differentiation
-        const capW = weights[2] ?? weights[0] ?? 1;
-        const scale = scaleSqrt<string>()
-            .domain([0, capW])
-            .range([0, 1] as any)
+        const weights = data.map(d => getWeight(d)).filter(w => w > 0);
+        if (!weights.length) return (weight: number) => NO_DATA_COLOR;
+        const maxW = Math.max(...weights);
+        const LOG_MIN = 0.05; // % floor — keeps log() defined and tiny allocations colored
+
+        const scale = scaleLog()
+            .domain([LOG_MIN, maxW])
+            .range([0.18, 1] as any) // t=0.18 → light-but-clear blue; t=1 → full dark navy
             .clamp(true);
 
         return (weight: number) => {
             if (weight <= 0) return NO_DATA_COLOR;
-            const t = scale(weight) as unknown as number;
+            const t = scale(Math.max(weight, LOG_MIN)) as unknown as number;
             return view === 'XIU.TO' ? interpolateRed(t) : interpolateBlue(t);
         };
     }, [data, view, getWeight]);
@@ -98,8 +102,8 @@ export const WorldChoroplethMap: React.FC<WorldChoroplethMapProps> = ({ data }) 
     }, [view]);
 
     const capWeight = useMemo(() => {
-        const weights = data.map(d => getWeight(d)).filter(w => w > 0).sort((a, b) => b - a);
-        return weights[2] ?? weights[0] ?? 1;
+        const weights = data.map(d => getWeight(d)).filter(w => w > 0);
+        return weights.length ? Math.max(...weights) : 1;
     }, [data, getWeight]);
 
     const handleMouseMove = useCallback((e: React.MouseEvent) => {
@@ -138,7 +142,7 @@ export const WorldChoroplethMap: React.FC<WorldChoroplethMapProps> = ({ data }) 
     const MARKET_BADGE: Record<string, string> = {
         US: 'bg-blue-100 text-blue-700',
         Canada: 'bg-red-100 text-red-700',
-        DM: 'bg-slate-100 text-slate-600',
+        DM: 'bg-wallstreet-900 text-wallstreet-500',
         EM: 'bg-amber-100 text-amber-700',
         Other: 'bg-gray-100 text-gray-500',
     };
@@ -152,7 +156,7 @@ export const WorldChoroplethMap: React.FC<WorldChoroplethMapProps> = ({ data }) 
                     <button
                         onClick={() => setDisplayMode('map')}
                         className={`flex items-center gap-1.5 px-3 py-1 text-xs font-mono rounded-md transition-all ${displayMode === 'map'
-                            ? 'bg-white text-wallstreet-text shadow-sm'
+                            ? 'bg-wallstreet-800 text-wallstreet-text shadow-sm'
                             : 'text-wallstreet-400 hover:text-wallstreet-600'
                             }`}
                     >
@@ -162,7 +166,7 @@ export const WorldChoroplethMap: React.FC<WorldChoroplethMapProps> = ({ data }) 
                     <button
                         onClick={() => setDisplayMode('table')}
                         className={`flex items-center gap-1.5 px-3 py-1 text-xs font-mono rounded-md transition-all ${displayMode === 'table'
-                            ? 'bg-white text-wallstreet-text shadow-sm'
+                            ? 'bg-wallstreet-800 text-wallstreet-text shadow-sm'
                             : 'text-wallstreet-400 hover:text-wallstreet-600'
                             }`}
                     >
@@ -196,30 +200,36 @@ export const WorldChoroplethMap: React.FC<WorldChoroplethMapProps> = ({ data }) 
                     <table className="w-full text-sm font-mono table-fixed">
                         <thead className="sticky top-0 bg-wallstreet-50 text-wallstreet-500 text-xs uppercase">
                             <tr>
-                                <th className="p-2 text-left w-[38%]">Country</th>
-                                <th className="p-2 text-left w-[20%]">Type</th>
-                                <th className="p-2 text-right w-[14%]">75/25</th>
-                                <th className="p-2 text-right w-[14%]">ACWI</th>
-                                <th className="p-2 text-right w-[14%]">XIU.TO</th>
+                                <th className="p-2 text-left w-[34%]">Country</th>
+                                <th className="p-2 text-left w-[16%]">Type</th>
+                                <th className="p-2 text-right w-[12%]">75/25</th>
+                                <th className="p-2 text-right w-[13%]">ACWI</th>
+                                <th className="p-2 text-right w-[13%]">XIU.TO</th>
+                                <th className="p-2 text-right w-[12%]">Cumul.</th>
                             </tr>
                         </thead>
                         <tbody>
-                            {tableRows.map((row) => {
-                                const marketType = getMarketType(row.region);
-                                return (
-                                    <tr key={row.region} className="border-b border-wallstreet-100 hover:bg-wallstreet-50">
-                                        <td className="py-1.5 px-2 text-wallstreet-text font-medium truncate">{row.region}</td>
-                                        <td className="py-1.5 px-2">
-                                            <span className={`text-xs px-1.5 py-0.5 rounded font-mono ${MARKET_BADGE[marketType]}`}>
-                                                {marketType === 'US' ? 'US' : marketType === 'Canada' ? 'CAN' : marketType}
-                                            </span>
-                                        </td>
-                                        <td className="py-1.5 px-2 text-right font-bold text-wallstreet-text">{row.weight.toFixed(2)}%</td>
-                                        <td className="py-1.5 px-2 text-right text-slate-500">{row.ACWI > 0 ? `${row.ACWI.toFixed(2)}%` : '—'}</td>
-                                        <td className="py-1.5 px-2 text-right text-slate-500">{row.TSX > 0 ? `${row.TSX.toFixed(2)}%` : '—'}</td>
-                                    </tr>
-                                );
-                            })}
+                            {(() => {
+                                let cumul = 0;
+                                return tableRows.map((row) => {
+                                    cumul += row.weight;
+                                    const marketType = getMarketType(row.region);
+                                    return (
+                                        <tr key={row.region} className="border-b border-wallstreet-100 hover:bg-wallstreet-50">
+                                            <td className="py-1.5 px-2 text-wallstreet-text font-medium truncate text-sm">{row.region}</td>
+                                            <td className="py-1.5 px-2">
+                                                <span className={`text-sm px-1.5 py-0.5 rounded font-mono ${MARKET_BADGE[marketType]}`}>
+                                                    {marketType === 'US' ? 'US' : marketType === 'Canada' ? 'CAN' : marketType}
+                                                </span>
+                                            </td>
+                                            <td className="py-1.5 px-2 text-right font-bold text-wallstreet-text text-sm">{row.weight.toFixed(2)}%</td>
+                                            <td className="py-1.5 px-2 text-right text-wallstreet-500 text-sm">{row.ACWI > 0 ? `${row.ACWI.toFixed(2)}%` : '—'}</td>
+                                            <td className="py-1.5 px-2 text-right text-wallstreet-500 text-sm">{row.TSX > 0 ? `${row.TSX.toFixed(2)}%` : '—'}</td>
+                                            <td className="py-1.5 px-2 text-right text-wallstreet-400 text-sm">{cumul.toFixed(2)}%</td>
+                                        </tr>
+                                    );
+                                });
+                            })()}
                         </tbody>
                     </table>
                 </div>
@@ -279,40 +289,40 @@ export const WorldChoroplethMap: React.FC<WorldChoroplethMapProps> = ({ data }) 
                 {/* Tooltip */}
                 {hoveredGeo && tooltipMapName && (
                     <div
-                        className="absolute pointer-events-none z-50 bg-white/95 backdrop-blur-sm p-3 border border-slate-200 rounded-lg shadow-lg font-mono text-sm"
+                        className="absolute pointer-events-none z-50 bg-wallstreet-800/95 backdrop-blur-sm p-3 border border-wallstreet-700 rounded-lg shadow-lg font-mono text-sm"
                         style={{
                             left: Math.min(tooltipPos.x + 12, (typeof window !== 'undefined' ? 400 : 400)),
                             top: tooltipPos.y - 10,
                             maxWidth: 220,
                         }}
                     >
-                        <p className="font-bold text-slate-800 mb-1.5">
+                        <p className="font-bold text-wallstreet-text mb-1.5">
                             {tooltipData?.region || tooltipMapName}
                         </p>
                         {tooltipData ? (
                             <>
-                                <div className="border-t border-slate-200 pt-1.5 space-y-0.5">
+                                <div className="border-t border-wallstreet-700 pt-1.5 space-y-0.5">
                                     <div className="flex justify-between gap-4">
-                                        <span className="text-slate-500 text-xs">Composite</span>
+                                        <span className="text-wallstreet-500 text-xs">Composite</span>
                                         <span className="font-bold text-blue-700">{tooltipData.weight.toFixed(2)}%</span>
                                     </div>
                                     <div className="flex justify-between gap-4">
-                                        <span className="text-slate-500 text-xs">ACWI (75%)</span>
-                                        <span className="text-slate-700">{tooltipData.ACWI.toFixed(2)}%</span>
+                                        <span className="text-wallstreet-500 text-xs">ACWI (75%)</span>
+                                        <span className="text-wallstreet-text">{tooltipData.ACWI.toFixed(2)}%</span>
                                     </div>
                                     <div className="flex justify-between gap-4">
-                                        <span className="text-slate-500 text-xs">XIU.TO (25%)</span>
-                                        <span className="text-slate-700">{tooltipData.TSX.toFixed(2)}%</span>
+                                        <span className="text-wallstreet-500 text-xs">XIU.TO (25%)</span>
+                                        <span className="text-wallstreet-text">{tooltipData.TSX.toFixed(2)}%</span>
                                     </div>
                                 </div>
-                                <div className="border-t border-slate-200 mt-1.5 pt-1.5">
-                                    <span className="text-xs text-slate-400">
+                                <div className="border-t border-wallstreet-700 mt-1.5 pt-1.5">
+                                    <span className="text-xs text-wallstreet-500">
                                         {MARKET_LABELS[getMarketType(tooltipData.region)] || 'Other'}
                                     </span>
                                 </div>
                             </>
                         ) : (
-                            <p className="text-xs text-slate-400">Not in index</p>
+                            <p className="text-xs text-wallstreet-500">Not in index</p>
                         )}
                     </div>
                 )}

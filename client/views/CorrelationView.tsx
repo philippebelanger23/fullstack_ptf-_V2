@@ -121,7 +121,7 @@ export const CorrelationView: React.FC<CorrelationViewProps> = ({ data, result, 
 
       {status === 'analyzing' && (
         <div className="flex-1 flex flex-col items-center justify-center min-h-[400px] text-center">
-          <div className="w-full max-w-md space-y-8 bg-white p-8 rounded-xl border border-wallstreet-700 shadow-xl relative overflow-hidden">
+          <div className="w-full max-w-md space-y-8 bg-wallstreet-800 p-8 rounded-xl border border-wallstreet-700 shadow-xl relative overflow-hidden">
             <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-wallstreet-accent to-sky-400"></div>
             <div className="flex justify-center mb-6">
                <div className="relative">
@@ -155,7 +155,7 @@ export const CorrelationView: React.FC<CorrelationViewProps> = ({ data, result, 
 
       {status === 'complete' && result && (
         <div className="flex flex-col gap-8 pb-12 animate-in fade-in duration-500 slide-in-from-bottom-4">
-            <div className="bg-white p-6 rounded-xl border border-wallstreet-700 shadow-lg w-full">
+            <div className="bg-wallstreet-800 p-6 rounded-xl border border-wallstreet-700 shadow-lg w-full">
                 <div className="flex justify-between items-center mb-6">
                     <h3 className="text-lg font-mono font-bold text-wallstreet-text">Correlation Heatmap</h3>
                     <div className="flex items-center gap-2 text-xs font-mono text-wallstreet-500">
@@ -175,7 +175,7 @@ export const CorrelationView: React.FC<CorrelationViewProps> = ({ data, result, 
                         ))}
                         {result.matrix.map((row, rIndex) => (
                             <React.Fragment key={rIndex}>
-                                <div className="flex items-center justify-end pr-3 h-10 sticky left-0 bg-white z-20 group">
+                                <div className="flex items-center justify-end pr-3 h-10 sticky left-0 bg-wallstreet-800 z-20 group">
                                     <span className="text-[10px] sm:text-xs font-mono font-bold text-wallstreet-text whitespace-nowrap group-hover:text-wallstreet-accent transition-colors">{result.tickers[rIndex]}</span>
                                 </div>
                                 {row.map((val, cIndex) => {
@@ -204,7 +204,7 @@ export const CorrelationView: React.FC<CorrelationViewProps> = ({ data, result, 
                 </div>
             </div>
 
-            <div className="bg-white p-6 rounded-xl border border-wallstreet-700 shadow-lg">
+            <div className="bg-wallstreet-800 p-6 rounded-xl border border-wallstreet-700 shadow-lg">
                 <h3 className="text-lg font-mono font-bold text-wallstreet-text mb-4 border-b border-wallstreet-700 pb-2">Diversification Analysis</h3>
                 <div className="prose prose-sm prose-slate max-w-none">
                     <ReactMarkdown

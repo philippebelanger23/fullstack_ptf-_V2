@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine, Area, AreaChart } from 'recharts';
 import { TrendingUp, TrendingDown, Minus, Calendar } from 'lucide-react';
 import { formatXAxis as formatXAxisBase, formatTooltipDate, formatPercent, getPerformanceColor } from '../utils/formatters';
+import { useThemeColors } from '../hooks/useThemeColors';
 
 type Period = 'YTD' | '3M' | '6M' | '1Y' | '3Y' | '5Y' | '2025';
 
@@ -67,6 +68,7 @@ const getDateRangeForPeriod = (period: Period): { start: Date; end?: Date } => {
 
 export const IndexPerformanceChart: React.FC<IndexPerformanceChartProps> = ({ data }) => {
     const [selectedPeriod, setSelectedPeriod] = useState<Period>('YTD');
+    const tc = useThemeColors();
 
     const chartData = useMemo(() => {
         const acwi = data['ACWI'] || [];
@@ -254,19 +256,19 @@ export const IndexPerformanceChart: React.FC<IndexPerformanceChartProps> = ({ da
             {/* Period Selector & Performance Summary */}
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-4">
                 {/* Period Selector Pills */}
-                <div className="flex bg-slate-100 px-1 rounded-xl items-center h-9 overflow-x-auto max-w-full">
+                <div className="flex bg-wallstreet-900 px-1 rounded-xl items-center h-9 overflow-x-auto max-w-full">
                     {(['2025', 'YTD', '3M', '6M', '1Y', '3Y', '5Y'] as Period[]).map((period) => (
                         <React.Fragment key={period}>
                             <button
                                 onClick={() => setSelectedPeriod(period)}
                                 className={`px-3 h-7 flex items-center justify-center text-xs font-bold rounded-lg transition-all duration-200 ${selectedPeriod === period
                                     ? 'bg-wallstreet-accent text-white shadow-sm'
-                                    : 'text-slate-500 hover:text-slate-800 hover:bg-slate-200'
+                                    : 'text-wallstreet-500 hover:text-wallstreet-text hover:bg-wallstreet-900'
                                     }`}
                             >
                                 {period}
                             </button>
-                            {period === '2025' && <div className="mx-1 w-px bg-slate-400 h-full" />}
+                            {period === '2025' && <div className="mx-1 w-px bg-wallstreet-500 h-full" />}
                         </React.Fragment>
                     ))}
                 </div>
@@ -274,7 +276,7 @@ export const IndexPerformanceChart: React.FC<IndexPerformanceChartProps> = ({ da
                 {/* Performance Summary Cards */}
                 {performanceMetrics && (
                     <div className="flex items-center gap-3 text-xs font-mono">
-                        <span className="text-slate-400 italic text-[15px] tracking-wider">CAGR (Annualized)</span>
+                        <span className="text-wallstreet-500 italic text-[15px] tracking-wider">CAGR (Annualized)</span>
                         <div className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-emerald-50 border border-emerald-200 ${getPerformanceColor(performanceMetrics.index)}`}>
                             {getPerformanceIcon(performanceMetrics.index)}
                             <span className="font-bold text-emerald-700">75/25:</span>
@@ -304,18 +306,18 @@ export const IndexPerformanceChart: React.FC<IndexPerformanceChartProps> = ({ da
                                 <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
                             </linearGradient>
                         </defs>
-                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={tc.gridStroke} />
                         <XAxis
                             dataKey="date"
                             tickFormatter={formatXAxis}
-                            tick={{ fontSize: 11, fill: '#64748b' }}
+                            tick={{ fontSize: 11, fill: tc.tickFill }}
                             tickLine={false}
                             axisLine={false}
                             ticks={getMonthlyTicks}
                         />
                         <YAxis
                             tickFormatter={(val) => val < 0 ? `(${Math.abs(val).toFixed(0)}%)` : `${val > 0 ? '+' : ''}${val.toFixed(0)}%`}
-                            tick={{ fontSize: 11, fill: '#64748b' }}
+                            tick={{ fontSize: 11, fill: tc.tickFill }}
                             tickLine={false}
                             axisLine={false}
                             width={50}
@@ -335,8 +337,8 @@ export const IndexPerformanceChart: React.FC<IndexPerformanceChartProps> = ({ da
                                 };
 
                                 return (
-                                    <div className="bg-white/95 border border-slate-200 rounded-xl shadow-lg p-3 font-mono text-sm">
-                                        <p className="font-bold text-slate-600 mb-2 border-b pb-1">{formatTooltipDate(String(label))}</p>
+                                    <div className="bg-wallstreet-800 border border-wallstreet-700 rounded-xl shadow-lg p-3 font-mono text-sm">
+                                        <p className="font-bold text-wallstreet-500 mb-2 border-b border-wallstreet-700 pb-1">{formatTooltipDate(String(label))}</p>
                                         {sorted.map((entry, idx) => (
                                             <div key={entry.dataKey} className="flex justify-between items-center gap-4 py-0.5">
                                                 <span style={{ color: entry.color }} className="font-medium">
@@ -360,13 +362,13 @@ export const IndexPerformanceChart: React.FC<IndexPerformanceChartProps> = ({ da
                                 return value;
                             }}
                         />
-                        <ReferenceLine y={0} stroke="#94a3b8" strokeDasharray="4 4" />
+                        <ReferenceLine y={0} stroke={tc.referenceLine} strokeDasharray="4 4" />
                         {/* Quarter-end and year-end vertical lines */}
                         {quarterEndLines.map((line, idx) => (
                             <ReferenceLine
                                 key={`q-${idx}`}
                                 x={line.date}
-                                stroke="#cbd5e1"
+                                stroke={tc.gridStroke}
                                 strokeWidth={line.isYearEnd ? 1.5 : 1}
                                 strokeDasharray={line.isYearEnd ? '0' : '4 4'}
                             />

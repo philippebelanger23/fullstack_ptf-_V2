@@ -66,6 +66,7 @@ def run_portfolio_analysis(
     dates,
     mutual_fund_tickers=None,
     etf_tickers=None,
+    cash_tickers=None,
 ) -> List[PortfolioItem]:
     """Core logic shared between file upload and manual entry."""
     cache = load_cache()
@@ -73,6 +74,8 @@ def run_portfolio_analysis(
         mutual_fund_tickers = set()
     if etf_tickers is None:
         etf_tickers = set()
+    if cash_tickers is None:
+        cash_tickers = set()
 
     logger.info("Fetching market data...")
     returns, prices = calculate_returns(weights_dict, nav_dict, dates, cache, mutual_fund_tickers)
@@ -125,6 +128,7 @@ def run_portfolio_analysis(
                 notes=None,
                 isMutualFund=t_upper in mutual_fund_tickers,
                 isEtf=t_upper in etf_tickers,
+                isCash=t_upper in cash_tickers,
                 sectorWeights=ticker_custom_sectors,
             )
             result_items.append(item)
@@ -208,8 +212,9 @@ async def analyze_manual(request: ManualAnalysisRequest):
 
         mutual_fund_tickers = {item.ticker.upper().strip() for item in request.items if item.isMutualFund}
         etf_tickers = {item.ticker.upper().strip() for item in request.items if item.isEtf}
+        cash_tickers = {item.ticker.upper().strip() for item in request.items if item.isCash}
 
-        return run_portfolio_analysis(weights_dict, nav_dict, dates, mutual_fund_tickers, etf_tickers)
+        return run_portfolio_analysis(weights_dict, nav_dict, dates, mutual_fund_tickers, etf_tickers, cash_tickers)
 
     except Exception as e:
         logger.error(f"Error in manual analysis: {str(e)}", exc_info=True)

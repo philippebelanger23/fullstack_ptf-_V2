@@ -1,6 +1,7 @@
 import React, { memo, useMemo, useState } from 'react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Dot } from 'recharts';
 import { TrendingUp } from 'lucide-react';
+import { useThemeColors } from '../hooks/useThemeColors';
 
 interface Props {
     data: any[];
@@ -37,28 +38,28 @@ const CustomAreaTooltip = ({ active, payload, label, xAxisTicks }: any) => {
         // Light tooltip for non-rebalance dates
         if (!isMajorDate) {
             return (
-                <div className="bg-white/90 border border-slate-200 px-3 py-2 rounded-lg shadow-md text-xs font-mono">
-                    <span className="text-slate-400 uppercase tracking-wider">{dateDisplay}</span>
-                    <span className="text-slate-600 font-bold ml-2">{currentTotal.toFixed(1)}% Top 10</span>
+                <div className="bg-wallstreet-800/90 border border-wallstreet-700 px-3 py-2 rounded-lg shadow-md text-xs font-mono">
+                    <span className="text-wallstreet-500 uppercase tracking-wider">{dateDisplay}</span>
+                    <span className="text-wallstreet-text font-bold ml-2">{currentTotal.toFixed(1)}% Top 10</span>
                 </div>
             );
         }
 
         // Full breakdown tooltip for rebalance dates
         return (
-            <div className="bg-white border border-slate-200 p-4 rounded-lg shadow-2xl text-xs font-mono min-w-[280px] z-50">
-                <div className="mb-3 border-b border-slate-200 pb-2 flex justify-between items-center gap-4">
-                    <span className="text-slate-500 font-bold uppercase tracking-wider">{dateDisplay} Breakdown</span>
-                    <span className="text-slate-700 font-bold">{currentTotal.toFixed(1)}% Top 10</span>
+            <div className="bg-wallstreet-800 border border-wallstreet-700 p-4 rounded-lg shadow-2xl text-xs font-mono min-w-[280px] z-50">
+                <div className="mb-3 border-b border-wallstreet-700 pb-2 flex justify-between items-center gap-4">
+                    <span className="text-wallstreet-500 font-bold uppercase tracking-wider">{dateDisplay} Breakdown</span>
+                    <span className="text-wallstreet-text font-bold">{currentTotal.toFixed(1)}% Top 10</span>
                 </div>
                 <div className="space-y-2">
                     {filteredPayload.map((entry: any, index: number) => (
                         <div key={index} className="grid grid-cols-[1fr_auto] gap-4 items-center group">
                             <div className="flex items-center gap-2">
                                 <div className="w-2 h-2 rounded-full shadow-sm" style={{ backgroundColor: entry.color }} />
-                                <span className="text-slate-700 font-bold truncate max-w-[120px]">{entry.name}</span>
+                                <span className="text-wallstreet-text font-bold truncate max-w-[120px]">{entry.name}</span>
                             </div>
-                            <div className="text-right text-slate-900 font-bold text-sm">{entry.value.toFixed(1)}%</div>
+                            <div className="text-right text-wallstreet-text font-bold text-sm">{entry.value.toFixed(1)}%</div>
                         </div>
                     ))}
                 </div>
@@ -70,7 +71,8 @@ const CustomAreaTooltip = ({ active, payload, label, xAxisTicks }: any) => {
 
 
 export const PortfolioEvolutionChart = memo(({ data, topTickers, dates, colors }: Props) => {
-    const [selectedRange, setSelectedRange] = useState<'3M' | '6M' | '1Y' | 'ALL'>('ALL');
+    const tc = useThemeColors();
+    const [selectedRange, setSelectedRange] = useState<'YTD' | '3M' | '6M' | '1Y' | 'ALL'>('ALL');
 
     const filteredData = useMemo(() => {
         let baseData = data;
@@ -79,7 +81,8 @@ export const PortfolioEvolutionChart = memo(({ data, topTickers, dates, colors }
             const latestDate = new Date(latestDateStr);
             const startDate = new Date(latestDate);
 
-            if (selectedRange === '3M') startDate.setMonth(latestDate.getMonth() - 3);
+            if (selectedRange === 'YTD') { startDate.setMonth(0); startDate.setDate(1); }
+            else if (selectedRange === '3M') startDate.setMonth(latestDate.getMonth() - 3);
             else if (selectedRange === '6M') startDate.setMonth(latestDate.getMonth() - 6);
             else if (selectedRange === '1Y') startDate.setFullYear(latestDate.getFullYear() - 1);
 
@@ -181,7 +184,7 @@ export const PortfolioEvolutionChart = memo(({ data, topTickers, dates, colors }
     }, [filteredData, topTickers]);
 
     return (
-        <div className="lg:col-span-1 bg-white p-6 rounded-xl border border-wallstreet-700 shadow-sm flex flex-col">
+        <div className="lg:col-span-1 bg-wallstreet-800 p-6 rounded-xl border border-wallstreet-700 shadow-sm flex flex-col">
             <div className="mb-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                 <div>
                     <h3 className="font-mono font-bold text-wallstreet-text uppercase tracking-wider text-sm flex items-center gap-2">
@@ -189,15 +192,15 @@ export const PortfolioEvolutionChart = memo(({ data, topTickers, dates, colors }
                     </h3>
                     <p className="text-xs text-wallstreet-500 mt-1">Historical absolute weight allocation of the top 10 positions over time</p>
                 </div>
-                <div className="flex items-center bg-slate-100 rounded-lg p-1 border border-slate-200 shadow-inner">
-                    {(['3M', '6M', '1Y', 'ALL'] as const).map((range) => (
+                <div className="flex items-center bg-wallstreet-900 rounded-lg p-1 border border-wallstreet-700 shadow-inner">
+                    {(['YTD', '3M', '6M', '1Y', 'ALL'] as const).map((range) => (
                         <button
                             key={range}
                             onClick={() => setSelectedRange(range)}
                             className={`px-3 py-1 rounded-md text-[10px] font-bold font-mono transition-all duration-200 ${
                                 selectedRange === range
                                     ? 'bg-blue-600 text-white shadow-sm ring-1 ring-blue-700/50'
-                                    : 'text-slate-500 hover:bg-slate-200 hover:text-slate-700'
+                                    : 'text-wallstreet-500 hover:bg-wallstreet-700 hover:text-wallstreet-text'
                             }`}
                         >
                             {range}
@@ -209,7 +212,7 @@ export const PortfolioEvolutionChart = memo(({ data, topTickers, dates, colors }
             <div className="flex-1 w-full h-full min-w-0 min-h-[300px]">
                 <ResponsiveContainer width="100%" height="100%">
                     <AreaChart data={filteredData} margin={{ top: 10, right: 10, left: 0, bottom: 5 }}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+                        <CartesianGrid strokeDasharray="3 3" stroke={tc.gridStrokeLight} vertical={false} />
                         <XAxis 
                             dataKey="timestamp" 
                             type="number"
@@ -218,7 +221,7 @@ export const PortfolioEvolutionChart = memo(({ data, topTickers, dates, colors }
                             ticks={xAxisTicks}
                             tickFormatter={formatDateTick} 
                             tick={{ fontSize: 10, fontFamily: 'monospace' }} 
-                            axisLine={{ stroke: '#e2e8f0' }} 
+                            axisLine={{ stroke: tc.gridStroke }}
                             tickLine={false} 
                             dy={10} 
                         />

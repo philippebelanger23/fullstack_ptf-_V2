@@ -11,12 +11,14 @@ import {
     Scatter,
     Rectangle
 } from 'recharts';
+import { useThemeColors } from '../hooks/useThemeColors';
 
 interface DotPlotProps {
     data: any[];
 }
 
 export const ClevelandDotPlot: React.FC<DotPlotProps> = ({ data }) => {
+    const tc = useThemeColors();
     // Map of raw sector names to user-preferred display names
     const sectorMap: Record<string, string> = {
         "Information Technology": "Technology",
@@ -70,26 +72,43 @@ export const ClevelandDotPlot: React.FC<DotPlotProps> = ({ data }) => {
                 data={sortedData}
                 margin={{ top: 10, right: 10, left: 0, bottom: 0 }} // Minimal margins
             >
-                <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={true} stroke="#f1f5f9" strokeOpacity={0.4} />
-                <XAxis type="number" domain={[0, 'auto']} unit="%" tick={{ fontSize: 12, fontFamily: 'monospace', fontWeight: 'bold', fill: '#00000e' }} />
+                <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={true} stroke={tc.gridStrokeLight} strokeOpacity={0.4} />
+                <XAxis type="number" domain={[0, 'auto']} unit="%" tick={{ fontSize: 12, fontFamily: "'JetBrains Mono', monospace", fontWeight: 'bold', fill: tc.tickFill }} />
                 <YAxis
                     type="category"
                     dataKey="displaySector"
-                    width={95} // Tighter fit for shorter names
-                    tick={{ fontSize: 12, fontFamily: 'monospace', fontWeight: 'bold', fill: '#00000e' }}
+                    width={110}
+                    tickLine={false}
+                    tick={(props) => {
+                        const { x, y, payload } = props;
+                        return (
+                            <text
+                                x={x - 108}
+                                y={y}
+                                fill={tc.tickFill}
+                                fontSize={12}
+                                fontFamily="'JetBrains Mono', monospace"
+                                fontWeight="bold"
+                                textAnchor="start"
+                                dominantBaseline="middle"
+                            >
+                                {payload.value}
+                            </text>
+                        );
+                    }}
                 />
                 <Tooltip
-                    cursor={{ fill: '#f8fafc', opacity: 0.5 }}
+                    cursor={{ fill: tc.isDark ? 'rgba(51,65,85,0.3)' : '#f8fafc', opacity: 0.5 }}
                     content={({ active, payload, label }) => {
                         if (!active || !payload?.length) return null;
                         const HIDDEN = new Set(['displaySector', 'range', 'sector']);
                         const items = payload.filter(p => !HIDDEN.has(p.dataKey as string) && !Array.isArray(p.value));
                         if (!items.length) return null;
                         return (
-                            <div style={{ backgroundColor: '#fff', border: '1px solid #e2e8f0', borderRadius: 8, padding: '8px 12px' }}>
-                                <div style={{ fontWeight: 'bold', marginBottom: 6, fontFamily: 'monospace', fontSize: 13 }}>{label}</div>
+                            <div style={{ backgroundColor: tc.tooltipBgSolid, border: `1px solid ${tc.tooltipBorder}`, borderRadius: 8, padding: '8px 12px' }}>
+                                <div style={{ fontWeight: 'bold', marginBottom: 6, fontFamily: "'JetBrains Mono', monospace", fontSize: 13, color: tc.tooltipText }}>{label}</div>
                                 {items.map(item => (
-                                    <div key={item.dataKey as string} style={{ fontFamily: 'monospace', fontSize: 12, fontWeight: 'bold', color: item.color, marginBottom: 2 }}>
+                                    <div key={item.dataKey as string} style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 12, fontWeight: 'bold', color: item.color, marginBottom: 2 }}>
                                         {item.name} : {Number(item.value).toFixed(2)}%
                                     </div>
                                 ))}
@@ -102,7 +121,7 @@ export const ClevelandDotPlot: React.FC<DotPlotProps> = ({ data }) => {
                     align="right"
                     height={30}
                     iconSize={10}
-                    wrapperStyle={{ fontSize: '11px', fontFamily: 'monospace', top: -5 }}
+                    wrapperStyle={{ fontSize: '11px', fontFamily: "'JetBrains Mono', monospace", top: -5 }}
                 />
 
                 {/* Connector Line (The Bar) */}

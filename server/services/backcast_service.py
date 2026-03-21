@@ -8,6 +8,7 @@ Provides helpers for:
 """
 
 import logging
+from datetime import datetime
 from typing import List
 
 import numpy as np
@@ -98,16 +99,34 @@ def build_portfolio_returns(
     return portfolio_returns, missing_tickers
 
 
-def build_benchmark_returns(returns_df: pd.DataFrame) -> pd.Series:
-    """Build benchmark daily returns: 75 % ACWI (CAD) + 25 % XIU.TO."""
+def build_benchmark_returns(
+    returns_df: pd.DataFrame,
+    benchmark: str = "75/25",
+) -> pd.Series:
+    """Build benchmark daily returns.
+
+    benchmark:
+      "75/25" → 75% ACWI (USD→CAD) + 25% XIU.TO  (default composite)
+      "TSX60" → 100% XIU.TO  (S&P/TSX 60, CAD proxy)
+      "SP500" → 100% XUS.TO  (S&P 500 CAD-hedged ETF, no FX needed)
+    """
     benchmark_returns = pd.Series(0.0, index=returns_df.index)
-    if (
-        "ACWI" in returns_df.columns
-        and "XIU.TO" in returns_df.columns
-        and "USDCAD=X" in returns_df.columns
-    ):
-        acwi_cad_ret = (1 + returns_df["ACWI"]) * (1 + returns_df["USDCAD=X"]) - 1
-        benchmark_returns = 0.75 * acwi_cad_ret + 0.25 * returns_df["XIU.TO"]
+
+    if benchmark == "TSX60":
+        if "XIU.TO" in returns_df.columns:
+            benchmark_returns = returns_df["XIU.TO"]
+    elif benchmark == "SP500":
+        if "XUS.TO" in returns_df.columns:
+            benchmark_returns = returns_df["XUS.TO"]
+    else:  # default "75/25"
+        if (
+            "ACWI" in returns_df.columns
+            and "XIU.TO" in returns_df.columns
+            and "USDCAD=X" in returns_df.columns
+        ):
+            acwi_cad_ret = (1 + returns_df["ACWI"]) * (1 + returns_df["USDCAD=X"]) - 1
+            benchmark_returns = 0.75 * acwi_cad_ret + 0.25 * returns_df["XIU.TO"]
+
     return benchmark_returns
 
 
@@ -217,4 +236,118 @@ def compute_backcast_metrics(
         "benchmarkSortino": round(benchmark_sortino, 2),
     }
 
-    return {"metrics": metrics, "series": performance_series}
+    top_drawdowns = _detect_drawdown_episodes(drawdown, dates)
+
+    return {"metrics": metrics, "series": performance_series, "topDrawdowns": top_drawdowns}
+
+
+def compute_rolling_metrics(
+    portfolio_returns: pd.Series,
+    benchmark_returns: pd.Series,
+    windows: list = None,
+) -> dict:
+    """
+    Compute rolling Sharpe, volatility, and beta for portfolio and benchmark.
+    Windows: 21 = 1M, 63 = 3M, 126 = 6M (trading days).
+    Returns {"windows": {21: [...], 63: [...], 126: [...]}}.
+    """
+    if windows is None:
+        windows = [21, 63, 126]
+
+    dates = portfolio_returns.index
+    result = {}
+
+    for window in windows:
+        records = []
+        for i in range(window, len(portfolio_returns)):
+            ptf_slice = portfolio_returns.iloc[i - window:i].values
+            bmk_slice = benchmark_returns.iloc[i - window:i].values
+            date_str = dates[i].strftime("%Y-%m-%d")
+
+            ptf_mean = np.mean(ptf_slice)
+            ptf_std = np.std(ptf_slice)
+            bmk_mean = np.mean(bmk_slice)
+            bmk_std = np.std(bmk_slice)
+
+            ptf_sharpe = (ptf_mean / ptf_std) * np.sqrt(252) if ptf_std > 0 else 0.0
+            bmk_sharpe = (bmk_mean / bmk_std) * np.sqrt(252) if bmk_std > 0 else 0.0
+
+            ptf_vol = ptf_std * np.sqrt(252) * 100
+            bmk_vol = bmk_std * np.sqrt(252) * 100
+
+            bmk_var = np.var(bmk_slice)
+            beta = np.cov(ptf_slice, bmk_slice)[0, 1] / bmk_var if bmk_var > 0 else 1.0
+
+            records.append({
+                "date": date_str,
+                "portfolio": {
+                    "sharpe": round(float(ptf_sharpe), 3),
+                    "vol": round(float(ptf_vol), 2),
+                    "beta": round(float(beta), 3),
+                },
+                "benchmark": {
+                    "sharpe": round(float(bmk_sharpe), 3),
+                    "vol": round(float(bmk_vol), 2),
+                    "beta": 1.0,
+                },
+            })
+
+        result[window] = records
+
+    return {"windows": result}
+
+
+def _detect_drawdown_episodes(drawdown: pd.Series, dates: list, top_n: int = 5) -> list:
+    """
+    Detect the top N drawdown episodes from a drawdown Series (values ≤ 0).
+    Each episode: {start, trough, recovery, depth (negative %), durationDays, recoveryDays}.
+    """
+    eps = 0.0001
+    episodes = []
+    n = len(drawdown)
+    in_drawdown = False
+    peak_idx = 0
+    trough_idx = 0
+    trough_val = 0.0
+
+    date_objs = [datetime.strptime(d, "%Y-%m-%d").date() for d in dates]
+
+    for i in range(n):
+        dd = float(drawdown.iloc[i])
+        if not in_drawdown:
+            if dd < -eps:
+                in_drawdown = True
+                trough_idx = i
+                trough_val = dd
+            else:
+                peak_idx = i
+        else:
+            if dd < trough_val:
+                trough_idx = i
+                trough_val = dd
+            if dd >= -eps:
+                episodes.append({
+                    "start": dates[peak_idx],
+                    "trough": dates[trough_idx],
+                    "recovery": dates[i],
+                    "depth": round(trough_val * 100, 2),
+                    "durationDays": (date_objs[trough_idx] - date_objs[peak_idx]).days,
+                    "recoveryDays": (date_objs[i] - date_objs[trough_idx]).days,
+                })
+                in_drawdown = False
+                peak_idx = i
+
+    # Ongoing drawdown (not yet recovered)
+    if in_drawdown:
+        episodes.append({
+            "start": dates[peak_idx],
+            "trough": dates[trough_idx],
+            "recovery": None,
+            "depth": round(trough_val * 100, 2),
+            "durationDays": (date_objs[trough_idx] - date_objs[peak_idx]).days,
+            "recoveryDays": None,
+        })
+
+    # Sort by depth (worst first), take top N
+    episodes.sort(key=lambda x: x["depth"])
+    return episodes[:top_n]

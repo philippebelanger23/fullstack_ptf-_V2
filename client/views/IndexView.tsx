@@ -60,7 +60,7 @@ const CURRENCY_CODE_TO_TICKER: Record<string, string> = {
 
 const formatPerf = (val: number | undefined) => {
     if (val === undefined) return '-';
-    const color = val > 0 ? 'text-green-600' : val < 0 ? 'text-red-500' : 'text-slate-400';
+    const color = val > 0 ? 'text-green-600' : val < 0 ? 'text-red-500' : 'text-wallstreet-500';
     const pct = val * 100;
     const display = pct < 0 ? `(${Math.abs(pct).toFixed(1)}%)` : `${pct.toFixed(1)}%`;
     return <span className={color}>{display}</span>;
@@ -261,7 +261,7 @@ export const IndexView: React.FC = () => {
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
 
                 {/* Top Left: Index Performance Graph */}
-                <div className="bg-white p-6 rounded-xl border border-wallstreet-700 shadow-sm flex flex-col h-full min-h-[600px]">
+                <div className="bg-wallstreet-800 p-6 rounded-xl border border-wallstreet-700 shadow-sm flex flex-col h-full min-h-[600px]">
                     <div className="flex justify-between items-center mb-2">
                         <h3 className="text-lg font-bold font-mono text-wallstreet-text flex items-center gap-2">
                             <TrendingUp size={20} className="text-wallstreet-accent" />
@@ -274,7 +274,7 @@ export const IndexView: React.FC = () => {
                 </div>
 
                 {/* Top Right: Sector Exposure */}
-                <div className="bg-white p-6 rounded-xl border border-wallstreet-700 shadow-sm flex flex-col h-full min-h-[600px]">
+                <div className="bg-wallstreet-800 p-6 rounded-xl border border-wallstreet-700 shadow-sm flex flex-col h-full min-h-[600px]">
                     <div className="flex justify-between items-center mb-6">
                         <h3 className="text-lg font-bold font-mono text-wallstreet-text flex items-center gap-2">
                             <PieChart size={20} className="text-wallstreet-accent" />
@@ -287,7 +287,7 @@ export const IndexView: React.FC = () => {
                 </div>
 
                 {/* Bottom Left: Currency Exposure */}
-                <div className="bg-white p-6 rounded-xl border border-wallstreet-700 shadow-sm flex flex-col h-full min-h-[600px]">
+                <div className="bg-wallstreet-800 p-6 rounded-xl border border-wallstreet-700 shadow-sm flex flex-col h-full min-h-[600px]">
                     <div className="mb-4 flex justify-between items-center border-b border-wallstreet-100 pb-2">
                         <h3 className="text-lg font-bold font-mono text-wallstreet-text flex items-center gap-2">
                             <DollarSign size={20} className="text-wallstreet-accent" />
@@ -320,9 +320,9 @@ export const IndexView: React.FC = () => {
                                         }
 
                                         return (
-                                            <tr key={c.code} className={`border-b border-wallstreet-100 hover:bg-wallstreet-50 ${c.code === 'Other' ? 'text-slate-400' : ''}`}>
+                                            <tr key={c.code} className={`border-b border-wallstreet-100 hover:bg-wallstreet-50 ${c.code === 'Other' ? 'text-wallstreet-500' : ''}`}>
                                                 <td className="py-1.5 px-2 font-medium">{c.code}</td>
-                                                <td className={`py-1.5 px-2 text-center ${c.code === 'Other' ? 'font-normal' : `font-bold ${c.code === 'USD' ? 'text-blue-700' : c.code === 'CAD' ? 'text-red-700' : 'text-slate-700'}`}`}>
+                                                <td className={`py-1.5 px-2 text-center ${c.code === 'Other' ? 'font-normal' : `font-bold ${c.code === 'USD' ? 'text-blue-700' : c.code === 'CAD' ? 'text-red-700' : 'text-wallstreet-text'}`}`}>
                                                     {c.weight.toFixed(1)}%
                                                 </td>
                                                 {c.code !== 'Other' ? (
@@ -333,7 +333,7 @@ export const IndexView: React.FC = () => {
                                                         <td className="py-1.5 px-2 text-center">{formatPerf(perf['1Y'])}</td>
                                                     </>
                                                 ) : (
-                                                    <td colSpan={4} className="py-1.5 px-2 text-center text-slate-300">-</td>
+                                                    <td colSpan={4} className="py-1.5 px-2 text-center text-wallstreet-500">-</td>
                                                 )}
                                             </tr>
                                         );
@@ -345,7 +345,7 @@ export const IndexView: React.FC = () => {
                 </div>
 
                 {/* Bottom Right: Geographic Breakdown */}
-                <div className="bg-white p-6 rounded-xl border border-wallstreet-700 shadow-sm flex flex-col h-full min-h-[600px]">
+                <div className="bg-wallstreet-800 p-6 rounded-xl border border-wallstreet-700 shadow-sm flex flex-col h-full min-h-[600px]">
                     <div className="flex justify-between items-center mb-6">
                         <h3 className="text-lg font-bold font-mono text-wallstreet-text flex items-center gap-2">
                             <Globe size={20} className="text-wallstreet-accent" />

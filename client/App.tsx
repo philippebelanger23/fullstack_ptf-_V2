@@ -36,14 +36,14 @@ class GlobalErrorBoundary extends Component<{ children: React.ReactNode }, { has
             </h2>
             <div className="mb-6">
               <p className="font-bold mb-2">Error Message:</p>
-              <pre className="bg-white p-4 rounded border border-red-100 overflow-x-auto text-sm font-mono text-red-700">
+              <pre className="bg-wallstreet-800 p-4 rounded border border-red-100 overflow-x-auto text-sm font-mono text-red-700">
                 {this.state.error && this.state.error.toString()}
               </pre>
             </div>
             <div>
               <p className="font-bold mb-2">Stack Trace:</p>
-              <details className="bg-white p-4 rounded border border-red-100 overflow-x-auto text-xs font-mono max-h-[300px] overflow-y-auto">
-                <summary className="cursor-pointer text-slate-500 hover:text-slate-700 mb-2">View Details</summary>
+              <details className="bg-wallstreet-800 p-4 rounded border border-red-100 overflow-x-auto text-xs font-mono max-h-[300px] overflow-y-auto">
+                <summary className="cursor-pointer text-wallstreet-500 hover:text-wallstreet-text mb-2">View Details</summary>
                 {this.state.errorInfo && this.state.errorInfo.componentStack}
               </details>
             </div>
@@ -208,7 +208,7 @@ function App() {
         />
 
         <main className="flex-1 overflow-y-auto max-h-screen relative">
-          <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-wallstreet-100 via-white to-white -z-10 pointer-events-none"></div>
+          <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-wallstreet-100 via-wallstreet-900 to-wallstreet-900 -z-10 pointer-events-none"></div>
 
           {/* Always render Upload */}
           {viewPane(ViewState.UPLOAD,

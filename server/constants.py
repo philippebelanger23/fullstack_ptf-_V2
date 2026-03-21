@@ -17,7 +17,7 @@ BENCHMARK_TICKERS = {
 BENCHMARK_ORDER = ["USD/CAD", "S&P 500", "Dow Jones", "Nasdaq", "ACWI", "TSX60"]
 
 # Special tickers
-CASH_TICKER = "*cash*"
+CASH_TICKER = "*CASH*"
 BASE_CURRENCY = "CAD"
 FX_TICKER = "CAD=X"
 
@@ -27,5 +27,5 @@ FX_TICKERS = {"CAD=X"}
 
 # Benchmark blend composition (75% ACWI in CAD + 25% XIU.TO)
 BENCHMARK_BLEND_WEIGHTS = {"ACWI": 0.75, "XIU": 0.25}
-BENCHMARK_BLEND_TICKERS = ["ACWI", "XIU.TO", "USDCAD=X"]
+BENCHMARK_BLEND_TICKERS = ["ACWI", "XIU.TO", "XUS.TO", "USDCAD=X"]
 

@@ -9,6 +9,7 @@ export interface PortfolioItem {
   contribution?: number;
   isMutualFund?: boolean; // Flag for mutual funds requiring CSV NAV data
   isEtf?: boolean; // Flag for ETFs
+  isCash?: boolean; // Flag for cash equivalents
   sectorWeights?: Record<string, number>; // Custom sector breakdown percentage
 }
 
@@ -61,10 +62,20 @@ export interface BackcastSeriesPoint {
   benchmark: number;
 }
 
+export interface DrawdownEpisode {
+  start: string;
+  trough: string;
+  recovery: string | null;
+  depth: number; // negative %, e.g. -8.5
+  durationDays: number;
+  recoveryDays: number | null;
+}
+
 export interface BackcastResponse {
   metrics: BackcastMetrics;
   series: BackcastSeriesPoint[];
   missingTickers: string[];
+  topDrawdowns?: DrawdownEpisode[];
   fetchedAt?: string;
   error?: string;
 }
@@ -104,3 +115,19 @@ export interface RiskContributionResponse {
 
 // Sector History types
 export type SectorHistoryData = Record<string, { date: string; value: number }[]>;
+
+// Rolling Metrics types
+export interface RollingMetricPoint {
+  date: string;
+  portfolio: { sharpe: number; vol: number; beta: number };
+  benchmark: { sharpe: number; vol: number; beta: number };
+}
+
+export interface RollingMetricsResponse {
+  windows: {
+    21: RollingMetricPoint[];
+    63: RollingMetricPoint[];
+    126: RollingMetricPoint[];
+  };
+  error?: string;
+}

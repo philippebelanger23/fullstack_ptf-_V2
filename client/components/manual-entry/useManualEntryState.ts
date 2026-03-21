@@ -14,11 +14,13 @@ export interface TickerRow {
     name?: string; // Optional company name
     isMutualFund?: boolean; // Flag for mutual funds that require CSV NAV data
     isEtf?: boolean; // Flag for ETFs
+    isCash?: boolean; // Flag for cash equivalents
 }
 
 export const DEFAULT_TICKERS: TickerRow[] = [
     {
-        "ticker": "*cash*"
+        "ticker": "*CASH*",
+        "isCash": true
     },
     {
         "ticker": "MKB.TO"
@@ -144,7 +146,7 @@ export const DEFAULT_PERIODS: AllocationPeriod[] = [
         "startDate": "2024-12-31",
         "endDate": "Present",
         "weights": {
-            "*cash*": "0.50%",
+            "*CASH*": "0.50%",
             "MKB.TO": "9.20",
             "BIP791": "12.50",
             "DJT03868": "12.50",
@@ -189,7 +191,7 @@ export const DEFAULT_PERIODS: AllocationPeriod[] = [
         "startDate": "2025-01-31",
         "endDate": "Present",
         "weights": {
-            "*cash*": "0.50%",
+            "*CASH*": "0.50%",
             "MKB.TO": "9.20",
             "BIP791": "12.50",
             "DJT03868": "12.50",
@@ -234,7 +236,7 @@ export const DEFAULT_PERIODS: AllocationPeriod[] = [
         "startDate": "2025-02-20",
         "endDate": "Present",
         "weights": {
-            "*cash*": "0.50%",
+            "*CASH*": "0.50%",
             "MKB.TO": "9.20",
             "BIP791": "12.50",
             "DJT03868": "12.50",
@@ -279,7 +281,7 @@ export const DEFAULT_PERIODS: AllocationPeriod[] = [
         "startDate": "2025-02-26",
         "endDate": "Present",
         "weights": {
-            "*cash*": "2.25",
+            "*CASH*": "2.25",
             "MKB.TO": "9.20",
             "BIP791": "12.50",
             "DJT03868": "12.50",
@@ -324,7 +326,7 @@ export const DEFAULT_PERIODS: AllocationPeriod[] = [
         "startDate": "2025-02-28",
         "endDate": "Present",
         "weights": {
-            "*cash*": "2.25",
+            "*CASH*": "2.25",
             "MKB.TO": "9.20",
             "BIP791": "12.50",
             "DJT03868": "12.50",
@@ -369,7 +371,7 @@ export const DEFAULT_PERIODS: AllocationPeriod[] = [
         "startDate": "2025-03-31",
         "endDate": "Present",
         "weights": {
-            "*cash*": "2.25",
+            "*CASH*": "2.25",
             "MKB.TO": "9.20",
             "BIP791": "12.50",
             "DJT03868": "12.50",
@@ -414,7 +416,7 @@ export const DEFAULT_PERIODS: AllocationPeriod[] = [
         "startDate": "2025-04-30",
         "endDate": "Present",
         "weights": {
-            "*cash*": "2.25",
+            "*CASH*": "2.25",
             "MKB.TO": "9.20",
             "BIP791": "12.50",
             "DJT03868": "12.50",
@@ -459,7 +461,7 @@ export const DEFAULT_PERIODS: AllocationPeriod[] = [
         "startDate": "2025-05-31",
         "endDate": "Present",
         "weights": {
-            "*cash*": "2.25",
+            "*CASH*": "2.25",
             "MKB.TO": "9.20",
             "BIP791": "12.50",
             "DJT03868": "12.50",
@@ -504,7 +506,7 @@ export const DEFAULT_PERIODS: AllocationPeriod[] = [
         "startDate": "2025-06-25",
         "endDate": "Present",
         "weights": {
-            "*cash*": "0.50%",
+            "*CASH*": "0.50%",
             "MKB.TO": "9.20",
             "BIP791": "12.50",
             "DJT03868": "12.50",
@@ -549,7 +551,7 @@ export const DEFAULT_PERIODS: AllocationPeriod[] = [
         "startDate": "2025-06-30",
         "endDate": "Present",
         "weights": {
-            "*cash*": "0.50%",
+            "*CASH*": "0.50%",
             "MKB.TO": "9.20",
             "BIP791": "12.50",
             "DJT03868": "12.50",
@@ -594,7 +596,7 @@ export const DEFAULT_PERIODS: AllocationPeriod[] = [
         "startDate": "2025-07-31",
         "endDate": "Present",
         "weights": {
-            "*cash*": "0.50%",
+            "*CASH*": "0.50%",
             "MKB.TO": "9.20",
             "BIP791": "12.50",
             "DJT03868": "12.50",
@@ -639,7 +641,7 @@ export const DEFAULT_PERIODS: AllocationPeriod[] = [
         "startDate": "2025-08-27",
         "endDate": "Present",
         "weights": {
-            "*cash*": "0.50%",
+            "*CASH*": "0.50%",
             "MKB.TO": "3.20",
             "BIP791": "12.50",
             "DJT03868": "12.50",
@@ -684,7 +686,7 @@ export const DEFAULT_PERIODS: AllocationPeriod[] = [
         "startDate": "2025-08-31",
         "endDate": "Present",
         "weights": {
-            "*cash*": "0.50%",
+            "*CASH*": "0.50%",
             "MKB.TO": "3.20",
             "BIP791": "12.50",
             "DJT03868": "12.50",
@@ -729,7 +731,7 @@ export const DEFAULT_PERIODS: AllocationPeriod[] = [
         "startDate": "2025-09-03",
         "endDate": "Present",
         "weights": {
-            "*cash*": "0.50%",
+            "*CASH*": "0.50%",
             "MKB.TO": "1.20",
             "BIP791": "12.50",
             "DJT03868": "12.50",
@@ -774,7 +776,7 @@ export const DEFAULT_PERIODS: AllocationPeriod[] = [
         "startDate": "2025-09-10",
         "endDate": "Present",
         "weights": {
-            "*cash*": "0.50%",
+            "*CASH*": "0.50%",
             "MKB.TO": "1.20",
             "BIP791": "12.50",
             "DJT03868": "12.50",
@@ -819,7 +821,7 @@ export const DEFAULT_PERIODS: AllocationPeriod[] = [
         "startDate": "2025-09-30",
         "endDate": "Present",
         "weights": {
-            "*cash*": "0.50%",
+            "*CASH*": "0.50%",
             "MKB.TO": "1.20",
             "BIP791": "12.50",
             "DJT03868": "12.50",
@@ -864,7 +866,7 @@ export const DEFAULT_PERIODS: AllocationPeriod[] = [
         "startDate": "2025-10-15",
         "endDate": "Present",
         "weights": {
-            "*cash*": "0.50%",
+            "*CASH*": "0.50%",
             "MKB.TO": "0.00",
             "BIP791": "12.50",
             "DJT03868": "12.50",
@@ -909,7 +911,7 @@ export const DEFAULT_PERIODS: AllocationPeriod[] = [
         "startDate": "2025-10-27",
         "endDate": "Present",
         "weights": {
-            "*cash*": "0.50%",
+            "*CASH*": "0.50%",
             "MKB.TO": "0.00",
             "BIP791": "12.50",
             "DJT03868": "12.50",
@@ -954,7 +956,7 @@ export const DEFAULT_PERIODS: AllocationPeriod[] = [
         "startDate": "2025-10-31",
         "endDate": "Present",
         "weights": {
-            "*cash*": "0.50%",
+            "*CASH*": "0.50%",
             "MKB.TO": "0.00",
             "BIP791": "12.50",
             "DJT03868": "12.50",
@@ -999,7 +1001,7 @@ export const DEFAULT_PERIODS: AllocationPeriod[] = [
         "startDate": "2025-11-17",
         "endDate": "Present",
         "weights": {
-            "*cash*": "0.50",
+            "*CASH*": "0.50",
             "MKB.TO": "0.00",
             "BIP791": "12.50",
             "DJT03868": "12.50",
@@ -1044,7 +1046,7 @@ export const DEFAULT_PERIODS: AllocationPeriod[] = [
         "startDate": "2025-11-25",
         "endDate": "Present",
         "weights": {
-            "*cash*": "0.50",
+            "*CASH*": "0.50",
             "MKB.TO": "0.00",
             "BIP791": "12.50",
             "DJT03868": "12.50",
@@ -1089,7 +1091,7 @@ export const DEFAULT_PERIODS: AllocationPeriod[] = [
         "startDate": "2025-11-26",
         "endDate": "Present",
         "weights": {
-            "*cash*": "0.50",
+            "*CASH*": "0.50",
             "MKB.TO": "0.00",
             "BIP791": "12.50",
             "DJT03868": "12.50",
@@ -1134,7 +1136,7 @@ export const DEFAULT_PERIODS: AllocationPeriod[] = [
         "startDate": "2025-11-30",
         "endDate": "Present",
         "weights": {
-            "*cash*": "0.50",
+            "*CASH*": "0.50",
             "MKB.TO": "0.00",
             "BIP791": "12.50",
             "DJT03868": "12.50",
@@ -1179,7 +1181,7 @@ export const DEFAULT_PERIODS: AllocationPeriod[] = [
         "startDate": "2025-12-04",
         "endDate": "Present",
         "weights": {
-            "*cash*": "0.50",
+            "*CASH*": "0.50",
             "MKB.TO": "0.00",
             "BIP791": "12.50",
             "DJT03868": "12.50",
@@ -1224,7 +1226,7 @@ export const DEFAULT_PERIODS: AllocationPeriod[] = [
         "startDate": "2025-12-17",
         "endDate": "Present",
         "weights": {
-            "*cash*": "0.50",
+            "*CASH*": "0.50",
             "MKB.TO": "0.00",
             "BIP791": "12.50",
             "DJT03868": "12.50",
@@ -1269,7 +1271,7 @@ export const DEFAULT_PERIODS: AllocationPeriod[] = [
         "startDate": "2025-12-31",
         "endDate": "Present",
         "weights": {
-            "*cash*": "0.50",
+            "*CASH*": "0.50",
             "MKB.TO": "0.00",
             "BIP791": "12.50",
             "DJT03868": "12.50",
@@ -1328,6 +1330,7 @@ export interface UseManualEntryStateReturn {
     handleRemoveTicker: (ticker: string) => void;
     handleToggleMutualFund: (ticker: string) => void;
     handleToggleEtf: (ticker: string) => void;
+    handleToggleCash: (ticker: string) => void;
     handleWeightChange: (periodId: string, ticker: string, val: string) => void;
     handleWeightBlur: (periodId: string, ticker: string, val: string) => void;
     handleAddPeriod: () => void;
@@ -1427,6 +1430,14 @@ export function useManualEntryState(
         setTickers(tickers.map(t =>
             t.ticker === ticker
                 ? { ...t, isEtf: !t.isEtf }
+                : t
+        ));
+    };
+
+    const handleToggleCash = (ticker: string) => {
+        setTickers(tickers.map(t =>
+            t.ticker === ticker
+                ? { ...t, isCash: !t.isCash }
                 : t
         ));
     };
@@ -1537,8 +1548,12 @@ export function useManualEntryState(
         }
     });
 
-    // Sort tickers so those with 0% in the most recent period appear at the bottom
+    // Sort tickers: cash first, then active positions, then 0% positions at the bottom
     const sortedTickers = [...tickers].sort((a, b) => {
+        // Cash always first
+        if (a.isCash && !b.isCash) return -1;
+        if (!a.isCash && b.isCash) return 1;
+
         const mostRecentPeriod = filteredPeriods[filteredPeriods.length - 1];
         if (!mostRecentPeriod) return 0;
 
@@ -1587,6 +1602,7 @@ export function useManualEntryState(
         handleRemoveTicker,
         handleToggleMutualFund,
         handleToggleEtf,
+        handleToggleCash,
         handleWeightChange,
         handleWeightBlur,
         handleAddPeriod,

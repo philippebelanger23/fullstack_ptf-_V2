@@ -10,7 +10,7 @@ interface KPICardProps {
 }
 
 export const KPICard: React.FC<KPICardProps> = ({ title, value, subtext, icon: Icon, colorClass = 'text-wallstreet-text' }) => (
-    <div className="bg-white p-5 rounded-xl border border-wallstreet-700 shadow-sm flex flex-col justify-between h-32 relative overflow-hidden group hover:shadow-md transition-shadow">
+    <div className="bg-wallstreet-800 p-5 rounded-xl border border-wallstreet-700 shadow-sm flex flex-col justify-between h-32 relative overflow-hidden group hover:shadow-md transition-shadow">
         <div className="flex justify-between items-start z-10 w-full">
             <div className="w-full">
                 <h4 className="text-xs font-bold font-mono text-wallstreet-500 uppercase tracking-wider mb-2 border-b border-wallstreet-100 pb-2 w-full">{title}</h4>

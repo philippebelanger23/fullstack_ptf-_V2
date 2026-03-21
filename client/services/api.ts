@@ -1,4 +1,4 @@
-import { PortfolioItem, BackcastMetrics, BackcastSeriesPoint, BackcastResponse, RiskPosition, SectorRisk, RiskContributionResponse, SectorHistoryData } from '../types';
+import { PortfolioItem, BackcastMetrics, BackcastSeriesPoint, BackcastResponse, RiskPosition, SectorRisk, RiskContributionResponse, SectorHistoryData, RollingMetricsResponse } from '../types';
 
 const API_Base_URL = ''; // Use relative path to leverage Vite proxy
 
@@ -377,6 +377,7 @@ export const convertConfigToItems = (tickers: any[], periods: any[]): PortfolioI
                 date: period.startDate,
                 isMutualFund: t.isMutualFund || false,
                 isEtf: t.isEtf || false,
+                isCash: t.isCash || false,
             });
         });
     });
@@ -385,14 +386,14 @@ export const convertConfigToItems = (tickers: any[], periods: any[]): PortfolioI
 
 // BackcastMetrics, BackcastSeriesPoint, BackcastResponse moved to types.ts
 
-export const fetchPortfolioBackcast = async (items: PortfolioItem[]): Promise<BackcastResponse> => {
+export const fetchPortfolioBackcast = async (items: PortfolioItem[], benchmark: string = '75/25'): Promise<BackcastResponse> => {
     try {
         const response = await fetch(`${API_Base_URL}/portfolio-backcast`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
             },
-            body: JSON.stringify({ items }),
+            body: JSON.stringify({ items, benchmark }),
         });
 
         if (!response.ok) {
@@ -413,6 +414,23 @@ export const fetchPortfolioBackcast = async (items: PortfolioItem[]): Promise<Ba
             missingTickers: [],
             error: String(error)
         };
+    }
+};
+
+export const fetchRollingMetrics = async (items: PortfolioItem[], benchmark: string = '75/25'): Promise<RollingMetricsResponse> => {
+    try {
+        const response = await fetch(`${API_Base_URL}/rolling-metrics`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ items, benchmark }),
+        });
+        if (!response.ok) {
+            throw new Error(`Server Error: ${response.status}`);
+        }
+        return await response.json();
+    } catch (error) {
+        console.error("Rolling Metrics Error:", error);
+        return { windows: { 21: [], 63: [], 126: [] }, error: String(error) };
     }
 };
 

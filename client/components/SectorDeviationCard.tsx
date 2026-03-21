@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from 'react';
+import ReactDOM from 'react-dom';
 import { PortfolioItem } from '../types';
 
 interface IndexSector {
@@ -24,6 +25,8 @@ interface Props {
 
 export const SectorDeviationCard: React.FC<Props> = ({ currentHoldings, benchmarkData, benchmarkGeography, assetGeo }) => {
     const [deviationView, setDeviationView] = useState<'SECTOR' | 'GEOGRAPHY'>('SECTOR');
+    const [hoveredSector, setHoveredSector] = useState<string | null>(null);
+    const [tooltipPos, setTooltipPos] = useState<{ x: number; y: number } | null>(null);
 
     // The 11 GICS Sectors
     const GICS_SECTORS = [
@@ -103,17 +106,20 @@ export const SectorDeviationCard: React.FC<Props> = ({ currentHoldings, benchmar
         const groups = [
             {
                 name: 'Cyclical',
-                color: 'text-red-700',
+                color: 'text-red-400',
+                bgColor: 'bg-red-900/20',
                 sectors: ['Materials', 'Consumer Discretionary', 'Financials', 'Real Estate']
             },
             {
                 name: 'Sensitive',
-                color: 'text-blue-700',
+                color: 'text-blue-400',
+                bgColor: 'bg-blue-900/20',
                 sectors: ['Communication Services', 'Energy', 'Industrials', 'Technology']
             },
             {
                 name: 'Defensive',
-                color: 'text-green-700',
+                color: 'text-green-400',
+                bgColor: 'bg-green-900/20',
                 sectors: ['Consumer Staples', 'Health Care', 'Utilities']
             }
         ];
@@ -190,6 +196,32 @@ export const SectorDeviationCard: React.FC<Props> = ({ currentHoldings, benchmar
         ];
     }, [currentHoldings, benchmarkGeography, assetGeo]);
 
+    // Map of GICS sector key → contributors (direct holdings + ETF passthrough)
+    const sectorHoldings = useMemo(() => {
+        const map: Record<string, { ticker: string; weight: number; isEtf: boolean }[]> = {};
+        currentHoldings.forEach(item => {
+            if (item.sector === 'CASH') return;
+            if (item.sectorWeights) {
+                // ETF/MF: distribute weight proportionally across its sector breakdown
+                Object.entries(item.sectorWeights).forEach(([rawSector, pct]) => {
+                    const normalized = SECTOR_MAP[rawSector] || (GICS_SECTORS.includes(rawSector as any) ? rawSector : null);
+                    if (!normalized || typeof pct !== 'number') return;
+                    const contribution = item.weight * (pct / 100);
+                    if (contribution < 0.001) return;
+                    if (!map[normalized]) map[normalized] = [];
+                    map[normalized].push({ ticker: item.ticker, weight: contribution, isEtf: true });
+                });
+            } else {
+                const normalized = SECTOR_MAP[item.sector ?? ''];
+                if (!normalized) return;
+                if (!map[normalized]) map[normalized] = [];
+                map[normalized].push({ ticker: item.ticker, weight: item.weight, isEtf: false });
+            }
+        });
+        Object.keys(map).forEach(k => map[k].sort((a, b) => b.weight - a.weight));
+        return map;
+    }, [currentHoldings]);
+
     const DeltaBar = ({ val }: { val: number }) => {
         const absVal = Math.abs(val);
         const maxScale = 5;
@@ -200,7 +232,7 @@ export const SectorDeviationCard: React.FC<Props> = ({ currentHoldings, benchmar
                     {val < 0 && <div className="h-4 bg-rose-500 absolute right-0 top-1 rounded-l-sm" style={{ width: `${width}%` }} />}
                     {val >= 0 && <span className="text-emerald-700 font-bold z-10">{val > 0 ? '+' : ''}{val.toFixed(2)}%</span>}
                 </div>
-                <div className="w-px h-full bg-slate-300 z-10" />
+                <div className="w-px h-full bg-wallstreet-500 z-10" />
                 <div className="flex-1 flex justify-start pl-1 relative h-full items-center">
                     {val > 0 && <div className="h-4 bg-emerald-500 absolute left-0 top-1 rounded-r-sm" style={{ width: `${width}%` }} />}
                     {val < 0 && <span className="text-rose-700 font-bold z-10">({Math.abs(val).toFixed(2)}%)</span>}
@@ -210,7 +242,8 @@ export const SectorDeviationCard: React.FC<Props> = ({ currentHoldings, benchmar
     };
 
     return (
-        <div className="lg:col-span-1 bg-white p-6 rounded-xl border border-wallstreet-700 shadow-sm flex flex-col h-full">
+        <>
+        <div className="lg:col-span-1 bg-wallstreet-800 p-6 rounded-xl border border-wallstreet-700 shadow-sm flex flex-col h-full">
             <div className="flex items-center justify-between mb-4">
                 <h3 className="font-mono font-bold text-wallstreet-text uppercase tracking-wider text-sm">
                     Benchmark Deviation
@@ -220,7 +253,7 @@ export const SectorDeviationCard: React.FC<Props> = ({ currentHoldings, benchmar
                         onClick={() => setDeviationView('SECTOR')}
                         className={`px-2.5 py-1 text-xs font-mono rounded-md transition-all ${
                             deviationView === 'SECTOR'
-                                ? 'bg-white text-wallstreet-text shadow-sm'
+                                ? 'bg-wallstreet-800 text-wallstreet-text shadow-sm'
                                 : 'text-wallstreet-500 hover:text-wallstreet-600'
                         }`}
                     >
@@ -230,7 +263,7 @@ export const SectorDeviationCard: React.FC<Props> = ({ currentHoldings, benchmar
                         onClick={() => setDeviationView('GEOGRAPHY')}
                         className={`px-2.5 py-1 text-xs font-mono rounded-md transition-all ${
                             deviationView === 'GEOGRAPHY'
-                                ? 'bg-white text-wallstreet-text shadow-sm'
+                                ? 'bg-wallstreet-800 text-wallstreet-text shadow-sm'
                                 : 'text-wallstreet-500 hover:text-wallstreet-600'
                         }`}
                     >
@@ -257,11 +290,20 @@ export const SectorDeviationCard: React.FC<Props> = ({ currentHoldings, benchmar
                             {sectorData.groups.map((group, gIdx) => (
                                 <React.Fragment key={gIdx}>
                                     {group.sectors.map((sector, sIdx) => (
-                                        <tr key={sector.name} className="hover:bg-wallstreet-50">
+                                        <tr
+                                            key={sector.name}
+                                            className="hover:bg-wallstreet-50 cursor-default"
+                                            onMouseEnter={(e) => {
+                                                const rect = (e.currentTarget as HTMLTableRowElement).getBoundingClientRect();
+                                                setHoveredSector(sector.key);
+                                                setTooltipPos({ x: rect.right + 8, y: rect.top });
+                                            }}
+                                            onMouseLeave={() => { setHoveredSector(null); setTooltipPos(null); }}
+                                        >
                                             {sIdx === 0 && (
                                                 <td
                                                     rowSpan={group.sectors.length}
-                                                    className={`p-0 text-center border-r-2 ${group.name === 'Cyclical' ? 'border-red-100 bg-red-50/10' : group.name === 'Sensitive' ? 'border-blue-100 bg-blue-50/10' : 'border-green-100 bg-green-50/10'} align-middle relative`}
+                                                    className={`p-0 text-center border-r-2 ${group.name === 'Cyclical' ? 'border-red-800/60 bg-red-900/20' : group.name === 'Sensitive' ? 'border-blue-800/60 bg-blue-900/20' : 'border-green-800/60 bg-green-900/20'} align-middle relative`}
                                                 >
                                                     <div className="h-full w-full flex items-center justify-center py-4">
                                                         <span
@@ -273,23 +315,20 @@ export const SectorDeviationCard: React.FC<Props> = ({ currentHoldings, benchmar
                                                     </div>
                                                 </td>
                                             )}
-                                            <td className="p-2 font-bold">
+                                            <td className={`p-2 font-bold ${group.bgColor}`}>
                                                 <span className={`${group.color} text-sm`}>{sector.name}</span>
                                             </td>
-                                            <td className="p-2 text-right text-slate-500 text-sm">
+                                            <td className={`p-2 text-right text-wallstreet-500 text-sm ${group.bgColor}`}>
                                                 {sector.benchmark.toFixed(2)}%
                                             </td>
-                                            <td className="p-2 text-right font-bold text-wallstreet-text text-sm">
+                                            <td className={`p-2 text-right font-bold text-wallstreet-text text-sm ${group.bgColor}`}>
                                                 {sector.actual.toFixed(2)}%
                                             </td>
-                                            <td className="p-2">
+                                            <td className={`p-2 ${group.bgColor}`}>
                                                 <DeltaBar val={sector.delta} />
                                             </td>
                                         </tr>
                                     ))}
-                                    {gIdx < sectorData.groups.length - 1 && (
-                                        <tr className="h-1 bg-white border-0"></tr>
-                                    )}
                                 </React.Fragment>
                             ))}
                         </tbody>
@@ -322,7 +361,7 @@ export const SectorDeviationCard: React.FC<Props> = ({ currentHoldings, benchmar
                                     {geoDeviationData.map(row => (
                                         <tr key={row.region} className="hover:bg-wallstreet-50">
                                             <td className="p-2 font-bold text-wallstreet-text">{row.label}</td>
-                                            <td className="p-2 text-right text-slate-500">{row.benchmark.toFixed(2)}%</td>
+                                            <td className="p-2 text-right text-wallstreet-500">{row.benchmark.toFixed(2)}%</td>
                                             <td className="p-2 text-right font-bold text-wallstreet-text">{row.actual.toFixed(2)}%</td>
                                             <td className="p-2">
                                                 <DeltaBar val={row.delta} />
@@ -345,5 +384,35 @@ export const SectorDeviationCard: React.FC<Props> = ({ currentHoldings, benchmar
                 )}
             </div>
         </div>
+
+        {/* Sector hover tooltip — shows holdings driving the deviation */}
+        {hoveredSector && tooltipPos && ReactDOM.createPortal(
+            <div
+                style={{ position: 'fixed', top: tooltipPos.y, left: tooltipPos.x, zIndex: 9999, transform: 'translateY(-20%)' }}
+                className="bg-wallstreet-800 border border-wallstreet-700 rounded-lg shadow-xl text-xs font-mono min-w-[200px] pointer-events-none"
+                onMouseEnter={() => setHoveredSector(null)}
+            >
+                <div className="px-3 py-2 border-b border-wallstreet-700 font-bold text-wallstreet-text text-[11px] uppercase tracking-wider">
+                    {hoveredSector} Exposure
+                </div>
+                {(sectorHoldings[hoveredSector] ?? []).length === 0 ? (
+                    <div className="px-3 py-2 text-wallstreet-500 italic text-[11px]">No allocation in this sector</div>
+                ) : (
+                    <div className="px-3 py-2 space-y-1.5">
+                        {sectorHoldings[hoveredSector].map(h => (
+                            <div key={h.ticker} className="flex justify-between items-center gap-4">
+                                <div className="flex items-center gap-1.5">
+                                    <span className="font-bold text-wallstreet-text">{h.ticker}</span>
+                                    {h.isEtf && <span className="text-[9px] bg-blue-100 text-blue-600 px-1 py-0.5 rounded font-semibold">ETF</span>}
+                                </div>
+                                <span className="text-wallstreet-500">{h.weight.toFixed(2)}%</span>
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </div>,
+            document.body
+        )}
+        </>
     );
 };

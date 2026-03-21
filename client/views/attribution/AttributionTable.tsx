@@ -24,10 +24,10 @@ export const AttributionTable = ({ title, items, isQuarter = false, status = 'CO
     const totalSum = items.reduce((acc, i) => ({ weight: acc.weight + i.weight, contribution: acc.contribution + i.contribution }), { weight: 0, contribution: 0 });
 
     const RenderRow = ({ item, isBold = false, isSum = false }: { item: TableItem | any, isBold?: boolean, isSum?: boolean }) => (
-        <tr className={`${isSum ? 'border-t-2 border-gray-300 bg-white' : 'border-b border-wallstreet-100 last:border-0'}`}>
-            <td className={`p-1 px-3 text-left ${isBold || isSum ? 'font-bold' : 'font-medium'} text-black truncate`}>{isSum ? 'Σ' : item.ticker}</td>
-            <td className={`p-1 px-2 text-center ${isBold || isSum ? 'font-bold' : ''} text-black`}>{item.weight.toFixed(2)}%</td>
-            <td className={`p-1 px-2 text-center ${isBold || isSum ? 'font-bold' : ''} ${item.returnPct !== undefined ? (item.returnPct >= 0 ? 'text-green-700' : 'text-red-700') : 'text-gray-400'}`}>
+        <tr className={`${isSum ? 'border-t-2 border-wallstreet-700 bg-wallstreet-800' : 'border-b border-wallstreet-100 last:border-0'}`}>
+            <td className={`p-1 px-3 text-left ${isBold || isSum ? 'font-bold' : 'font-medium'} text-wallstreet-text truncate`}>{isSum ? 'Σ' : item.ticker}</td>
+            <td className={`p-1 px-2 text-center ${isBold || isSum ? 'font-bold' : ''} text-wallstreet-text`}>{item.weight.toFixed(2)}%</td>
+            <td className={`p-1 px-2 text-center ${isBold || isSum ? 'font-bold' : ''} ${item.returnPct !== undefined ? (item.returnPct >= 0 ? 'text-green-700' : 'text-red-700') : 'text-wallstreet-500'}`}>
                 {item.returnPct !== undefined ? (item.returnPct < 0 ? `(${Math.abs(item.returnPct).toFixed(2)}%)` : `${item.returnPct.toFixed(2)}%`) : ''}
             </td>
             <td className={`p-1 px-2 text-right font-bold pr-4 ${item.contribution >= 0 ? 'text-green-700' : 'text-red-700'}`}>
@@ -37,24 +37,24 @@ export const AttributionTable = ({ title, items, isQuarter = false, status = 'CO
     );
 
     return (
-        <div className={`${isQuarter ? 'bg-black' : 'bg-white'} rounded-xl shadow-sm flex flex-col h-full font-mono text-xs overflow-hidden print-table ${isQuarter ? 'border-4 border-black' : 'border-4 border-[#f1f5f9]'}`}>
+        <div className={`${isQuarter ? 'bg-black' : 'bg-wallstreet-800'} rounded-xl shadow-sm flex flex-col h-full font-mono text-xs overflow-hidden print-table ${isQuarter ? 'border-4 border-black' : 'border-4 border-wallstreet-700'}`}>
             {/* Title Row */}
             <div className={`py-4 text-center font-bold uppercase tracking-wider text-sm ${
-                status === 'IN_PROGRESS' ? 'bg-[#d1d5db] text-slate-800' : 'bg-black text-white'
+                status === 'IN_PROGRESS' ? 'bg-wallstreet-900 text-wallstreet-text' : 'bg-black text-white'
             }`}>
                 {title}
             </div>
 
-            <div className={`flex-1 overflow-x-auto ${isQuarter ? 'bg-white' : ''}`}>
+            <div className={`flex-1 overflow-x-auto ${isQuarter ? 'bg-wallstreet-800' : ''}`}>
                 <table className="w-full">
                     {/* Top Contributors Section */}
                     <thead>
                         {/* Spacer Row */}
-                        <tr className="h-4 bg-white"><td colSpan={4}></td></tr>
+                        <tr className="h-4 bg-wallstreet-800"><td colSpan={4}></td></tr>
 
                         {/* Section Title - Light Grey Background for seamless look */}
-                        <tr className="bg-white">
-                            <td colSpan={4} className="text-center font-bold text-black py-1.5 uppercase tracking-wide text-xs">Top Contributors</td>
+                        <tr className="bg-wallstreet-800">
+                            <td colSpan={4} className="text-center font-bold text-wallstreet-text py-1.5 uppercase tracking-wide text-xs">Top Contributors</td>
                         </tr>
 
                         {/* Column Headers */}
@@ -73,11 +73,11 @@ export const AttributionTable = ({ title, items, isQuarter = false, status = 'CO
                     {/* Top Disruptors Section */}
                     <thead>
                         {/* Spacer Row */}
-                        <tr className="h-4 bg-white"><td colSpan={4}></td></tr>
+                        <tr className="h-4 bg-wallstreet-800"><td colSpan={4}></td></tr>
 
                         {/* Section Title */}
-                        <tr className="bg-white ">
-                            <td colSpan={4} className="text-center font-bold text-black py-1.5 uppercase tracking-wide text-xs">Top Disruptors</td>
+                        <tr className="bg-wallstreet-800 ">
+                            <td colSpan={4} className="text-center font-bold text-wallstreet-text py-1.5 uppercase tracking-wide text-xs">Top Disruptors</td>
                         </tr>
 
                         {/* Column Headers */}
@@ -96,10 +96,10 @@ export const AttributionTable = ({ title, items, isQuarter = false, status = 'CO
                     {/* Footer Section */}
                     <tfoot>
                         {/* Spacer Row equivalent to Top Disruptors gap */}
-                        <tr className="h-4 bg-white"><td colSpan={4}></td></tr>
+                        <tr className="h-4 bg-wallstreet-800"><td colSpan={4}></td></tr>
 
                         <tr className="">
-                            <td className="p-1 px-3 text-left font-bold text-black">Other Holdings</td>
+                            <td className="p-1 px-3 text-left font-bold text-wallstreet-text">Other Holdings</td>
                             <td className="p-1 px-2 text-center font-medium">{residualOtherWeight.toFixed(2)}%</td>
                             <td className={`p-1 px-2 text-center font-medium ${othersReturn < 0 ? 'text-red-700' : 'text-green-700'}`}>
                                 {othersReturn < 0 ? `(${Math.abs(othersReturn).toFixed(2)}%)` : `${othersReturn.toFixed(2)}%`}
@@ -110,13 +110,13 @@ export const AttributionTable = ({ title, items, isQuarter = false, status = 'CO
                         </tr>
 
                         {/* Gap between Other Holdings and Total Portfolio */}
-                        <tr className="h-4 bg-white"><td colSpan={4}></td></tr>
+                        <tr className="h-4 bg-wallstreet-800"><td colSpan={4}></td></tr>
 
                         {/* Total Portfolio - Grey Background */}
-                        <tr className="bg-[#d1d5db]">
-                            <td className="p-1.5 px-3 text-left font-extrabold text-black">Total Portfolio</td>
-                            <td className="p-1.5 px-2 text-center font-bold text-black">100.00%</td>
-                            <td className="p-1.5 px-2 text-center font-bold text-gray-500"></td>
+                        <tr className="bg-wallstreet-900">
+                            <td className="p-1.5 px-3 text-left font-extrabold text-wallstreet-text">Total Portfolio</td>
+                            <td className="p-1.5 px-2 text-center font-bold text-wallstreet-text">100.00%</td>
+                            <td className="p-1.5 px-2 text-center font-bold text-wallstreet-500"></td>
                             <td className={`p-1.5 px-2 text-right font-extrabold pr-4 ${totalSum.contribution < 0 ? 'text-red-700' : 'text-green-700'}`}>
                                 {formatBps(totalSum.contribution)}
                             </td>

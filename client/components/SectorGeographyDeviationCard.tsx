@@ -116,25 +116,17 @@ function getDeltaBg(delta: number, minDelta: number, maxDelta: number): string {
     if (Math.abs(delta) < 0.005) return 'transparent';
     if (delta < 0 && minDelta < 0) {
         const t = Math.min(1, delta / minDelta);
-        // white → rose-200 (#fecdd3): rgb(255,255,255) → rgb(254,205,211)
-        const r = Math.round(255 - t * 1);
-        const g = Math.round(255 - t * 50);
-        const b = Math.round(255 - t * 44);
-        return `rgb(${r},${g},${b})`;
+        return `rgba(220, 38, 38, ${0.2 + t * 0.65})`;
     } else if (delta > 0 && maxDelta > 0) {
         const t = Math.min(1, delta / maxDelta);
-        // white → emerald-200 (#a7f3d0): rgb(255,255,255) → rgb(167,243,208)
-        const r = Math.round(255 - t * 88);
-        const g = Math.round(255 - t * 12);
-        const b = Math.round(255 - t * 47);
-        return `rgb(${r},${g},${b})`;
+        return `rgba(22, 163, 74, ${0.2 + t * 0.65})`;
     }
     return 'transparent';
 }
 
 function getDeltaTextColor(delta: number): string {
-    if (delta > 0.05) return '#059669';  // emerald-600 (readable on light green)
-    if (delta < -0.05) return '#e11d48'; // rose-600 (readable on light rose)
+    if (delta > 0.05) return '#4ade80';  // green-400 — visible on dark bg + semi-transparent green
+    if (delta < -0.05) return '#f87171'; // red-400 — visible on dark bg + semi-transparent red
     return '#94a3b8'; // slate-400 for near-zero
 }
 
@@ -227,29 +219,32 @@ export const SectorGeographyDeviationCard: React.FC<Props> = ({
         return `+${v.toFixed(2)}%`;
     };
 
-    const DeltaCell = ({ delta }: { delta: number }) => (
-        <td
-            className="p-2 text-center font-bold text-sm"
-            style={{
-                backgroundColor: getDeltaBg(delta, minDelta, maxDelta),
-                color: getDeltaTextColor(delta),
-            }}
-        >
-            {formatDelta(delta)}
-        </td>
-    );
+    const DeltaCell = ({ delta, bgColor, noBg }: { delta: number; bgColor?: string; noBg?: boolean }) => {
+        const deltaBgColor = noBg ? 'transparent' : getDeltaBg(delta, minDelta, maxDelta);
+        return (
+            <td
+                className={`p-2 text-center font-bold text-sm ${bgColor || ''}`}
+                style={{
+                    backgroundColor: deltaBgColor === 'transparent' ? undefined : deltaBgColor,
+                    color: getDeltaTextColor(delta),
+                }}
+            >
+                {formatDelta(delta)}
+            </td>
+        );
+    };
 
     const GROUPS = [
-        { name: 'Cyclical', color: 'text-red-700', borderColor: 'border-red-100', bgColor: 'bg-red-50/10', sectors: ['Materials', 'Consumer Discretionary', 'Financials', 'Real Estate'] },
-        { name: 'Sensitive', color: 'text-blue-700', borderColor: 'border-blue-100', bgColor: 'bg-blue-50/10', sectors: ['Communication Services', 'Energy', 'Industrials', 'Technology'] },
-        { name: 'Defensive', color: 'text-green-700', borderColor: 'border-green-100', bgColor: 'bg-green-50/10', sectors: ['Consumer Staples', 'Health Care', 'Utilities'] },
+        { name: 'Cyclical', color: 'text-red-400', borderColor: 'border-red-800/60', bgColor: 'bg-red-900/20', sectors: ['Materials', 'Consumer Discretionary', 'Financials', 'Real Estate'] },
+        { name: 'Sensitive', color: 'text-blue-400', borderColor: 'border-blue-800/60', bgColor: 'bg-blue-900/20', sectors: ['Communication Services', 'Energy', 'Industrials', 'Technology'] },
+        { name: 'Defensive', color: 'text-green-400', borderColor: 'border-green-800/60', bgColor: 'bg-green-900/20', sectors: ['Consumer Staples', 'Health Care', 'Utilities'] },
     ];
 
     return (
-        <div className="lg:col-span-1 bg-white p-6 rounded-xl border border-wallstreet-700 shadow-sm flex flex-col h-full">
+        <div className="lg:col-span-1 bg-wallstreet-800 p-6 rounded-xl border border-wallstreet-700 shadow-sm flex flex-col h-full">
             <div className="mb-4">
                 <h3 className="font-mono font-bold text-wallstreet-text uppercase tracking-wider text-sm">
-                    Sector × Geography
+                    Regional Sector Tilt
                 </h3>
             </div>
 
@@ -284,19 +279,16 @@ export const SectorGeographyDeviationCard: React.FC<Props> = ({
                                                 </div>
                                             </td>
                                         )}
-                                        <td className="p-2 font-bold">
+                                        <td className={`p-2 font-bold ${group.bgColor}`}>
                                             <span className={`text-sm ${group.color}`}>
                                                 {SECTOR_DISPLAY[sector]}
                                             </span>
                                         </td>
                                         {GEOS.map(geo => (
-                                            <DeltaCell key={geo} delta={deltaGrid[sector]?.[geo] ?? 0} />
+                                            <DeltaCell key={geo} delta={deltaGrid[sector]?.[geo] ?? 0} bgColor={group.bgColor} />
                                         ))}
                                     </tr>
                                 ))}
-                                {gIdx < GROUPS.length - 1 && (
-                                    <tr className="h-1 bg-white border-0"></tr>
-                                )}
                             </React.Fragment>
                         ))}
                     </tbody>
@@ -305,7 +297,7 @@ export const SectorGeographyDeviationCard: React.FC<Props> = ({
                             <td></td>
                             <td className="p-2 font-bold text-right text-xs uppercase text-wallstreet-500">Total</td>
                             {GEOS.map(geo => (
-                                <DeltaCell key={geo} delta={totalDelta[geo]} />
+                                <DeltaCell key={geo} delta={totalDelta[geo]} noBg />
                             ))}
                         </tr>
                     </tfoot>

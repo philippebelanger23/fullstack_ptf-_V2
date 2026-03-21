@@ -1,10 +1,11 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { AlertCircle } from 'lucide-react';
-import { loadPortfolioConfig, convertConfigToItems, fetchPortfolioBackcast } from '../../services/api';
-import { BackcastResponse, BackcastSeriesPoint } from '../../types';
+import { loadPortfolioConfig, convertConfigToItems, fetchPortfolioBackcast, fetchRollingMetrics } from '../../services/api';
+import { BackcastResponse, BackcastSeriesPoint, RollingMetricsResponse } from '../../types';
 import { FreshnessBadge } from '../../components/ui/FreshnessBadge';
 import { PerformanceKPIs, Period, PeriodMetrics } from './PerformanceKPIs';
 import { PerformanceCharts, ChartView } from './PerformanceCharts';
+import { RollingMetricsChart } from '../../components/RollingMetricsChart';
 
 const computeMetricsFromSeries = (filtered: BackcastSeriesPoint[]): PeriodMetrics | null => {
     if (filtered.length < 5) return null;
@@ -86,9 +87,11 @@ export const PerformanceView: React.FC = () => {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [data, setData] = useState<BackcastResponse | null>(null);
+    const [rollingData, setRollingData] = useState<RollingMetricsResponse | null>(null);
     const [selectedPeriod, setSelectedPeriod] = useState<Period>('YTD');
     const [chartView, setChartView] = useState<ChartView>('absolute');
     const [isFullscreen, setIsFullscreen] = useState(false);
+    const [benchmark, setBenchmark] = useState<string>('75/25');
 
     useEffect(() => {
         const handleEsc = (e: KeyboardEvent) => {
@@ -117,11 +120,17 @@ export const PerformanceView: React.FC = () => {
                     setLoading(false);
                     return;
                 }
-                const result = await fetchPortfolioBackcast(items);
+                const [result, rolling] = await Promise.all([
+                    fetchPortfolioBackcast(items, benchmark),
+                    fetchRollingMetrics(items, benchmark),
+                ]);
                 if (result.error) {
                     setError(result.error);
                 } else {
                     setData(result);
+                }
+                if (!rolling.error) {
+                    setRollingData(rolling);
                 }
             } catch (e) {
                 setError(String(e));
@@ -130,7 +139,7 @@ export const PerformanceView: React.FC = () => {
             }
         };
         fetchData();
-    }, []);
+    }, [benchmark]);
 
     const chartData = useMemo(() => {
         if (!data?.series || data.series.length === 0) return [];
@@ -218,10 +227,10 @@ export const PerformanceView: React.FC = () => {
     if (error) {
         return (
             <div className="p-8 animate-in fade-in duration-500">
-                <div className="flex flex-col items-center justify-center h-[400px] bg-white rounded-2xl border border-slate-200">
+                <div className="flex flex-col items-center justify-center h-[400px] bg-wallstreet-800 rounded-2xl border border-wallstreet-700">
                     <AlertCircle className="text-amber-500 mb-4" size={48} />
-                    <h2 className="text-lg font-bold text-slate-700 mb-2">Unable to Load Performance Data</h2>
-                    <p className="text-slate-500 text-center max-w-md">{error}</p>
+                    <h2 className="text-lg font-bold text-wallstreet-text mb-2">Unable to Load Performance Data</h2>
+                    <p className="text-wallstreet-500 text-center max-w-md">{error}</p>
                 </div>
             </div>
         );
@@ -232,10 +241,10 @@ export const PerformanceView: React.FC = () => {
             <div className="flex justify-between items-end">
                 <div>
                     <div className="flex items-center gap-3">
-                        <h1 className="text-3xl font-bold text-slate-900 tracking-tight">Performance Deep Dive</h1>
+                        <h1 className="text-3xl font-bold text-wallstreet-text tracking-tight">Performance Deep Dive</h1>
                         <FreshnessBadge fetchedAt={data?.fetchedAt ?? null} />
                     </div>
-                    <p className="text-slate-500 mt-1">Portfolio backcast based on current holdings vs. 75/25 Global Index (75% ACWI in CAD + 25% XIU.TO).</p>
+                    <p className="text-wallstreet-500 mt-1">Portfolio backcast based on current holdings vs. {benchmark === '75/25' ? 'Custom Benchmark (75% ACWI in CAD + 25% XIU.TO)' : benchmark === 'TSX60' ? 'TSX 60 (XIU.TO)' : 'S&P 500 CAD (XUS.TO)'}.</p>
                 </div>
             </div>
             <PerformanceKPIs periodMetrics={periodMetrics} previousPeriodMetrics={previousPeriodMetrics} selectedPeriod={selectedPeriod} loading={loading} />
@@ -250,7 +259,12 @@ export const PerformanceView: React.FC = () => {
                 setSelectedPeriod={setSelectedPeriod}
                 periodMetrics={periodMetrics}
                 loading={loading}
+                benchmark={benchmark}
+                setBenchmark={setBenchmark}
             />
+            {rollingData && !rollingData.error && (
+                <RollingMetricsChart windows={rollingData.windows} />
+            )}
         </div>
     );
 };
