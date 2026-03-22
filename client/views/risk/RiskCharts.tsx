@@ -96,7 +96,7 @@ export const RiskCharts: React.FC<RiskChartsProps> = ({
     const RiskTreemap: React.FC<{ data: typeof treemapData }> = ({ data: treemapData }) => {
         const containerRef = useRef<HTMLDivElement>(null);
         const [hoveredIdx, setHoveredIdx] = React.useState<number | null>(null);
-        const width = 300;
+        const width = 400;
         const height = 350;
 
         const layout = useMemo(() => treemapLayout(treemapData, width, height), [treemapData]);
@@ -104,52 +104,55 @@ export const RiskCharts: React.FC<RiskChartsProps> = ({
         return (
             <div ref={containerRef} className="relative w-full h-[350px] bg-wallstreet-900 rounded overflow-hidden">
                 <svg width="100%" height="100%" viewBox={`0 0 ${width} ${height}`} className="absolute inset-0">
-                    {layout.map((item, idx) => (
-                        <g
-                            key={idx}
-                            onMouseEnter={() => setHoveredIdx(idx)}
-                            onMouseLeave={() => setHoveredIdx(null)}
-                            style={{ cursor: 'pointer' }}
-                        >
-                            <rect
-                                x={item.x}
-                                y={item.y}
-                                width={item.w}
-                                height={item.h}
-                                fill={getRiskRatioColor(item.data.riskRatio)}
-                                stroke={tc.gridStrokeLight}
-                                strokeWidth={2}
-                                opacity={hoveredIdx === idx ? 1 : 0.85}
-                            />
-                            {item.w > 40 && item.h > 30 && (
-                                <>
-                                    <text
-                                        x={item.x + item.w / 2}
-                                        y={item.y + item.h / 2 - 8}
-                                        textAnchor="middle"
-                                        dominantBaseline="middle"
-                                        fontSize={11}
-                                        fontWeight="bold"
-                                        fontFamily="JetBrains Mono, monospace"
-                                        fill={tc.tooltipText}
-                                    >
-                                        {item.data.name}
-                                    </text>
-                                    <text
-                                        x={item.x + item.w / 2}
-                                        y={item.y + item.h / 2 + 8}
-                                        textAnchor="middle"
-                                        dominantBaseline="middle"
-                                        fontSize={9}
-                                        fontFamily="JetBrains Mono, monospace"
-                                        fill={tc.tickFill}
-                                    >
-                                        {item.data.riskRatio.toFixed(2)}x
-                                    </text>
-                                </>
-                            )}
-                        </g>
-                    ))}
+                    {layout.map((item, idx) => {
+                        const isLarge = item.w * item.h > 3000; // ~55x55px minimum
+                        return (
+                            <g
+                                key={idx}
+                                onMouseEnter={() => setHoveredIdx(idx)}
+                                onMouseLeave={() => setHoveredIdx(null)}
+                                style={{ cursor: 'pointer' }}
+                            >
+                                <rect
+                                    x={item.x}
+                                    y={item.y}
+                                    width={item.w}
+                                    height={item.h}
+                                    fill={getRiskRatioColor(item.data.riskRatio)}
+                                    stroke={tc.gridStrokeLight}
+                                    strokeWidth={1.5}
+                                    opacity={hoveredIdx === idx ? 0.95 : 0.8}
+                                />
+                                {isLarge && (
+                                    <>
+                                        <text
+                                            x={item.x + item.w / 2}
+                                            y={item.y + item.h / 2 - 6}
+                                            textAnchor="middle"
+                                            dominantBaseline="middle"
+                                            fontSize={12}
+                                            fontWeight="bold"
+                                            fontFamily="JetBrains Mono, monospace"
+                                            fill={tc.tooltipText}
+                                        >
+                                            {item.data.name}
+                                        </text>
+                                        <text
+                                            x={item.x + item.w / 2}
+                                            y={item.y + item.h / 2 + 8}
+                                            textAnchor="middle"
+                                            dominantBaseline="middle"
+                                            fontSize={10}
+                                            fontFamily="JetBrains Mono, monospace"
+                                            fill={tc.tickFill}
+                                        >
+                                            {item.data.riskRatio.toFixed(2)}x
+                                        </text>
+                                    </>
+                                )}
+                            </g>
+                        );
+                    })}
                 </svg>
 
                 {/* Tooltip */}
@@ -159,7 +162,7 @@ export const RiskCharts: React.FC<RiskChartsProps> = ({
                             left: `${layout[hoveredIdx].x + layout[hoveredIdx].w / 2}px`,
                             top: `${layout[hoveredIdx].y - 10}px`,
                             transform: 'translate(-50%, -100%)',
-                            minWidth: '200px'
+                            minWidth: '220px'
                         }}>
                         <div className="font-bold text-wallstreet-text text-sm border-b border-wallstreet-700 pb-2 mb-2">{layout[hoveredIdx].data.name}</div>
                         <div className="space-y-1.5">
@@ -174,13 +177,172 @@ export const RiskCharts: React.FC<RiskChartsProps> = ({
         );
     };
 
-    // Treemap data: sized by weight, colored by risk ratio
+    // Correlation heatmap renderer with improved UX
+    const CorrelationHeatmap: React.FC = () => {
+        if (!correlationMatrix || correlationMatrix.tickers.length === 0) {
+            return (
+                <div className="h-[600px] flex items-center justify-center text-wallstreet-500">
+                    No correlation data
+                </div>
+            );
+        }
+
+        const { tickers, matrix } = correlationMatrix;
+        const n = tickers.length;
+        const cellSize = Math.max(32, Math.min(48, 500 / n)); // Larger cells for readability
+        const labelWidth = 65;
+        const labelHeight = 65;
+        const padding = 10;
+        const width = labelWidth + n * cellSize + padding * 2;
+        const height = labelHeight + n * cellSize + padding * 2;
+
+        // Stronger color scale: darker blue/red for contrast
+        const getHeatmapColor = (value: number): string => {
+            if (value < 0) {
+                // -1 to 0: dark blue to white
+                const t = (value + 1) / 2; // 0 to 1
+                const r = Math.round(37 + t * 218);
+                const g = Math.round(99 + t * 156);
+                const b = Math.round(245);
+                return `rgb(${r}, ${g}, ${b})`;
+            } else {
+                // 0 to 1: white to dark red
+                const t = value; // 0 to 1
+                const r = Math.round(220 + t * 35);
+                const g = Math.round(38 + (1 - t) * 190);
+                const b = Math.round(38 + (1 - t) * 190);
+                return `rgb(${r}, ${g}, ${b})`;
+            }
+        };
+
+        const [hoveredCell, setHoveredCell] = React.useState<{ i: number; j: number } | null>(null);
+
+        return (
+            <div className="h-full overflow-auto bg-wallstreet-900 rounded">
+                <svg width={width} height={height} style={{ minWidth: 'fit-content' }}>
+                    {/* Column labels (horizontal, readable) */}
+                    {tickers.map((ticker, j) => (
+                        <text
+                            key={`col-${j}`}
+                            x={labelWidth + j * cellSize + cellSize / 2}
+                            y={labelHeight - 10}
+                            textAnchor="middle"
+                            dominantBaseline="middle"
+                            fontSize={11}
+                            fontWeight="500"
+                            fontFamily="JetBrains Mono, monospace"
+                            fill={tc.tooltipText}
+                        >
+                            {ticker}
+                        </text>
+                    ))}
+
+                    {/* Row labels (readable) */}
+                    {tickers.map((ticker, i) => (
+                        <text
+                            key={`row-${i}`}
+                            x={labelWidth - 10}
+                            y={labelHeight + i * cellSize + cellSize / 2}
+                            textAnchor="end"
+                            dominantBaseline="middle"
+                            fontSize={11}
+                            fontWeight="500"
+                            fontFamily="JetBrains Mono, monospace"
+                            fill={tc.tooltipText}
+                        >
+                            {ticker}
+                        </text>
+                    ))}
+
+                    {/* Heatmap cells with values */}
+                    {matrix.map((row, i) =>
+                        row.map((value, j) => {
+                            const isHovered = hoveredCell?.i === i && hoveredCell?.j === j;
+                            return (
+                                <g
+                                    key={`cell-${i}-${j}`}
+                                    onMouseEnter={() => setHoveredCell({ i, j })}
+                                    onMouseLeave={() => setHoveredCell(null)}
+                                    style={{ cursor: 'pointer' }}
+                                >
+                                    <rect
+                                        x={labelWidth + j * cellSize}
+                                        y={labelHeight + i * cellSize}
+                                        width={cellSize}
+                                        height={cellSize}
+                                        fill={getHeatmapColor(value)}
+                                        stroke={isHovered ? tc.referenceLine : tc.gridStrokeLight}
+                                        strokeWidth={isHovered ? 2 : 0.5}
+                                        opacity={0.9}
+                                    />
+                                    {/* Show value in cell */}
+                                    {cellSize > 32 && (
+                                        <text
+                                            x={labelWidth + j * cellSize + cellSize / 2}
+                                            y={labelHeight + i * cellSize + cellSize / 2}
+                                            textAnchor="middle"
+                                            dominantBaseline="middle"
+                                            fontSize={10}
+                                            fontWeight="600"
+                                            fontFamily="JetBrains Mono, monospace"
+                                            fill={Math.abs(value) > 0.6 ? '#f8fafc' : tc.tooltipText}
+                                            pointerEvents="none"
+                                        >
+                                            {value.toFixed(2)}
+                                        </text>
+                                    )}
+                                </g>
+                            );
+                        })
+                    )}
+
+                    {/* Legend */}
+                    <g transform={`translate(${labelWidth + 10}, ${height - 40})`}>
+                        <defs>
+                            <linearGradient id="corrGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+                                <stop offset="0%" stopColor="#2563eb" />
+                                <stop offset="50%" stopColor="#f8fafc" />
+                                <stop offset="100%" stopColor="#dc2626" />
+                            </linearGradient>
+                        </defs>
+                        <rect x={0} y={0} width={200} height={15} fill="url(#corrGradient)" stroke={tc.gridStrokeLight} strokeWidth={0.5} />
+                        <text x={0} y={-5} fontSize={9} fill={tc.tickFill} fontFamily="JetBrains Mono, monospace">-1.0</text>
+                        <text x={95} y={-5} fontSize={9} fill={tc.tickFill} fontFamily="JetBrains Mono, monospace" textAnchor="middle">0.0</text>
+                        <text x={200} y={-5} fontSize={9} fill={tc.tickFill} fontFamily="JetBrains Mono, monospace" textAnchor="end">+1.0</text>
+                    </g>
+                </svg>
+            </div>
+        );
+    };
+
+    // Color for treemap: green (diversifier) -> yellow -> red (concentrator)
+    const getRiskRatioColor = (ratio: number): string => {
+        const clamped = Math.max(0.25, Math.min(2.5, ratio));
+        if (clamped < 1) {
+            // 0.25 -> 1.0: green (#22c55e) to yellow-green
+            const t = (clamped - 0.25) / 0.75;
+            const r = Math.round(34 + t * 189);
+            const g = 197;
+            const b = Math.round(94 - t * 72);
+            return `rgba(${r}, ${g}, ${b}, 0.85)`;
+        } else {
+            // 1.0 -> 2.5: yellow-green to red (#ef4444)
+            const t = (clamped - 1) / 1.5;
+            const r = 239;
+            const g = Math.round(68 - t * 22);
+            const b = Math.round(68 - t * 22);
+            return `rgba(${r}, ${g}, ${b}, 0.85)`;
+        }
+    };
+
+    // Treemap data: sized by weight, colored by risk ratio - limit to top 15
     const treemapData = useMemo(() => {
-        return riskBarData.map(p => {
+        const topPositions = riskBarData.slice(0, 15);
+        return topPositions.map(p => {
             const ratio = p.weight > 0 ? p.riskPct / p.weight : 1;
             return {
                 name: p.ticker,
-                value: Math.max(0.5, p.weight), // ensure non-zero for treemap
+                value: Math.max(0.5, p.weight),
                 riskRatio: ratio,
                 riskPct: p.riskPct,
                 weight: p.weight,
@@ -193,164 +355,20 @@ export const RiskCharts: React.FC<RiskChartsProps> = ({
         });
     }, [riskBarData]);
 
-    // Color for treemap: green (diversifier) -> yellow -> red (concentrator)
-    const getRiskRatioColor = (ratio: number): string => {
-        const clamped = Math.max(0.25, Math.min(2.5, ratio));
-        if (clamped < 1) {
-            // 0.25 -> 1.0: green (#22c55e) to yellow-green
-            const t = (clamped - 0.25) / 0.75;
-            return `rgba(34, 197, 94, ${0.7 + t * 0.2})`;
-        } else {
-            // 1.0 -> 2.5: yellow-green to red (#ef4444)
-            const t = (clamped - 1) / 1.5;
-            const r = Math.round(34 + t * 221);
-            const g = Math.round(197 - t * 57);
-            const b = Math.round(94 - t * 50);
-            return `rgba(${r}, ${g}, ${b}, 0.85)`;
-        }
-    };
-
-    // Correlation heatmap renderer
-    const CorrelationHeatmap: React.FC = () => {
-        if (!correlationMatrix || correlationMatrix.tickers.length === 0) {
-            return (
-                <div className="h-[350px] flex items-center justify-center text-wallstreet-500">
-                    No correlation data
-                </div>
-            );
-        }
-
-        const { tickers, matrix } = correlationMatrix;
-        const n = tickers.length;
-        const cellSize = Math.max(20, Math.min(28, 280 / n));
-        const labelWidth = 50;
-        const labelHeight = 50;
-        const padding = 10;
-        const width = labelWidth + n * cellSize + padding * 2;
-        const height = labelHeight + n * cellSize + padding * 2;
-
-        // Color scale: blue (-1) -> white (0) -> red (+1)
-        const getHeatmapColor = (value: number): string => {
-            if (value < 0) {
-                // -1 to 0: blue to white
-                const t = (value + 1) / 2; // 0 to 1
-                const r = Math.round(59 + t * 196);
-                const g = Math.round(130 + t * 125);
-                const b = Math.round(246);
-                return `rgb(${r}, ${g}, ${b})`;
-            } else {
-                // 0 to 1: white to red
-                const t = value; // 0 to 1
-                const r = 239;
-                const g = Math.round(68 + (1 - t) * 187);
-                const b = Math.round(68 + (1 - t) * 187);
-                return `rgb(${r}, ${g}, ${b})`;
-            }
-        };
-
-        return (
-            <svg width="100%" height={Math.min(500, height)} viewBox={`0 0 ${width} ${height}`} style={{ overflow: 'visible' }}>
-                {/* Column labels (rotated) */}
-                {tickers.map((ticker, j) => (
-                    <g key={`col-${j}`} transform={`translate(${labelWidth + j * cellSize + cellSize / 2}, ${padding})`}>
-                        <text
-                            x={0}
-                            y={0}
-                            textAnchor="end"
-                            dominantBaseline="middle"
-                            fontSize={10}
-                            fontFamily="JetBrains Mono, monospace"
-                            fill={tc.tooltipText}
-                            transform="rotate(-45)"
-                        >
-                            {ticker}
-                        </text>
-                    </g>
-                ))}
-
-                {/* Row labels */}
-                {tickers.map((ticker, i) => (
-                    <text
-                        key={`row-${i}`}
-                        x={labelWidth - 5}
-                        y={labelHeight + i * cellSize + cellSize / 2}
-                        textAnchor="end"
-                        dominantBaseline="middle"
-                        fontSize={10}
-                        fontFamily="JetBrains Mono, monospace"
-                        fill={tc.tooltipText}
-                    >
-                        {ticker}
-                    </text>
-                ))}
-
-                {/* Heatmap cells */}
-                {matrix.map((row, i) =>
-                    row.map((value, j) => (
-                        <g
-                            key={`cell-${i}-${j}`}
-                            onMouseEnter={(e) => {
-                                const title = `${tickers[i]} ↔ ${tickers[j]}: ${value.toFixed(3)}`;
-                                const tooltip = document.createElement('div');
-                                tooltip.className = 'fixed bg-wallstreet-800 border border-wallstreet-700 rounded px-2 py-1 text-xs text-wallstreet-text font-mono z-50';
-                                tooltip.textContent = title;
-                                document.body.appendChild(tooltip);
-                                const rect = (e.target as SVGElement).getBoundingClientRect();
-                                tooltip.style.left = `${rect.left}px`;
-                                tooltip.style.top = `${rect.top - 30}px`;
-                                (e.target as SVGElement).setAttribute('data-tooltip-id', String(Math.random()));
-                            }}
-                            onMouseLeave={() => {
-                                const tooltips = document.querySelectorAll('[style*="fixed"][class*="bg-wallstreet-800"]');
-                                tooltips.forEach(t => t.remove());
-                            }}
-                        >
-                            <rect
-                                x={labelWidth + j * cellSize}
-                                y={labelHeight + i * cellSize}
-                                width={cellSize}
-                                height={cellSize}
-                                fill={getHeatmapColor(value)}
-                                stroke={tc.gridStrokeLight}
-                                strokeWidth={0.5}
-                                style={{ cursor: 'pointer' }}
-                            />
-                            {/* Show value in cell for larger grids */}
-                            {cellSize > 22 && (
-                                <text
-                                    x={labelWidth + j * cellSize + cellSize / 2}
-                                    y={labelHeight + i * cellSize + cellSize / 2}
-                                    textAnchor="middle"
-                                    dominantBaseline="middle"
-                                    fontSize={8}
-                                    fontFamily="JetBrains Mono, monospace"
-                                    fill={Math.abs(value) > 0.5 ? '#f8fafc' : tc.tooltipText}
-                                    pointerEvents="none"
-                                >
-                                    {value.toFixed(2)}
-                                </text>
-                            )}
-                        </g>
-                    ))
-                )}
-            </svg>
-        );
-    };
-
     return (
         <>
-            {/* Charts Row: Treemap, Scatter, Correlation */}
-            <div className="grid gap-6" style={{ gridTemplateColumns: '2fr 1.75fr 1.25fr' }}>
+            {/* Top Row: Treemap and Scatter */}
+            <div className="grid gap-6" style={{ gridTemplateColumns: '2fr 1.8fr' }}>
                 {/* Risk Treemap */}
                 <div className="bg-wallstreet-800 rounded-xl border border-wallstreet-700 shadow-sm p-6">
                     <h3 className="text-sm font-bold text-wallstreet-text uppercase tracking-wider mb-1">Risk Treemap</h3>
-                    <p className="text-xs text-wallstreet-500 mb-4">sized by weight · colored by risk intensity</p>
+                    <p className="text-xs text-wallstreet-500 mb-4">Top 15 positions: sized by weight · colored by risk intensity</p>
                     {loading ? (
                         <div className="h-[350px] flex items-center justify-center"><Loader2 className="animate-spin text-wallstreet-500" size={24} /></div>
                     ) : treemapData.length === 0 ? (
                         <div className="h-[350px] flex items-center justify-center text-wallstreet-500">No data</div>
                     ) : (
-                        <RiskTreemap data={treemapData} colorFn={getRiskRatioColor} themeColors={tc} />
+                        <RiskTreemap data={treemapData} />
                     )}
                 </div>
 
@@ -409,19 +427,19 @@ export const RiskCharts: React.FC<RiskChartsProps> = ({
                         </ResponsiveContainer>
                     )}
                 </div>
+            </div>
 
-                {/* Correlation Heatmap */}
-                <div className="bg-wallstreet-800 rounded-xl border border-wallstreet-700 shadow-sm p-6">
-                    <h3 className="text-sm font-bold text-wallstreet-text uppercase tracking-wider mb-1">Correlation Matrix</h3>
-                    <p className="text-xs text-wallstreet-500 mb-4">pairwise return correlations</p>
-                    {loading ? (
-                        <div className="h-[350px] flex items-center justify-center"><Loader2 className="animate-spin text-wallstreet-500" size={24} /></div>
-                    ) : (
-                        <div className="h-[350px] overflow-auto">
-                            <CorrelationHeatmap />
-                        </div>
-                    )}
-                </div>
+            {/* Correlation Heatmap - Full Width Below */}
+            <div className="bg-wallstreet-800 rounded-xl border border-wallstreet-700 shadow-sm p-6">
+                <h3 className="text-sm font-bold text-wallstreet-text uppercase tracking-wider mb-1">Correlation Matrix</h3>
+                <p className="text-xs text-wallstreet-500 mb-4">Pairwise return correlations (1Y) · Red = positive, Blue = negative</p>
+                {loading ? (
+                    <div className="h-[600px] flex items-center justify-center"><Loader2 className="animate-spin text-wallstreet-500" size={24} /></div>
+                ) : (
+                    <div className="h-[600px]">
+                        <CorrelationHeatmap />
+                    </div>
+                )}
             </div>
 
             {/* Sector Risk Decomposition */}
