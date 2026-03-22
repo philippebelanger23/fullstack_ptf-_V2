@@ -3,7 +3,7 @@ import { AlertCircle } from 'lucide-react';
 import { loadPortfolioConfig, convertConfigToItems, fetchPortfolioBackcast, fetchRollingMetrics } from '../../services/api';
 import { BackcastResponse, BackcastSeriesPoint, RollingMetricsResponse } from '../../types';
 import { FreshnessBadge } from '../../components/ui/FreshnessBadge';
-import { PerformanceKPIs, Period, PeriodMetrics } from './PerformanceKPIs';
+import type { Period, PeriodMetrics } from './PerformanceKPIs';
 import { PerformanceCharts, ChartView } from './PerformanceCharts';
 import { RollingMetricsChart } from '../../components/RollingMetricsChart';
 
@@ -189,13 +189,6 @@ export const PerformanceView: React.FC = () => {
         return computeMetricsFromSeries(filteredSeries);
     }, [filteredSeries]);
 
-    const previousPeriodMetrics = useMemo((): PeriodMetrics | null => {
-        if (filteredSeries.length < 10) return null;
-        // Compute metrics as of ~30 days ago (cut off the last 30 data points)
-        const cutoff = Math.max(5, filteredSeries.length - 30);
-        return computeMetricsFromSeries(filteredSeries.slice(0, cutoff));
-    }, [filteredSeries]);
-
     if (loading) {
         return (
             <div className="max-w-[100vw] mx-auto p-4 md:p-6 overflow-x-hidden min-h-screen flex flex-col items-center justify-center">
@@ -247,7 +240,6 @@ export const PerformanceView: React.FC = () => {
                     <p className="text-wallstreet-500 mt-1">Portfolio backcast based on current holdings vs. {benchmark === '75/25' ? 'Custom Benchmark (75% ACWI in CAD + 25% XIU.TO)' : benchmark === 'TSX60' ? 'TSX 60 (XIU.TO)' : 'S&P 500 CAD (XUS.TO)'}.</p>
                 </div>
             </div>
-            <PerformanceKPIs periodMetrics={periodMetrics} previousPeriodMetrics={previousPeriodMetrics} selectedPeriod={selectedPeriod} loading={loading} />
             <PerformanceCharts
                 data={data}
                 chartData={chartData}

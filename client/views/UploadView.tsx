@@ -416,7 +416,7 @@ export const UploadView: React.FC<UploadViewProps> = ({
               <button
                 onClick={() => setIsAssetSectionOpen(!isAssetSectionOpen)}
                 className={`mt-6 w-full py-4 rounded-xl font-bold flex items-center justify-center gap-2 transition-all ${isAssetSectionOpen
-                  ? 'bg-purple-900/30 text-purple-300 border border-purple-700 shadow-inner'
+                  ? 'bg-purple-50 text-purple-700 border-2 border-purple-300 shadow-inner dark:bg-purple-900/30 dark:text-purple-300 dark:border-purple-700'
                   : 'bg-purple-600 text-white shadow-lg shadow-purple-900/30 hover:bg-purple-700'
                   }`}
               >

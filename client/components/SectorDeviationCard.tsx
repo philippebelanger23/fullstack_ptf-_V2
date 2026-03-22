@@ -106,20 +106,20 @@ export const SectorDeviationCard: React.FC<Props> = ({ currentHoldings, benchmar
         const groups = [
             {
                 name: 'Cyclical',
-                color: 'text-red-400',
-                bgColor: 'bg-red-900/20',
+                color: 'text-red-600 dark:text-red-400',
+                bgColor: 'bg-red-100 dark:bg-red-900/20',
                 sectors: ['Materials', 'Consumer Discretionary', 'Financials', 'Real Estate']
             },
             {
                 name: 'Sensitive',
-                color: 'text-blue-400',
-                bgColor: 'bg-blue-900/20',
+                color: 'text-blue-600 dark:text-blue-400',
+                bgColor: 'bg-blue-100 dark:bg-blue-900/20',
                 sectors: ['Communication Services', 'Energy', 'Industrials', 'Technology']
             },
             {
                 name: 'Defensive',
-                color: 'text-green-400',
-                bgColor: 'bg-green-900/20',
+                color: 'text-green-600 dark:text-green-400',
+                bgColor: 'bg-green-100 dark:bg-green-900/20',
                 sectors: ['Consumer Staples', 'Health Care', 'Utilities']
             }
         ];
@@ -303,7 +303,7 @@ export const SectorDeviationCard: React.FC<Props> = ({ currentHoldings, benchmar
                                             {sIdx === 0 && (
                                                 <td
                                                     rowSpan={group.sectors.length}
-                                                    className={`p-0 text-center border-r-2 ${group.name === 'Cyclical' ? 'border-red-800/60 bg-red-900/20' : group.name === 'Sensitive' ? 'border-blue-800/60 bg-blue-900/20' : 'border-green-800/60 bg-green-900/20'} align-middle relative`}
+                                                    className={`p-0 text-center border-r-2 ${group.name === 'Cyclical' ? 'border-red-200 bg-red-50 dark:border-red-800/60 dark:bg-red-900/20' : group.name === 'Sensitive' ? 'border-blue-200 bg-blue-50 dark:border-blue-800/60 dark:bg-blue-900/20' : 'border-green-200 bg-green-50 dark:border-green-800/60 dark:bg-green-900/20'} align-middle relative`}
                                                 >
                                                     <div className="h-full w-full flex items-center justify-center py-4">
                                                         <span

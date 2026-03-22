@@ -51,9 +51,9 @@ const SECTOR_MAP: Record<string, string> = {
 // Geography display names and order
 const GEO_SECTIONS = [
   { key: 'CASH', label: 'Cash', color: 'bg-wallstreet-900 text-wallstreet-text border-wallstreet-700', bg: 'bg-wallstreet-900' },
-  { key: 'INTL', label: 'International', color: 'bg-purple-900/30 text-purple-300 border-purple-700', bg: 'bg-purple-900/30' },
-  { key: 'US', label: 'United States', color: 'bg-blue-900/30 text-blue-300 border-blue-700', bg: 'bg-blue-900/30' },
-  { key: 'CA', label: 'Canada', color: 'bg-red-900/30 text-red-300 border-red-700', bg: 'bg-red-900/30' },
+  { key: 'INTL', label: 'International', color: 'bg-purple-100 text-purple-700 border-purple-300 dark:bg-purple-900/30 dark:text-purple-300 dark:border-purple-700', bg: 'bg-purple-100 dark:bg-purple-900/30' },
+  { key: 'US', label: 'United States', color: 'bg-blue-100 text-blue-700 border-blue-300 dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-700', bg: 'bg-blue-100 dark:bg-blue-900/30' },
+  { key: 'CA', label: 'Canada', color: 'bg-red-100 text-red-700 border-red-300 dark:bg-red-900/30 dark:text-red-300 dark:border-red-700', bg: 'bg-red-100 dark:bg-red-900/30' },
 ] as const;
 
 export const PortfolioTable: React.FC<PortfolioTableProps> = ({ currentHoldings: rawHoldings, betaMap, divYieldMap, assetGeo }) => {
@@ -235,9 +235,9 @@ export const PortfolioTable: React.FC<PortfolioTableProps> = ({ currentHoldings:
 
   const getRegionColor = (region: string) => {
     switch (region) {
-      case 'US': return 'text-blue-300 bg-blue-900/40 border-blue-700';
-      case 'CA': return 'text-red-300 bg-red-900/40 border-red-700';
-      case 'INTL': return 'text-purple-300 bg-purple-900/40 border-purple-700';
+      case 'US': return 'text-blue-700 bg-blue-100 border-blue-300 dark:text-blue-300 dark:bg-blue-900/40 dark:border-blue-700';
+      case 'CA': return 'text-red-700 bg-red-100 border-red-300 dark:text-red-300 dark:bg-red-900/40 dark:border-red-700';
+      case 'INTL': return 'text-purple-700 bg-purple-100 border-purple-300 dark:text-purple-300 dark:bg-purple-900/40 dark:border-purple-700';
       default: return 'text-wallstreet-500 bg-wallstreet-900 border-wallstreet-700';
     }
   };

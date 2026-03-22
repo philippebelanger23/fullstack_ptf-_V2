@@ -1,5 +1,6 @@
 import React, { useMemo } from 'react';
 import { PortfolioItem } from '../types';
+import { useThemeColors } from '../hooks/useThemeColors';
 
 interface IndexSector {
     sector: string;
@@ -124,10 +125,10 @@ function getDeltaBg(delta: number, minDelta: number, maxDelta: number): string {
     return 'transparent';
 }
 
-function getDeltaTextColor(delta: number): string {
-    if (delta > 0.05) return '#4ade80';  // green-400 — visible on dark bg + semi-transparent green
-    if (delta < -0.05) return '#f87171'; // red-400 — visible on dark bg + semi-transparent red
-    return '#94a3b8'; // slate-400 for near-zero
+function getDeltaTextColor(delta: number, isDark: boolean): string {
+    if (delta > 0.05) return isDark ? '#4ade80' : '#15803d';  // dark: green-400, light: green-700
+    if (delta < -0.05) return isDark ? '#f87171' : '#b91c1c'; // dark: red-400, light: red-700
+    return isDark ? '#94a3b8' : '#64748b'; // slate-400/500
 }
 
 export const SectorGeographyDeviationCard: React.FC<Props> = ({
@@ -136,6 +137,7 @@ export const SectorGeographyDeviationCard: React.FC<Props> = ({
     benchmarkGeography,
     assetGeo,
 }) => {
+    const { isDark } = useThemeColors();
     const { deltaGrid, totalDelta, minDelta, maxDelta } = useMemo(() => {
         // ── Portfolio: sector × geo grid ─────────────────────────────────
         const portfolioGrid: Record<string, Record<GeoKey, number>> = {};
@@ -214,7 +216,7 @@ export const SectorGeographyDeviationCard: React.FC<Props> = ({
     }, [currentHoldings, benchmarkSectors, benchmarkGeography, assetGeo]);
 
     const formatDelta = (v: number) => {
-        if (Math.abs(v) < 0.005) return <span style={{ color: '#cbd5e1' }}>—</span>;
+        if (Math.abs(v) < 0.005) return <span style={{ color: isDark ? '#cbd5e1' : '#94a3b8' }}>—</span>;
         if (v < 0) return `(${Math.abs(v).toFixed(2)}%)`;
         return `+${v.toFixed(2)}%`;
     };
@@ -226,7 +228,7 @@ export const SectorGeographyDeviationCard: React.FC<Props> = ({
                 className={`p-2 text-center font-bold text-sm ${bgColor || ''}`}
                 style={{
                     backgroundColor: deltaBgColor === 'transparent' ? undefined : deltaBgColor,
-                    color: getDeltaTextColor(delta),
+                    color: getDeltaTextColor(delta, isDark),
                 }}
             >
                 {formatDelta(delta)}
@@ -235,9 +237,9 @@ export const SectorGeographyDeviationCard: React.FC<Props> = ({
     };
 
     const GROUPS = [
-        { name: 'Cyclical', color: 'text-red-400', borderColor: 'border-red-800/60', bgColor: 'bg-red-900/20', sectors: ['Materials', 'Consumer Discretionary', 'Financials', 'Real Estate'] },
-        { name: 'Sensitive', color: 'text-blue-400', borderColor: 'border-blue-800/60', bgColor: 'bg-blue-900/20', sectors: ['Communication Services', 'Energy', 'Industrials', 'Technology'] },
-        { name: 'Defensive', color: 'text-green-400', borderColor: 'border-green-800/60', bgColor: 'bg-green-900/20', sectors: ['Consumer Staples', 'Health Care', 'Utilities'] },
+        { name: 'Cyclical', color: 'text-red-600 dark:text-red-400', borderColor: 'border-red-200 dark:border-red-800/60', bgColor: 'bg-red-100 dark:bg-red-900/20', sectors: ['Materials', 'Consumer Discretionary', 'Financials', 'Real Estate'] },
+        { name: 'Sensitive', color: 'text-blue-600 dark:text-blue-400', borderColor: 'border-blue-200 dark:border-blue-800/60', bgColor: 'bg-blue-100 dark:bg-blue-900/20', sectors: ['Communication Services', 'Energy', 'Industrials', 'Technology'] },
+        { name: 'Defensive', color: 'text-green-600 dark:text-green-400', borderColor: 'border-green-200 dark:border-green-800/60', bgColor: 'bg-green-100 dark:bg-green-900/20', sectors: ['Consumer Staples', 'Health Care', 'Utilities'] },
     ];
 
     return (

@@ -599,7 +599,7 @@ Many components bypass CSS variables with hardcoded Tailwind. These MUST be conv
 | 4 | **#4 Drawdown Analysis** | Medium | DONE | Extends existing backcast infra + existing drawdowns ChartView |
 | 5 | **#5 Rolling Metrics** | Medium | DONE | New backend computation, builds on backcast_service.py |
 | 6 | **#6 Rich Tooltips** | Medium | DONE | Enhancement to existing chart tooltips, needs data threading |
-| Extra | **Risk Contribution Overhaul** | Medium-Large | | 5 sub-features: Beta KPI → VaR/CVaR → Return/Risk quadrant → Treemap → Correlation matrix |
+| Extra | **Risk Contribution Overhaul** | Medium-Large | IN PROGRESS | Correlation matrix added to backend + frontend. Bar chart restored (cleaner than treemap attempt). Layout redesigned as 2×2 grid. **Still TODO:** polish heatmap dark-mode colors, add VaR/CVaR KPI cards, return/risk quadrant overlay on scatter, refine bar chart tooltip styling, responsive breakpoints for mobile |
 | 7 | **#7 Dark Mode** | Large | DONE | Foundation — touches CSS variables, must migrate hardcoded colors across ~15 files |
 | 8 | **#8 Peer Comparison** | Large | | New backend + frontend, depends on stable backcast infra |
 | 9 | **#9 Report Export** | Large | | Capstone — assembles all views, best done after others are polished |
@@ -673,3 +673,25 @@ Current feature markers:
 5. **Split cells:** Separate "group background" container from "delta magnitude" indicator
 
 **Where:** [SectorGeographyDeviationCard.tsx:230-240](client/components/SectorGeographyDeviationCard.tsx#L230-L240) (DeltaCell component)
+
+### X-Axis Label Formatting Rework
+**Goal:** Improve the chart X-axis date label logic to consistently and elegantly display year information when data spans multiple years.
+
+**Current Status:** Implemented a basic solution that:
+- Shows year for Jan/Dec boundary months
+- Shows year if data spans multiple years by checking first/last dates in chartData
+- Font size increased to 13px for better readability
+
+**Issue:** The logic is somewhat fragile and depends on checking chartData bounds every render. Not all months show year consistently when spanning years.
+
+**Potential improvements (if revisited):**
+1. **Pre-compute year span:** Pass `hasMultipleYears` flag from parent component instead of computing in formatXAxis
+2. **Smarter month detection:** Show year for any month if data contains both years (not just Jan/Dec)
+3. **Dynamic label width:** Consider responsive font sizing or label rotation when many dates are shown
+4. **Localization:** Support different date formats by locale (e.g., "6 Jan 2026" vs "Jan 6, 2026" vs "2026-01-06")
+
+**Where:** [UnifiedPerformancePanel.tsx:43-57](client/views/performance/UnifiedPerformancePanel.tsx#L43-L57) (formatXAxis function)
+
+**Files involved:**
+- [UnifiedPerformancePanel.tsx](client/views/performance/UnifiedPerformancePanel.tsx) — formatXAxis function, all XAxis tick fontSize
+
