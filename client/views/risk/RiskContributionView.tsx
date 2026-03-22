@@ -16,8 +16,6 @@ export const RiskContributionView: React.FC = () => {
     const [sortKey, setSortKey] = useState<SortKey>('pctOfTotalRisk');
     const [sortAsc, setSortAsc] = useState(false);
     const [positionMode, setPositionMode] = useState<PositionMode>('actual');
-    const [expandedChart, setExpandedChart] = useState(false);
-    const [barChartMode, setBarChartMode] = useState<'absolute' | 'ratio'>('absolute');
 
     useEffect(() => {
         let cancelled = false;
@@ -109,17 +107,6 @@ export const RiskContributionView: React.FC = () => {
                 annualizedReturn: p.annualizedReturn,
                 riskAdjustedReturn: p.riskAdjustedReturn,
             }));
-    }, [data]);
-
-    const ratioBarData = useMemo(() => {
-        if (!data) return [];
-        return [...data.positions]
-            .filter(p => p.weight > 0)
-            .map(p => ({
-                ticker: p.ticker,
-                ratio: +(p.pctOfTotalRisk / p.weight).toFixed(2),
-            }))
-            .sort((a, b) => b.ratio - a.ratio);
     }, [data]);
 
     const scatterData = useMemo(() => {
@@ -241,13 +228,9 @@ export const RiskContributionView: React.FC = () => {
             <RiskCharts
                 loading={loading}
                 riskBarData={riskBarData}
-                ratioBarData={ratioBarData}
                 scatterData={scatterData}
                 sectorRisk={data?.sectorRisk ?? []}
-                barChartMode={barChartMode}
-                setBarChartMode={setBarChartMode}
-                expandedChart={expandedChart}
-                setExpandedChart={setExpandedChart}
+                correlationMatrix={data?.correlationMatrix}
             />
 
             <RiskTable

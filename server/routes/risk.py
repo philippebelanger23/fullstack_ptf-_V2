@@ -224,6 +224,35 @@ async def risk_contribution(request: BackcastRequest):
     except Exception as e:
         logger.warning(f"Could not load sector data for risk: {e}")
 
+    # 9. Compute correlation matrix (top 15 positions by risk contribution)
+    correlation_matrix = None
+    try:
+        sorted_positions = sorted(positions, key=lambda x: -x["pctOfTotalRisk"])[:15]
+        corr_tickers = [p["ticker"] for p in sorted_positions]
+
+        # Build correlation matrix from covariance
+        corr_matrix = np.zeros((len(corr_tickers), len(corr_tickers)))
+        for i, ticker_i in enumerate(corr_tickers):
+            idx_i = ticker_list.index(ticker_i)
+            for j, ticker_j in enumerate(corr_tickers):
+                idx_j = ticker_list.index(ticker_j)
+                cov_ij = cov_matrix[idx_i, idx_j]
+                vol_i = individual_vols[idx_i]
+                vol_j = individual_vols[idx_j]
+                if vol_i > 0 and vol_j > 0:
+                    corr_val = cov_ij / (vol_i * vol_j)
+                    corr_val = float(np.clip(corr_val, -1, 1))
+                else:
+                    corr_val = 1.0 if i == j else 0.0
+                corr_matrix[i, j] = round(corr_val, 3)
+
+        correlation_matrix = {
+            "tickers": corr_tickers,
+            "matrix": corr_matrix.tolist(),
+        }
+    except Exception as e:
+        logger.warning(f"Could not compute correlation matrix: {e}")
+
     return {
         "portfolioVol": round(float(port_vol) * 100, 2),
         "benchmarkVol": round(float(bmk_vol) * 100, 2),
@@ -233,6 +262,7 @@ async def risk_contribution(request: BackcastRequest):
         "top3Concentration": round(float(top3_concentration) * 100, 1),
         "positions": positions,
         "sectorRisk": sector_risk,
+        "correlationMatrix": correlation_matrix,
         "missingTickers": missing_tickers,
         "fetchedAt": datetime.now(timezone.utc).isoformat(),
     }

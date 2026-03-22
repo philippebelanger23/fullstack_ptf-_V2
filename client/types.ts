@@ -108,6 +108,10 @@ export interface RiskContributionResponse {
   top3Concentration: number;
   positions: RiskPosition[];
   sectorRisk: SectorRisk[];
+  correlationMatrix?: {
+    tickers: string[];
+    matrix: number[][];
+  };
   missingTickers: string[];
   fetchedAt?: string;
   error?: string;
