@@ -1,4 +1,4 @@
-import React, { useCallback, useRef } from 'react';
+import React, { useCallback, useRef, useMemo } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, LabelList, ReferenceLine } from 'recharts';
 import { TrendingUp, Layers, Loader2 } from 'lucide-react';
 import { useThemeColors } from '../../hooks/useThemeColors';
@@ -116,6 +116,13 @@ export const SectorAttributionCharts: React.FC<SectorAttributionChartsProps> = (
     const explanationRef = useRef<HTMLDivElement>(null);
     const hoveredKeyRef = useRef<string | null>(null);
 
+    // Calculate totals for each attribution factor
+    const totals = useMemo(() => ({
+        selection: sectorAttributionData.data.reduce((sum, d) => sum + d.selectionEffect, 0),
+        allocation: sectorAttributionData.data.reduce((sum, d) => sum + d.allocationEffect, 0),
+        interaction: sectorAttributionData.data.reduce((sum, d) => sum + d.interactionEffect, 0),
+    }), [sectorAttributionData.data]);
+
     const colorSpan = (val: number, text: string) =>
         `<strong class="${val >= 0 ? 'text-green-600' : 'text-red-600'}">${text}</strong>`;
 
@@ -130,6 +137,9 @@ export const SectorAttributionCharts: React.FC<SectorAttributionChartsProps> = (
         }
 
         if (chart === 'selection') {
+            if (!d.hasDirectHoldings) {
+                return `Your <strong>${d.displayName}</strong> exposure (${d.portfolioWeight.toFixed(1)}%) comes entirely from ETFs/index funds — no stock picks to evaluate, so selection effect is zero.`;
+            }
             const diff = d.portfolioReturn - d.benchmarkReturn;
             const verb = diff >= 0 ? 'outperformed' : 'underperformed';
             return `Your ${regionLabel}<strong>${d.displayName}</strong> picks returned ${colorSpan(d.portfolioReturn, fmt(d.portfolioReturn))} vs. ${benchLabel}'s <strong>${fmt(d.benchmarkReturn)}</strong> — your stock selection ${verb} by ${colorSpan(d.selectionEffect, Math.abs(diff).toFixed(2) + '%')}, contributing a ${colorSpan(d.selectionEffect, fmt(d.selectionEffect))} selection effect to the portfolio.`;
@@ -144,6 +154,9 @@ export const SectorAttributionCharts: React.FC<SectorAttributionChartsProps> = (
             return `Your portfolio holds <strong>${d.portfolioWeight.toFixed(1)}%</strong> in ${regionLabel}<strong>${d.displayName}</strong> vs. the benchmark's <strong class="text-blue-600">${d.benchmarkWeight.toFixed(1)}%</strong> — you are ${overUnder}. ${d.displayName} ${sectorBeat} (${benchLabel} ${fmt(d.benchmarkReturn)}), resulting in a ${colorSpan(d.allocationEffect, fmt(d.allocationEffect))} allocation effect.`;
         }
 
+        if (!d.hasDirectHoldings) {
+            return `Your <strong>${d.displayName}</strong> exposure comes entirely from ETFs/index funds — interaction effect is zero.`;
+        }
         return `Interaction effect for ${regionLabel}<strong>${d.displayName}</strong> vs. ${benchLabel}: ${colorSpan(d.interactionEffect, fmt(d.interactionEffect))}. The combined overlap of your weight tilt (${d.portfolioWeight.toFixed(1)}% vs. ${d.benchmarkWeight.toFixed(1)}%) and stock selection ${d.interactionEffect >= 0 ? 'compounded positively' : 'created additional drag'}.`;
     }, [regionFilter, benchmarkMode]);
 
@@ -236,6 +249,9 @@ export const SectorAttributionCharts: React.FC<SectorAttributionChartsProps> = (
                         <span className="text-[12px] font-mono font-black text-wallstreet-text uppercase tracking-wider">
                             Selection
                         </span>
+                        <div className={`text-[11px] font-mono font-bold ${totals.selection >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                            {totals.selection < 0 ? `(${Math.abs(totals.selection).toFixed(2)}%)` : `+${totals.selection.toFixed(2)}%`}
+                        </div>
                     </div>
                     <div className="flex-1 w-full relative overflow-hidden">
                         <ResponsiveContainer width="100%" height="100%">
@@ -254,11 +270,14 @@ export const SectorAttributionCharts: React.FC<SectorAttributionChartsProps> = (
                                     if (active && payload && payload.length) {
                                         const d = payload[0].payload;
                                         const hasHoldings = d.portfolioWeight > 0.001;
+                                        const hasStocks = d.hasDirectHoldings;
                                         return (
                                             <div className="bg-wallstreet-800 p-4 rounded-lg shadow-xl border border-wallstreet-700 font-mono text-[12px] z-50 min-w-[220px]">
                                                 <div className="font-bold border-b pb-2 mb-2 uppercase text-[13px]">{d.displayName} Selection</div>
                                                 {!hasHoldings ? (
                                                     <div className="text-wallstreet-500 italic text-[11px] py-2">No holdings in this sector — selection effect is zero.</div>
+                                                ) : !hasStocks ? (
+                                                    <div className="text-wallstreet-500 italic text-[11px] py-2">Index-only exposure ({d.portfolioWeight.toFixed(2)}% via ETFs) — no stock picks to evaluate.</div>
                                                 ) : (
                                                 <div className="space-y-1.5">
                                                     <div className="flex justify-between gap-4">
@@ -279,7 +298,7 @@ export const SectorAttributionCharts: React.FC<SectorAttributionChartsProps> = (
                                                     </div>
                                                 </div>
                                                 )}
-                                                {hasHoldings && d.stocks.length > 0 && (
+                                                {hasStocks && d.stocks.length > 0 && (
                                                 <div className="border-t mt-3 pt-2">
                                                     <div className="text-[10px] text-wallstreet-500 mb-2 uppercase text-center font-bold">Key Drivers (Selection):</div>
                                                     <div className="grid text-[10px] font-mono" style={{ gridTemplateColumns: 'auto 1fr 1fr', fontVariantNumeric: 'tabular-nums' }}>
@@ -320,6 +339,11 @@ export const SectorAttributionCharts: React.FC<SectorAttributionChartsProps> = (
                         <span className="text-[12px] font-mono font-black text-wallstreet-text uppercase tracking-wider">
                             Allocation
                         </span>
+                        {benchmarkMode === 'SECTOR' && (
+                            <div className={`text-[11px] font-mono font-bold ${totals.allocation >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                {totals.allocation < 0 ? `(${Math.abs(totals.allocation).toFixed(2)}%)` : `+${totals.allocation.toFixed(2)}%`}
+                            </div>
+                        )}
                     </div>
                     {benchmarkMode !== 'SECTOR' ? (
                         <div className="flex-1 flex items-center justify-center">
@@ -391,6 +415,9 @@ export const SectorAttributionCharts: React.FC<SectorAttributionChartsProps> = (
                         <span className="text-[12px] font-mono font-black text-wallstreet-text uppercase tracking-wider">
                             Interaction
                         </span>
+                        <div className={`text-[11px] font-mono font-bold ${totals.interaction >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                            {totals.interaction < 0 ? `(${Math.abs(totals.interaction).toFixed(2)}%)` : `+${totals.interaction.toFixed(2)}%`}
+                        </div>
                     </div>
                     <div className="flex-1 w-full relative overflow-hidden">
                         <ResponsiveContainer width="100%" height="100%">
@@ -409,11 +436,14 @@ export const SectorAttributionCharts: React.FC<SectorAttributionChartsProps> = (
                                     if (active && payload && payload.length) {
                                         const d = payload[0].payload;
                                         const hasHoldings = d.portfolioWeight > 0.001;
+                                        const hasStocks = d.hasDirectHoldings;
                                         return (
                                             <div className="bg-wallstreet-800 p-4 rounded-lg shadow-xl border border-wallstreet-700 font-mono text-[12px] z-50 min-w-[220px]">
                                                 <div className="font-bold border-b pb-2 mb-2 uppercase text-[13px]">{d.displayName} Interaction</div>
                                                 {!hasHoldings ? (
                                                     <div className="text-wallstreet-500 italic text-[11px] py-2">No holdings in this sector — interaction effect is zero.</div>
+                                                ) : !hasStocks ? (
+                                                    <div className="text-wallstreet-500 italic text-[11px] py-2">Index-only exposure ({d.portfolioWeight.toFixed(2)}% via ETFs) — interaction effect is zero.</div>
                                                 ) : (
                                                 <div className="space-y-1.5 text-[12px]">
                                                     <div className="flex justify-between gap-4">

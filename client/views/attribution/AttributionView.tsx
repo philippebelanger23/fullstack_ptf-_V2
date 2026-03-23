@@ -152,11 +152,16 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
         loadTickerSectors();
     }, [data]);
 
-    // Select sector history based on region filter: CA uses Canadian ETFs, US/ALL use US ETFs
+    // Select sector history based on region filter: CA uses Canadian ETFs, US uses US ETFs
     const activeSectorHistory = useMemo(() => {
         if (regionFilter === 'CA') return sectorHistory.CA || {};
         return sectorHistory.US || {};
     }, [sectorHistory, regionFilter]);
+
+    // For "ALL" region, also keep CA history available for blending
+    const caSectorHistory = useMemo(() => {
+        return sectorHistory.CA || {};
+    }, [sectorHistory]);
 
     const handlePrint = () => {
         window.print();
@@ -458,6 +463,47 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
         return results;
     }, [activeSectorHistory, selectedYear, timeRange]);
 
+    // CA sector benchmark returns (used for blending when regionFilter === 'ALL')
+    const caSectorBenchmarkReturns = useMemo(() => {
+        if (!caSectorHistory || Object.keys(caSectorHistory).length === 0) return {};
+
+        const results: Record<string, number> = {};
+        const quarters: Record<string, number[]> = { 'Q1': [0, 2], 'Q2': [3, 5], 'Q3': [6, 8], 'Q4': [9, 11] };
+
+        Object.keys(caSectorHistory).forEach(sector => {
+            const hist = caSectorHistory[sector];
+            if (!hist || hist.length < 2) return;
+
+            const yearHist = hist.filter((h: any) => h.date.startsWith(selectedYear.toString()));
+            if (yearHist.length < 2) return;
+
+            const sortedYearHist = [...yearHist].sort((a: any, b: any) => a.date.localeCompare(b.date));
+
+            let startPoint, endPoint;
+
+            if (timeRange === 'YTD') {
+                startPoint = sortedYearHist[0];
+                endPoint = sortedYearHist[sortedYearHist.length - 1];
+            } else {
+                const months = quarters[timeRange];
+                const periodHist = yearHist.filter((h: any) => {
+                    const m = parseInt(h.date.substring(5, 7)) - 1;
+                    return m >= months[0] && m <= months[1];
+                });
+                if (periodHist.length < 2) return;
+                const sortedPeriodHist = [...periodHist].sort((a: any, b: any) => a.date.localeCompare(b.date));
+                startPoint = sortedPeriodHist[0];
+                endPoint = sortedPeriodHist[sortedPeriodHist.length - 1];
+            }
+
+            if (startPoint && endPoint && startPoint.value > 0) {
+                results[sector] = (endPoint.value / startPoint.value - 1) * 100;
+            }
+        });
+
+        return results;
+    }, [caSectorHistory, selectedYear, timeRange]);
+
     const overallBenchmarkReturn = useMemo(() => {
         if (benchmarkMode === 'SECTOR') return null;
         const key = benchmarkMode === 'SP500' ? 'SP500' : 'TSX60';
@@ -587,7 +633,9 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
             }
         });
 
-        const sectorGroups: Record<string, { stocks: any[], sumWeight: number, sumWeightedReturn: number }> = {};
+        const sectorGroups: Record<string, { stocks: any[], sumWeight: number, sumWeightedReturn: number, stockOnlyWeight: number, stockOnlyWeightedReturn: number }> = {};
+        // Track US vs CA weight per sector for blended benchmarking
+        const sectorRegionWeights: Record<string, { usWeight: number, caWeight: number }> = {};
 
         // Filter tickers by region, excluding ETFs and MFs (for stock-level attribution)
         const filteredTickers = uniqueTickers.filter(ticker => {
@@ -608,7 +656,17 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
             const canonicalName = sectorMapping[sectorName] || 'Other';
 
             if (!sectorGroups[canonicalName]) {
-                sectorGroups[canonicalName] = { stocks: [], sumWeight: 0, sumWeightedReturn: 0 };
+                sectorGroups[canonicalName] = { stocks: [], sumWeight: 0, sumWeightedReturn: 0, stockOnlyWeight: 0, stockOnlyWeightedReturn: 0 };
+            }
+
+            // Accumulate regional weights for blending
+            if (!sectorRegionWeights[canonicalName]) {
+                sectorRegionWeights[canonicalName] = { usWeight: 0, caWeight: 0 };
+            }
+            if (ticker.endsWith('.TO')) {
+                sectorRegionWeights[canonicalName].caWeight += stats.latestWeight;
+            } else {
+                sectorRegionWeights[canonicalName].usWeight += stats.latestWeight;
             }
 
             // returnPct from server is in decimal form (0.05 = 5%), convert to percentage for consistency with benchmark returns
@@ -621,6 +679,9 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
             });
             sectorGroups[canonicalName].sumWeight += stats.latestWeight;
             sectorGroups[canonicalName].sumWeightedReturn += (periodReturn * stats.latestWeight);
+            // Track direct stock holdings separately (excludes ETF/MF distributed weight)
+            sectorGroups[canonicalName].stockOnlyWeight += stats.latestWeight;
+            sectorGroups[canonicalName].stockOnlyWeightedReturn += (periodReturn * stats.latestWeight);
         });
 
         // Include ETF/MF sector weight contributions (distributes their weight across sectors)
@@ -643,7 +704,7 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
                     if (!canonicalName || typeof pct !== 'number') return;
 
                     if (!sectorGroups[canonicalName]) {
-                        sectorGroups[canonicalName] = { stocks: [], sumWeight: 0, sumWeightedReturn: 0 };
+                        sectorGroups[canonicalName] = { stocks: [], sumWeight: 0, sumWeightedReturn: 0, stockOnlyWeight: 0, stockOnlyWeightedReturn: 0 };
                     }
                     sectorGroups[canonicalName].sumWeight += stats.latestWeight * (pct / 100);
                 });
@@ -651,10 +712,52 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
         });
 
         // 2a. Resolve effective benchmark returns (sector ETFs or broad index override)
+        // When regionFilter === 'ALL' and benchmarkMode === 'SECTOR', blend US/CA benchmark returns
+        // weighted by the portfolio's actual regional mix per sector.
         const effectiveBenchmarkReturns: Record<string, number> = {};
+        const blendedBenchmarkETFLabels: Record<string, string> = {};
         if (benchmarkMode !== 'SECTOR' && overallBenchmarkReturn !== null) {
             FIXED_SECTOR_ORDER.forEach(sector => {
                 effectiveBenchmarkReturns[sector] = overallBenchmarkReturn;
+            });
+        } else if (regionFilter === 'ALL') {
+            // Blend US + CA sector benchmark returns based on portfolio weight mix
+            FIXED_SECTOR_ORDER.forEach(sector => {
+                const usReturn = sectorBenchmarkReturns[sector];       // US ETF return
+                const caReturn = caSectorBenchmarkReturns[sector];     // CA ETF return
+                const regionW = sectorRegionWeights[sector] || { usWeight: 0, caWeight: 0 };
+                const totalW = regionW.usWeight + regionW.caWeight;
+
+                if (totalW < 0.001) {
+                    // No portfolio holdings — fall back to US benchmark return
+                    if (usReturn !== undefined) effectiveBenchmarkReturns[sector] = usReturn;
+                    return;
+                }
+
+                const usFrac = regionW.usWeight / totalW;
+                const caFrac = regionW.caWeight / totalW;
+
+                const usETF = US_SECTOR_BENCHMARK_ETF[sector];
+                const caETF = CA_SECTOR_BENCHMARK_ETF[sector];
+
+                if (usReturn !== undefined && caReturn !== undefined && usFrac > 0.001 && caFrac > 0.001) {
+                    // Both regions present — blend
+                    effectiveBenchmarkReturns[sector] = usFrac * usReturn + caFrac * caReturn;
+                    const usPct = Math.round(usFrac * 100);
+                    const caPct = Math.round(caFrac * 100);
+                    blendedBenchmarkETFLabels[sector] = `${usPct}% ${usETF} + ${caPct}% ${caETF}`;
+                } else if (caReturn !== undefined && caFrac > 0.999) {
+                    // All CA
+                    effectiveBenchmarkReturns[sector] = caReturn;
+                    blendedBenchmarkETFLabels[sector] = caETF;
+                } else if (usReturn !== undefined) {
+                    // All US or CA return unavailable
+                    effectiveBenchmarkReturns[sector] = usReturn;
+                    blendedBenchmarkETFLabels[sector] = usETF;
+                } else if (caReturn !== undefined) {
+                    effectiveBenchmarkReturns[sector] = caReturn;
+                    blendedBenchmarkETFLabels[sector] = caETF;
+                }
             });
         } else {
             Object.assign(effectiveBenchmarkReturns, sectorBenchmarkReturns);
@@ -684,51 +787,55 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
                 return (group && group.sumWeight > 0.001) || (bWeight !== undefined && bWeight > 0);
             })
             .map(sector => {
-                const group = sectorGroups[sector] || { stocks: [], sumWeight: 0, sumWeightedReturn: 0 };
+                const group = sectorGroups[sector] || { stocks: [], sumWeight: 0, sumWeightedReturn: 0, stockOnlyWeight: 0, stockOnlyWeightedReturn: 0 };
                 const benchReturn = effectiveBenchmarkReturns[sector] || 0;
                 const benchWeight = benchmarkWeights[sector] || 0;
 
-                const hasPortfolioHoldings = group.sumWeight > 0.001;
-                const portfolioReturn = hasPortfolioHoldings ? group.sumWeightedReturn / group.sumWeight : 0;
+                // Selection/Interaction use only direct stock holdings (not ETF-distributed weight).
+                // ETF weight contributes to sector exposure (Allocation) but not stock-picking (Selection).
+                const hasDirectHoldings = group.stockOnlyWeight > 0.001;
+                const stockReturn = hasDirectHoldings ? group.stockOnlyWeightedReturn / group.stockOnlyWeight : 0;
 
                 // Selection Effect = W_b * (R_p - R_b)
-                // Only meaningful when we actually hold stocks in this sector;
-                // if W_p ≈ 0, R_p is undefined — selection effect is 0.
-                const selectionEffect = hasPortfolioHoldings
-                    ? (benchWeight * (portfolioReturn - benchReturn)) / 100
+                // Only meaningful when we hold direct stocks in this sector;
+                // ETF-only exposure has no stock-picking component.
+                const selectionEffect = hasDirectHoldings
+                    ? (benchWeight * (stockReturn - benchReturn)) / 100
                     : 0;
 
                 // Allocation Effect = (W_p - W_b) * (R_b - R_total_b)
-                // Always valid — captures the impact of over/underweighting a sector.
+                // Always valid — uses total weight (stocks + ETF-distributed) to capture full sector exposure.
                 const allocationEffect = ((group.sumWeight - benchWeight) * (benchReturn - totalBenchmarkReturn)) / 100;
 
                 // Interaction Effect = (W_p - W_b) * (R_p - R_b)
-                // Only meaningful when R_p is defined (we hold stocks in this sector).
-                const interactionEffect = hasPortfolioHoldings
-                    ? ((group.sumWeight - benchWeight) * (portfolioReturn - benchReturn)) / 100
+                // Only meaningful when we hold direct stocks in this sector.
+                const interactionEffect = hasDirectHoldings
+                    ? ((group.sumWeight - benchWeight) * (stockReturn - benchReturn)) / 100
                     : 0;
+
+                // Portfolio return shown in tooltip: use stock return when available, otherwise 0
+                const displayReturn = hasDirectHoldings ? stockReturn : 0;
 
                 return {
                     sector,
                     displayName: CANONICAL_TO_DISPLAY[sector] || sector,
-                    benchmarkETF: overallBenchmarkETF ?? (activeBenchmarkETFs[sector] || '—'),
+                    benchmarkETF: overallBenchmarkETF ?? (blendedBenchmarkETFLabels[sector] || activeBenchmarkETFs[sector] || '—'),
                     selectionEffect,
                     allocationEffect,
                     interactionEffect,
                     benchmarkReturn: benchReturn,
                     benchmarkWeight: benchWeight,
                     portfolioWeight: group.sumWeight,
-                    portfolioReturn: portfolioReturn,
+                    portfolioReturn: displayReturn,
+                    hasDirectHoldings,
                     stocks: group.stocks.map(s => ({
                         ticker: s.ticker,
                         returnPct: s.returnPct,
                         weight: s.weight,
                         // Per-stock decomposition of sector selection effect:
-                        // Selection_sector = W_b * (R_p - R_b) / 100
-                        //                 = W_b * Σ(w_i * (R_i - R_b)) / (W_p * 100)
-                        // So each stock's contribution = W_b * w_i * (R_i - R_b) / (W_p * 100)
-                        selectionContribution: hasPortfolioHoldings
-                            ? (benchWeight * s.weight * (s.returnPct - benchReturn)) / (group.sumWeight * 100)
+                        // Each stock's contribution = W_b * w_i * (R_i - R_b) / (W_p_stocks * 100)
+                        selectionContribution: hasDirectHoldings
+                            ? (benchWeight * s.weight * (s.returnPct - benchReturn)) / (group.stockOnlyWeight * 100)
                             : 0
                     }))
                 };
@@ -749,7 +856,7 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
             allocationDomain: [-allocationDomainLimit, allocationDomainLimit] as [number, number],
             interactionDomain: [-interactionDomainLimit, interactionDomainLimit] as [number, number]
         };
-    }, [uniqueTickers, tickerStats, tickerSectors, sectorBenchmarkReturns, regionFilter, data, benchmarkExposure, benchmarkMode, overallBenchmarkReturn, customSectors]);
+    }, [uniqueTickers, tickerStats, tickerSectors, sectorBenchmarkReturns, caSectorBenchmarkReturns, regionFilter, data, benchmarkExposure, benchmarkMode, overallBenchmarkReturn, customSectors]);
 
     const topMoversChartData = useMemo(() => {
         // Flatten all selection contributions from sectorAttributionData

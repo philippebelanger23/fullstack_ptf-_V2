@@ -83,6 +83,7 @@ export interface BackcastResponse {
 // Risk Contribution types
 export interface RiskPosition {
   ticker: string;
+  sector: string;
   weight: number;
   individualVol: number;
   beta: number;
@@ -102,10 +103,13 @@ export interface SectorRisk {
 export interface RiskContributionResponse {
   portfolioVol: number;
   benchmarkVol: number;
+  portfolioBeta: number;
   diversificationRatio: number;
   concentrationRatio: number;
   numEffectiveBets: number;
   top3Concentration: number;
+  var95: number;
+  cvar95: number;
   positions: RiskPosition[];
   sectorRisk: SectorRisk[];
   correlationMatrix?: {

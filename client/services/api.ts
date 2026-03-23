@@ -458,8 +458,10 @@ export const fetchRiskContribution = async (items: PortfolioItem[]): Promise<Ris
     } catch (error) {
         console.error("Risk Contribution Error:", error);
         return {
-            portfolioVol: 0, benchmarkVol: 0, diversificationRatio: 0,
-            concentrationRatio: 0, numEffectiveBets: 0, top3Concentration: 0,
+            portfolioVol: 0, benchmarkVol: 0, portfolioBeta: 1,
+            diversificationRatio: 0, concentrationRatio: 0,
+            numEffectiveBets: 0, top3Concentration: 0,
+            var95: 0, cvar95: 0,
             positions: [], sectorRisk: [], missingTickers: [],
             error: String(error),
         };

@@ -1,5 +1,5 @@
-import React from 'react';
-import { ArrowUpRight, ArrowDownRight } from 'lucide-react';
+import React, { useState } from 'react';
+import { ArrowUpRight, ArrowDownRight, Info } from 'lucide-react';
 import { LineChart, Line, ResponsiveContainer } from 'recharts';
 import { LoadingSpinner } from './LoadingSpinner';
 
@@ -7,6 +7,7 @@ export interface MetricCardProps {
     title: string;
     value: string;
     subtitle?: string;
+    tooltip?: string;
     isPositive?: boolean;
     positiveLabel?: string;
     negativeLabel?: string;
@@ -20,6 +21,7 @@ export const MetricCard: React.FC<MetricCardProps> = ({
     title,
     value,
     subtitle,
+    tooltip,
     isPositive,
     positiveLabel = 'Above',
     negativeLabel = 'Below',
@@ -27,7 +29,9 @@ export const MetricCard: React.FC<MetricCardProps> = ({
     loading,
     delta,
     trend,
-}) => (
+}) => {
+    const [showTip, setShowTip] = useState(false);
+    return (
     <div className="bg-wallstreet-800 p-5 rounded-xl border border-wallstreet-700 shadow-sm hover:shadow-md transition-shadow">
         <div className="flex justify-between items-start mb-3">
             <div className="p-2 bg-wallstreet-900 rounded-lg text-wallstreet-500">
@@ -40,7 +44,20 @@ export const MetricCard: React.FC<MetricCardProps> = ({
                 </span>
             )}
         </div>
-        <h3 className="text-wallstreet-500 text-xs font-medium mb-1 uppercase tracking-wider">{title}</h3>
+        <div className="flex items-center gap-1 mb-1">
+            <h3 className="text-wallstreet-500 text-xs font-medium uppercase tracking-wider">{title}</h3>
+            {tooltip && (
+                <div className="relative" onMouseEnter={() => setShowTip(true)} onMouseLeave={() => setShowTip(false)}>
+                    <Info size={11} className="text-wallstreet-600 cursor-help hover:text-wallstreet-400 transition-colors" />
+                    {showTip && (
+                        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 z-50 w-56 bg-wallstreet-900 border border-wallstreet-700 rounded-lg p-3 shadow-xl text-[11px] text-wallstreet-400 leading-relaxed pointer-events-none">
+                            {tooltip}
+                            <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-wallstreet-700" />
+                        </div>
+                    )}
+                </div>
+            )}
+        </div>
         {loading ? (
             <div className="h-8 flex items-center">
                 <LoadingSpinner size={20} />
@@ -74,4 +91,5 @@ export const MetricCard: React.FC<MetricCardProps> = ({
         )}
         {subtitle && !loading && <p className="text-xs text-wallstreet-500 mt-1">{subtitle}</p>}
     </div>
-);
+    );
+};

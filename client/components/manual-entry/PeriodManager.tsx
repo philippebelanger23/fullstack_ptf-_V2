@@ -66,7 +66,7 @@ export const PeriodManager: React.FC<PeriodManagerProps> = ({
                                 </div>
                             </div>
 
-                            <div className={`text-center py-1 rounded text-xs font-bold border ${isTotalValid ? 'bg-green-900/40 text-green-400 border-green-700' : 'bg-amber-900/40 text-amber-400 border-amber-700'}`}>
+                            <div className={`text-center py-1 rounded text-xs font-bold border ${isTotalValid ? 'bg-green-100 text-green-800 border-green-700 dark:bg-green-900/40 dark:text-green-400 dark:border-green-700' : 'bg-amber-100 text-amber-700 border-amber-600 dark:bg-amber-900/40 dark:text-amber-400 dark:border-amber-700'}`}>
                                 Allocated: {total.toFixed(2)}%
                             </div>
                         </div>
@@ -82,11 +82,11 @@ export const PeriodManager: React.FC<PeriodManagerProps> = ({
 
                                 if (originalIdx > 0) {
                                     if (currentWeight > prevWeight + 0.001) {
-                                        bgClass = "bg-green-900/40 hover:bg-green-900/60 text-green-300";
-                                        borderClass = "border-green-700";
+                                        bgClass = "bg-green-100 hover:bg-green-200 text-green-700 dark:bg-green-900/20 dark:hover:bg-green-900/40 dark:text-green-400";
+                                        borderClass = "border-green-700 dark:border-green-700";
                                     } else if (currentWeight < prevWeight - 0.001) {
-                                        bgClass = "bg-red-900/40 hover:bg-red-900/60 text-red-300";
-                                        borderClass = "border-red-700";
+                                        bgClass = "bg-red-100 hover:bg-red-200 text-red-600 dark:bg-red-900/20 dark:hover:bg-red-900/40 dark:text-red-400";
+                                        borderClass = "border-red-600 dark:border-red-700";
                                     }
                                 }
 

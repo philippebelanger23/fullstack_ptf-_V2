@@ -168,8 +168,9 @@ async def risk_contribution(request: BackcastRequest):
     sorted_pct = np.sort(pct_of_total)[::-1]
     top3_concentration = float(np.sum(sorted_pct[:3])) if len(sorted_pct) >= 3 else float(np.sum(sorted_pct))
 
-    # Benchmark volatility for comparison
+    # Benchmark volatility & portfolio beta to benchmark
     bmk_vol = 0.0
+    portfolio_beta = 1.0
     if (
         "ACWI" in returns_df.columns
         and "XIU.TO" in returns_df.columns
@@ -178,14 +179,65 @@ async def risk_contribution(request: BackcastRequest):
         acwi_cad = (1 + returns_df["ACWI"]) * (1 + returns_df["USDCAD=X"]) - 1
         bmk_ret = 0.75 * acwi_cad + 0.25 * returns_df["XIU.TO"]
         bmk_vol = float(bmk_ret.iloc[1:].std() * np.sqrt(252))
+        # Portfolio beta to benchmark
+        bmk_daily = bmk_ret.iloc[1:].values
+        bmk_daily_var = np.var(bmk_daily)
+        if bmk_daily_var > 0:
+            portfolio_beta = float(np.cov(port_daily_ret, bmk_daily)[0, 1] / bmk_daily_var)
 
-    # 7. Build positions list
+    # Historical VaR 95% & CVaR 95% (1-day)
+    var_threshold = np.percentile(port_daily_ret, 5)
+    var_95 = float(abs(var_threshold))
+    tail_returns = port_daily_ret[port_daily_ret <= var_threshold]
+    cvar_95 = float(abs(np.mean(tail_returns))) if len(tail_returns) > 0 else var_95
+
+    # 7. Load sector map (used for positions + sector aggregation)
+    sector_map: dict[str, str] = {}
+    try:
+        sectors_file = Path("data/sectors_cache.json")
+        if sectors_file.exists():
+            with open(sectors_file) as f:
+                cached = json.load(f)
+            sector_map.update({k: v for k, v in cached.items() if isinstance(v, str)})
+
+        # Fetch any missing tickers from yfinance and persist to cache
+        missing_sectors = [t for t in ticker_list if t not in sector_map]
+        if missing_sectors:
+            tickers_obj = yf.Tickers(" ".join(missing_sectors))
+            for tk in missing_sectors:
+                try:
+                    info = tickers_obj.tickers[tk].info
+                    sector = info.get("sector")
+                    if not sector:
+                        qt = info.get("quoteType", "").upper()
+                        sector = "Mixed" if qt in ("ETF", "MUTUALFUND") else None
+                    if sector:
+                        sector_map[tk] = sector
+                except Exception:
+                    pass
+            # Persist updated cache
+            try:
+                sectors_file.parent.mkdir(parents=True, exist_ok=True)
+                merged = {}
+                if sectors_file.exists():
+                    with open(sectors_file) as f:
+                        merged = json.load(f)
+                merged.update(sector_map)
+                with open(sectors_file, "w") as f:
+                    json.dump(merged, f)
+            except Exception as e:
+                logger.warning(f"Could not save sector cache: {e}")
+    except Exception as e:
+        logger.warning(f"Could not load sector data: {e}")
+
+    # 8. Build positions list
     positions = []
     for i, ticker in enumerate(ticker_list):
         risk_adj_ret = annualized_returns[i] / individual_vols[i] if individual_vols[i] > 0 else 0.0
         positions.append(
             {
                 "ticker": ticker,
+                "sector": sector_map.get(ticker, "Other"),
                 "weight": round(float(w[i]) * 100, 2),
                 "individualVol": round(float(individual_vols[i]) * 100, 2),
                 "beta": betas[i],
@@ -197,34 +249,29 @@ async def risk_contribution(request: BackcastRequest):
             }
         )
 
-    # 8. Sector-level risk aggregation
+    # 9. Sector-level risk aggregation
     sector_risk = []
     try:
-        sectors_file = Path("data/custom_sectors.json")
-        sector_map = {}
-        if sectors_file.exists():
-            with open(sectors_file) as f:
-                sector_map = json.load(f)
 
-        sector_weights: dict[str, float] = {}
-        sector_risk_pct: dict[str, float] = {}
+        sec_wt_agg: dict[str, float] = {}
+        sec_risk_agg: dict[str, float] = {}
         for i, ticker in enumerate(ticker_list):
             sec = sector_map.get(ticker, "Other")
-            sector_weights[sec] = sector_weights.get(sec, 0) + float(w[i])
-            sector_risk_pct[sec] = sector_risk_pct.get(sec, 0) + float(pct_of_total[i])
+            sec_wt_agg[sec] = sec_wt_agg.get(sec, 0) + float(w[i])
+            sec_risk_agg[sec] = sec_risk_agg.get(sec, 0) + float(pct_of_total[i])
 
-        for sec in sorted(sector_weights.keys()):
+        for sec in sorted(sec_wt_agg.keys()):
             sector_risk.append(
                 {
                     "sector": sec,
-                    "weight": round(sector_weights[sec] * 100, 2),
-                    "riskContribution": round(sector_risk_pct[sec] * 100, 2),
+                    "weight": round(sec_wt_agg[sec] * 100, 2),
+                    "riskContribution": round(sec_risk_agg[sec] * 100, 2),
                 }
             )
     except Exception as e:
-        logger.warning(f"Could not load sector data for risk: {e}")
+        logger.warning(f"Could not aggregate sector risk: {e}")
 
-    # 9. Compute correlation matrix (top 15 positions by risk contribution)
+    # 10. Compute correlation matrix (top 15 positions by risk contribution)
     correlation_matrix = None
     try:
         sorted_positions = sorted(positions, key=lambda x: -x["pctOfTotalRisk"])[:15]
@@ -256,10 +303,13 @@ async def risk_contribution(request: BackcastRequest):
     return {
         "portfolioVol": round(float(port_vol) * 100, 2),
         "benchmarkVol": round(float(bmk_vol) * 100, 2),
+        "portfolioBeta": round(float(portfolio_beta), 2),
         "diversificationRatio": round(float(diversification_ratio), 2),
         "concentrationRatio": round(float(hhi), 4),
         "numEffectiveBets": round(float(num_effective_bets), 1),
         "top3Concentration": round(float(top3_concentration) * 100, 1),
+        "var95": round(float(var_95) * 100, 2),
+        "cvar95": round(float(cvar_95) * 100, 2),
         "positions": positions,
         "sectorRisk": sector_risk,
         "correlationMatrix": correlation_matrix,

@@ -289,7 +289,7 @@ export const WorldChoroplethMap: React.FC<WorldChoroplethMapProps> = ({ data }) 
                 {/* Tooltip */}
                 {hoveredGeo && tooltipMapName && (
                     <div
-                        className="absolute pointer-events-none z-50 bg-wallstreet-800/95 backdrop-blur-sm p-3 border border-wallstreet-700 rounded-lg shadow-lg font-mono text-sm"
+                        className="absolute pointer-events-none z-50 bg-wallstreet-800 p-3 border border-wallstreet-700 rounded-lg shadow-lg font-mono text-sm"
                         style={{
                             left: Math.min(tooltipPos.x + 12, (typeof window !== 'undefined' ? 400 : 400)),
                             top: tooltipPos.y - 10,

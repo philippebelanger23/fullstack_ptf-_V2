@@ -1,11 +1,15 @@
 import React, { useEffect, useState, useMemo } from 'react';
-import { ShieldAlert, Activity, Target, Layers, AlertCircle } from 'lucide-react';
+import { AlertCircle } from 'lucide-react';
 import { FreshnessBadge } from '../../components/ui/FreshnessBadge';
-import { MetricCard } from '../../components/ui/MetricCard';
 import { loadPortfolioConfig, convertConfigToItems, fetchRiskContribution } from '../../services/api';
 import { PortfolioItem, RiskContributionResponse } from '../../types';
-import { RiskCharts } from './RiskCharts';
-import { RiskTable, SortKey } from './RiskTable';
+import { buildRiskBarData, buildScatterData } from './riskUtils';
+import { RiskKPIs } from './RiskKPIs';
+import { RiskBarChart } from './RiskBarChart';
+import { ReturnRiskScatter } from './ReturnRiskScatter';
+import { RiskTreemap } from './RiskTreemap';
+import { CorrelationHeatmap } from './CorrelationHeatmap';
+import { RiskTable } from './RiskTable';
 
 type PositionMode = 'actual' | 'historical';
 
@@ -13,8 +17,6 @@ export const RiskContributionView: React.FC = () => {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [data, setData] = useState<RiskContributionResponse | null>(null);
-    const [sortKey, setSortKey] = useState<SortKey>('pctOfTotalRisk');
-    const [sortAsc, setSortAsc] = useState(false);
     const [positionMode, setPositionMode] = useState<PositionMode>('actual');
 
     useEffect(() => {
@@ -71,49 +73,10 @@ export const RiskContributionView: React.FC = () => {
         return () => { cancelled = true; };
     }, [positionMode]);
 
-    const handleSort = (key: SortKey) => {
-        if (sortKey === key) {
-            setSortAsc(!sortAsc);
-        } else {
-            setSortKey(key);
-            setSortAsc(false);
-        }
-    };
+    const riskBarData = useMemo(() => data ? buildRiskBarData(data.positions) : [], [data]);
+    const scatterData = useMemo(() => data ? buildScatterData(data.positions) : [], [data]);
 
-    const sortedPositions = useMemo(() => {
-        if (!data) return [];
-        return [...data.positions].sort((a, b) => {
-            const aVal = a[sortKey];
-            const bVal = b[sortKey];
-            if (typeof aVal === 'string' && typeof bVal === 'string') {
-                return sortAsc ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
-            }
-            return sortAsc ? (aVal as number) - (bVal as number) : (bVal as number) - (aVal as number);
-        });
-    }, [data, sortKey, sortAsc]);
-
-    const riskBarData = useMemo(() => {
-        if (!data) return [];
-        return [...data.positions]
-            .sort((a, b) => b.pctOfTotalRisk - a.pctOfTotalRisk)
-            .map(p => ({
-                ticker: p.ticker,
-                riskPct: p.pctOfTotalRisk,
-                weight: p.weight,
-                delta: +(p.pctOfTotalRisk - p.weight).toFixed(1),
-                beta: p.beta,
-                mctr: p.mctr,
-                individualVol: p.individualVol,
-                annualizedReturn: p.annualizedReturn,
-                riskAdjustedReturn: p.riskAdjustedReturn,
-            }));
-    }, [data]);
-
-    const scatterData = useMemo(() => {
-        if (!data) return [];
-        return data.positions.map(p => ({ ticker: p.ticker, x: p.weight, y: p.pctOfTotalRisk }));
-    }, [data]);
-
+    /* ── Loading state ── */
     if (loading) {
         return (
             <div className="max-w-[100vw] mx-auto p-4 md:p-6 overflow-x-hidden min-h-screen flex flex-col items-center justify-center">
@@ -123,10 +86,7 @@ export const RiskContributionView: React.FC = () => {
                             <div
                                 key={i}
                                 className="w-2 bg-wallstreet-accent rounded-t"
-                                style={{
-                                    animation: `barPulse 1s ease-in-out ${i * 0.15}s infinite`,
-                                    height: '30%',
-                                }}
+                                style={{ animation: `barPulse 1s ease-in-out ${i * 0.15}s infinite`, height: '30%' }}
                             />
                         ))}
                     </div>
@@ -142,46 +102,53 @@ export const RiskContributionView: React.FC = () => {
         );
     }
 
+    /* ── Error state ── */
     if (error) {
         return (
             <div className="p-8">
                 <div className="mb-8">
-                    <h2 className="text-3xl font-bold text-wallstreet-900 font-mono tracking-tighter">
+                    <h2 className="text-3xl font-bold text-wallstreet-text font-mono tracking-tighter">
                         RISK <span className="text-wallstreet-accent">CONTRIBUTION</span>
                     </h2>
                 </div>
-                <div className="bg-red-50 border border-red-200 rounded-xl p-6 flex items-start gap-3">
+                <div className="bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-xl p-6 flex items-start gap-3">
                     <AlertCircle className="text-red-500 mt-0.5" size={20} />
                     <div>
-                        <p className="text-red-800 font-medium">Error loading risk data</p>
-                        <p className="text-red-600 text-sm mt-1">{error}</p>
+                        <p className="text-red-800 dark:text-red-300 font-medium">Error loading risk data</p>
+                        <p className="text-red-600 dark:text-red-400 text-sm mt-1">{error}</p>
                     </div>
                 </div>
             </div>
         );
     }
 
+    const hasCorrelation = data?.correlationMatrix && data.correlationMatrix.tickers.length > 0;
+
     return (
-        <div className="p-8 space-y-6">
-            <div className="flex items-start justify-between mb-2">
+        <div className="p-6 md:p-8 space-y-6">
+            {/* ── Header ── */}
+            <div className="flex items-start justify-between mb-1">
                 <div>
                     <div className="flex items-center gap-3">
-                        <h2 className="text-3xl font-bold text-wallstreet-900 font-mono tracking-tighter">
+                        <h2 className="text-3xl font-bold text-wallstreet-text font-mono tracking-tighter">
                             RISK <span className="text-wallstreet-accent">CONTRIBUTION</span>
                         </h2>
                         <FreshnessBadge fetchedAt={data?.fetchedAt ?? null} />
                     </div>
-                    <p className="text-wallstreet-500 mt-2">Marginal contribution to risk (MCTR), diversification analysis, and position-level risk decomposition.</p>
+                    <p className="text-wallstreet-500 mt-2 text-sm">
+                        Marginal contribution to risk, diversification analysis, and position-level risk decomposition.
+                    </p>
                 </div>
                 <div className="flex items-center bg-wallstreet-900 rounded-lg p-0.5 shrink-0">
                     {(['actual', 'historical'] as PositionMode[]).map((mode) => (
                         <button
                             key={mode}
                             onClick={() => setPositionMode(mode)}
-                            className={`px-3 py-1.5 text-xs font-bold uppercase tracking-wider rounded-md transition-all ${positionMode === mode
-                                ? 'bg-wallstreet-800 text-wallstreet-text shadow-sm'
-                                : 'text-wallstreet-500 hover:text-wallstreet-text'
-                                }`}
+                            className={`px-3 py-1.5 text-xs font-bold uppercase tracking-wider rounded-md transition-all ${
+                                positionMode === mode
+                                    ? 'bg-wallstreet-800 text-wallstreet-text shadow-sm'
+                                    : 'text-wallstreet-500 hover:text-wallstreet-text'
+                            }`}
                         >
                             {mode === 'actual' ? 'Actual Positions' : 'Historical'}
                         </button>
@@ -189,56 +156,36 @@ export const RiskContributionView: React.FC = () => {
                 </div>
             </div>
 
-            {/* KPI Cards */}
-            <div className="grid grid-cols-4 gap-4">
-                <MetricCard positiveLabel="Good" negativeLabel="High"
-                    title="Portfolio Volatility"
-                    value={data ? `${data.portfolioVol.toFixed(1)}%` : '—'}
-                    subtitle={data ? `Benchmark: ${data.benchmarkVol.toFixed(1)}%` : undefined}
-                    isPositive={data ? data.portfolioVol < data.benchmarkVol : undefined}
-                    icon={Activity}
+            {/* ── Tier 1: KPIs ── */}
+            <RiskKPIs data={data} loading={loading} />
+
+            {/* ── Tier 2A: Superchart (positions/sectors) + Scatter ── */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch">
+                <RiskBarChart
+                    riskBarData={riskBarData}
+                    sectorRisk={data?.sectorRisk ?? []}
+                    positions={data?.positions ?? []}
                     loading={loading}
                 />
-                <MetricCard positiveLabel="Good" negativeLabel="High"
-                    title="Diversification Ratio"
-                    value={data ? `${data.diversificationRatio.toFixed(2)}x` : '—'}
-                    subtitle="> 1.0 = diversification benefit"
-                    isPositive={data ? data.diversificationRatio > 1.0 : undefined}
-                    icon={Layers}
-                    loading={loading}
-                />
-                <MetricCard positiveLabel="Good" negativeLabel="High"
-                    title="Effective Bets"
-                    value={data ? data.numEffectiveBets.toFixed(1) : '—'}
-                    subtitle={data ? `of ${data.positions.length} positions` : undefined}
-                    isPositive={data ? data.numEffectiveBets > 3 : undefined}
-                    icon={Target}
-                    loading={loading}
-                />
-                <MetricCard positiveLabel="Good" negativeLabel="High"
-                    title="Top-3 Concentration"
-                    value={data ? `${data.top3Concentration.toFixed(1)}%` : '—'}
-                    subtitle="% of total risk from top 3"
-                    isPositive={data ? data.top3Concentration < 60 : undefined}
-                    icon={ShieldAlert}
-                    loading={loading}
-                />
+                <ReturnRiskScatter data={scatterData} loading={loading} />
             </div>
 
-            <RiskCharts
-                loading={loading}
-                riskBarData={riskBarData}
-                scatterData={scatterData}
-                sectorRisk={data?.sectorRisk ?? []}
-                correlationMatrix={data?.correlationMatrix}
-            />
+            {/* ── Tier 2B: Treemap + Correlation side by side ── */}
+            <div className={`grid gap-6 items-stretch ${hasCorrelation ? 'grid-cols-1 lg:grid-cols-5' : 'grid-cols-1'}`}>
+                <div className={hasCorrelation ? 'lg:col-span-3' : ''}>
+                    <RiskTreemap positions={data?.positions ?? []} loading={loading} sectorCount={data?.sectorRisk?.length ?? 11} />
+                </div>
+                {hasCorrelation && (
+                    <div className="lg:col-span-2">
+                        <CorrelationHeatmap correlationMatrix={data!.correlationMatrix!} loading={loading} />
+                    </div>
+                )}
+            </div>
 
+            {/* ── Tier 3: Position Detail Table ── */}
             <RiskTable
+                positions={data?.positions ?? []}
                 loading={loading}
-                sortedPositions={sortedPositions}
-                sortKey={sortKey}
-                sortAsc={sortAsc}
-                handleSort={handleSort}
                 missingTickers={data?.missingTickers ?? []}
             />
         </div>
