@@ -18,7 +18,7 @@ export const TornadoLabel = (props: any) => {
     const barEnd = isPos ? Math.max(x, x + width) : Math.min(x, x + width);
 
     const isZero = Math.abs(realValue) < 0.005;
-    const fillColor = isZero ? '#e5eaf0' : (isPos ? '#16a34a' : '#dc2626');
+    const fillColor = isZero ? '#94a3b8' : (isPos ? '#16a34a' : '#dc2626');
 
     return (
         <text
@@ -52,8 +52,8 @@ export const WaterfallChart: React.FC<WaterfallChartProps> = ({ waterfallData, w
             <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={waterfallData} margin={{ top: 30, right: 30, left: 0, bottom: 20 }}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={tc.gridStrokeLight} />
-                    <XAxis dataKey="name" tick={{ fontSize: 11, fontFamily: 'monospace', fill: tc.tickFill, fontWeight: 'bold' }} interval={0} axisLine={{ stroke: tc.gridStroke }} tickLine={false} />
-                    <YAxis domain={waterfallDomain} tickFormatter={(val) => val < 0 ? `(${Math.abs(val).toFixed(1)}%)` : `${val.toFixed(1)}%`} tick={{ fontSize: 12, fontFamily: 'monospace', fill: tc.tickFill, fontWeight: 'bold' }} axisLine={false} tickLine={false} />
+                    <XAxis dataKey="name" tick={{ fontSize: 11, fontFamily: "'JetBrains Mono', monospace", fill: tc.tickFill, fontWeight: 'bold' }} interval={0} axisLine={{ stroke: tc.gridStroke }} tickLine={false} />
+                    <YAxis domain={waterfallDomain} tickFormatter={(val) => val < 0 ? `(${Math.abs(val).toFixed(1)}%)` : `${val.toFixed(1)}%`} tick={{ fontSize: 12, fontFamily: "'JetBrains Mono', monospace", fill: tc.tickFill, fontWeight: 'bold' }} axisLine={false} tickLine={false} />
                     <Tooltip cursor={{ fill: tc.isDark ? 'rgba(51,65,85,0.3)' : '#f8fafc' }} content={({ active, payload }) => {
                         if (active && payload && payload.length) {
                             const d = payload[0].payload;
@@ -79,7 +79,7 @@ export const WaterfallChart: React.FC<WaterfallChartProps> = ({ waterfallData, w
                     <ReferenceLine y={0} stroke={tc.referenceLine} />
                     <Bar dataKey="value" radius={[2, 2, 2, 2]}>
                         {waterfallData.map((entry, index) => <Cell key={`cell-${index}`} fill={entry.color} />)}
-                        <LabelList dataKey="delta" position="top" formatter={(val: number) => Math.abs(val) > 0.001 ? (val < 0 ? `(${Math.abs(val).toFixed(2)}%)` : `+${val.toFixed(2)}%`) : ''} style={{ fill: tc.tickFill, fontSize: '11px', fontWeight: 'black', fontFamily: 'monospace' }} />
+                        <LabelList dataKey="delta" position="top" formatter={(val: number) => Math.abs(val) > 0.001 ? (val < 0 ? `(${Math.abs(val).toFixed(2)}%)` : `+${val.toFixed(2)}%`) : ''} style={{ fill: tc.tickFill, fontSize: '11px', fontWeight: 'black', fontFamily: "'JetBrains Mono', monospace" }} />
                     </Bar>
                 </BarChart>
             </ResponsiveContainer>
@@ -194,7 +194,7 @@ export const SectorAttributionCharts: React.FC<SectorAttributionChartsProps> = (
                         <button
                             key={mode}
                             onClick={() => setBenchmarkMode(mode)}
-                            className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold transition-all ${
+                            className={`px-3 py-1.5 rounded text-xs font-mono font-bold transition-all ${
                                 benchmarkMode === mode
                                     ? 'bg-wallstreet-800 text-wallstreet-accent shadow-sm'
                                     : 'text-wallstreet-500 hover:text-wallstreet-text'
@@ -209,7 +209,7 @@ export const SectorAttributionCharts: React.FC<SectorAttributionChartsProps> = (
                         <button
                             key={region}
                             onClick={() => setRegionFilter(region)}
-                            className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold transition-all ${
+                            className={`px-3 py-1.5 rounded text-xs font-mono font-bold transition-all ${
                                 regionFilter === region
                                     ? 'bg-wallstreet-800 text-wallstreet-accent shadow-sm'
                                     : 'text-wallstreet-500 hover:text-wallstreet-text'
@@ -236,7 +236,7 @@ export const SectorAttributionCharts: React.FC<SectorAttributionChartsProps> = (
                 <div className="flex-1 w-full relative">
                     <ResponsiveContainer width="100%" height="100%">
                         <BarChart data={sectorAttributionData.data} layout="vertical" margin={{ top: 0, right: 0, left: 5, bottom: 0 }} barCategoryGap="20%">
-                            <YAxis dataKey="displayName" type="category" width={100} tick={{ fontSize: 11, fontFamily: 'monospace', fill: tc.tickFill, fontWeight: 'bold' }} axisLine={false} tickLine={false} interval={0} />
+                            <YAxis dataKey="displayName" type="category" width={100} tick={{ fontSize: 11, fontFamily: "'JetBrains Mono', monospace", fill: tc.tickFill, fontWeight: 'bold' }} axisLine={false} tickLine={false} interval={0} />
                         </BarChart>
                     </ResponsiveContainer>
                 </div>

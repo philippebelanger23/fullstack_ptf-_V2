@@ -124,9 +124,25 @@ export const RiskTreemap: React.FC<RiskTreemapProps> = ({ positions, loading, se
 
     return (
         <div className="bg-wallstreet-800 rounded-2xl border border-wallstreet-700 shadow-sm p-6 h-full flex flex-col">
-            <div className="mb-2">
-                <h3 className="text-sm font-bold text-wallstreet-text uppercase tracking-wider">Risk Treemap</h3>
-                <p className="text-[11px] text-wallstreet-500 mt-0.5">Size = risk contribution, color = risk-adjusted return</p>
+            <div className="mb-2 flex items-start justify-between gap-4">
+                <div>
+                    <h3 className="text-sm font-bold text-wallstreet-text uppercase tracking-wider">Risk Treemap</h3>
+                    <p className="text-[11px] text-wallstreet-500 mt-0.5">Size = risk contribution, color = risk-adjusted return</p>
+                </div>
+                <div className="flex items-center gap-2.5 shrink-0">
+                    <span className="text-xs font-mono font-bold text-red-500">Negative</span>
+                    <div className="h-3.5 w-36 rounded-full overflow-hidden flex">
+                        {Array.from({ length: 12 }).map((_, i) => (
+                            <div
+                                key={i}
+                                className="flex-1 h-full"
+                                style={{ backgroundColor: riskAdjReturnColor((i / 11) * 4 - 2, tc.isDark) }}
+                            />
+                        ))}
+                    </div>
+                    <span className="text-xs font-mono font-bold text-green-500">Positive</span>
+                    <span className="text-xs font-mono text-wallstreet-500">(risk-adj return)</span>
+                </div>
             </div>
 
             {treemapData.length === 0 ? (
@@ -146,21 +162,6 @@ export const RiskTreemap: React.FC<RiskTreemapProps> = ({ positions, loading, se
                 </div>
             )}
 
-            {/* Legend */}
-            <div className="mt-3 flex items-center gap-2 justify-center">
-                <span className="text-[10px] font-mono text-red-500">Negative</span>
-                <div className="h-2 w-24 rounded-full overflow-hidden flex">
-                    {Array.from({ length: 12 }).map((_, i) => (
-                        <div
-                            key={i}
-                            className="flex-1 h-full"
-                            style={{ backgroundColor: riskAdjReturnColor((i / 11) * 4 - 2, tc.isDark) }}
-                        />
-                    ))}
-                </div>
-                <span className="text-[10px] font-mono text-green-500">Positive</span>
-                <span className="text-[10px] font-mono text-wallstreet-500 ml-1">(risk-adj return)</span>
-            </div>
         </div>
     );
 };

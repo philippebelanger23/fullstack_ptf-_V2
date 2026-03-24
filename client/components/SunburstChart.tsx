@@ -27,7 +27,7 @@ const renderInnerLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, name, va
             fill="white"
             textAnchor="middle"
             dominantBaseline="central"
-            style={{ fontSize: '12px', fontFamily: 'monospace', fontWeight: 'bold' }}
+            style={{ fontSize: '12px', fontFamily: "'JetBrains Mono', monospace", fontWeight: 'bold' }}
         >
             {name}
         </text>
@@ -62,7 +62,7 @@ const renderOuterLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, name, va
                 textAnchor="middle"
                 dominantBaseline="central"
                 transform={`rotate(${angle})`}
-                style={{ fontSize: '10px', fontFamily: 'monospace', fontWeight: 500 }}
+                style={{ fontSize: '10px', fontFamily: "'JetBrains Mono', monospace", fontWeight: 500 }}
             >
                 {name}
             </text>
@@ -110,7 +110,7 @@ export const SunburstChart: React.FC<SunburstChartProps> = ({ data, width = "100
                 </Pie>
                 <Tooltip
                     contentStyle={{ backgroundColor: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', color: '#000' }}
-                    itemStyle={{ fontFamily: 'monospace', fontSize: '12px' }}
+                    itemStyle={{ fontFamily: "'JetBrains Mono', monospace", fontSize: '12px' }}
                     formatter={(value: number, name: string) => [`${value.toFixed(2)}%`, name]}
                 />
             </PieChart>

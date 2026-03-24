@@ -197,7 +197,7 @@ export const PortfolioEvolutionChart = memo(({ data, topTickers, dates, colors }
                         <button
                             key={range}
                             onClick={() => setSelectedRange(range)}
-                            className={`px-3 py-1 rounded-md text-[10px] font-bold font-mono transition-all duration-200 ${
+                            className={`px-3 py-1.5 rounded-md text-xs font-bold font-mono transition-all duration-200 ${
                                 selectedRange === range
                                     ? 'bg-blue-600 text-white shadow-sm ring-1 ring-blue-700/50'
                                     : 'text-wallstreet-500 hover:bg-wallstreet-700 hover:text-wallstreet-text'
@@ -220,12 +220,12 @@ export const PortfolioEvolutionChart = memo(({ data, topTickers, dates, colors }
                             stroke="#94a3b8" 
                             ticks={xAxisTicks}
                             tickFormatter={formatDateTick} 
-                            tick={{ fontSize: 10, fontFamily: 'monospace' }} 
+                            tick={{ fontSize: 12, fontFamily: "'JetBrains Mono', monospace" }}
                             axisLine={{ stroke: tc.gridStroke }}
-                            tickLine={false} 
-                            dy={10} 
+                            tickLine={false}
+                            dy={10}
                         />
-                        <YAxis domain={[0, yAxisTicks[yAxisTicks.length - 1]]} ticks={yAxisTicks} stroke="#94a3b8" tickFormatter={(val) => `${val.toFixed(0)}%`} tick={{ fontSize: 12, fontFamily: 'monospace' }} axisLine={false} tickLine={false} />
+                        <YAxis domain={[0, yAxisTicks[yAxisTicks.length - 1]]} ticks={yAxisTicks} stroke="#94a3b8" tickFormatter={(val) => `${val.toFixed(0)}%`} tick={{ fontSize: 14, fontFamily: "'JetBrains Mono', monospace" }} axisLine={false} tickLine={false} />
                         <Tooltip content={(props) => <CustomAreaTooltip {...props} xAxisTicks={xAxisTicks} />} />
                         {topTickers.map((ticker, index) => (
                             <Area 

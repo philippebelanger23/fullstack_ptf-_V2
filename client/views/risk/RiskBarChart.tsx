@@ -234,7 +234,7 @@ export const RiskBarChart: React.FC<RiskBarChartProps> = ({
                             <button
                                 key={v}
                                 onClick={() => setView(v)}
-                                className={`px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider rounded-md transition-all duration-200 ${
+                                className={`px-4 py-2 text-xs font-bold uppercase tracking-wider rounded-md transition-all duration-200 ${
                                     view === v
                                         ? 'bg-wallstreet-accent/20 text-wallstreet-accent shadow-sm'
                                         : 'text-wallstreet-500 hover:text-wallstreet-text'

@@ -145,9 +145,9 @@ async def risk_contribution(request: BackcastRequest):
     individual_vols = returns_matrix.std().values * np.sqrt(252)
     annualized_returns = returns_matrix.mean().values * 252
 
-    # Beta to portfolio
+    # Beta to portfolio (ddof=1 consistent with cov)
     port_daily_ret = (returns_matrix.values * w).sum(axis=1)
-    port_daily_var = np.var(port_daily_ret)
+    port_daily_var = np.var(port_daily_ret, ddof=1)
     betas = []
     for i in range(len(ticker_list)):
         if port_daily_var > 0:
@@ -169,21 +169,18 @@ async def risk_contribution(request: BackcastRequest):
     top3_concentration = float(np.sum(sorted_pct[:3])) if len(sorted_pct) >= 3 else float(np.sum(sorted_pct))
 
     # Benchmark volatility & portfolio beta to benchmark
+    # Use the SAME shared functions as /portfolio-backcast to guarantee matching values
     bmk_vol = 0.0
     portfolio_beta = 1.0
-    if (
-        "ACWI" in returns_df.columns
-        and "XIU.TO" in returns_df.columns
-        and "USDCAD=X" in returns_df.columns
-    ):
-        acwi_cad = (1 + returns_df["ACWI"]) * (1 + returns_df["USDCAD=X"]) - 1
-        bmk_ret = 0.75 * acwi_cad + 0.25 * returns_df["XIU.TO"]
-        bmk_vol = float(bmk_ret.iloc[1:].std() * np.sqrt(252))
-        # Portfolio beta to benchmark
-        bmk_daily = bmk_ret.iloc[1:].values
-        bmk_daily_var = np.var(bmk_daily)
+    shared_ptf_returns, _ = build_portfolio_returns(returns_df, weights_by_ticker, mutual_fund_tickers)
+    shared_bmk_returns = build_benchmark_returns(returns_df, benchmark=request.benchmark)
+    ptf_daily = shared_ptf_returns.iloc[1:].values
+    bmk_daily = shared_bmk_returns.iloc[1:].values
+    if len(bmk_daily) > 0:
+        bmk_vol = float(np.std(bmk_daily, ddof=1) * np.sqrt(252))
+        bmk_daily_var = np.var(bmk_daily, ddof=1)
         if bmk_daily_var > 0:
-            portfolio_beta = float(np.cov(port_daily_ret, bmk_daily)[0, 1] / bmk_daily_var)
+            portfolio_beta = float(np.cov(ptf_daily, bmk_daily)[0, 1] / bmk_daily_var)
 
     # Historical VaR 95% & CVaR 95% (1-day)
     var_threshold = np.percentile(port_daily_ret, 5)

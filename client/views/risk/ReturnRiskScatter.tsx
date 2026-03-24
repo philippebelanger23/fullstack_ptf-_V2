@@ -22,22 +22,20 @@ export const ReturnRiskScatter: React.FC<ReturnRiskScatterProps> = ({ data, load
         const medianRisk = data.length % 2 ? sortedX[mid].x : (sortedX[mid - 1].x + sortedX[mid].x) / 2;
         const medianReturn = data.length % 2 ? sortedY[mid].y : (sortedY[mid - 1].y + sortedY[mid].y) / 2;
 
-        // Cap x-axis at p85 * 1.3 — clips extreme outliers so the bulk of data fills the chart
-        const p85idx = Math.floor(sortedX.length * 0.85);
-        const p85x = sortedX[Math.min(p85idx, sortedX.length - 1)].x;
-        const rawMax = Math.max(...data.map(d => d.x));
-        const xMax = rawMax > p85x * 1.5 ? p85x * 1.3 : rawMax * 1.15;
+        const rawMaxX = Math.max(...data.map(d => d.x));
+        const xMax = rawMaxX * 1.15;
 
+        const rawMinY = Math.min(...data.map(d => d.y));
+        const rawMaxY = Math.max(...data.map(d => d.y));
+        const yPad = (rawMaxY - rawMinY) * 0.1 || 5;
         return {
             medianRisk, medianReturn, xMax,
-            yMin: Math.min(...data.map(d => d.y)) * 1.15,
-            yMax: Math.max(...data.map(d => d.y)) * 1.15,
+            yMin: rawMinY - yPad,
+            yMax: rawMaxY + yPad,
         };
     }, [data]);
 
     if (loading) return <ChartSkeleton />;
-
-    const quadrantOpacity = tc.isDark ? 0.09 : 0.12;
 
     return (
         <div className="bg-wallstreet-800 rounded-2xl border border-wallstreet-700 shadow-sm p-6">
@@ -53,15 +51,15 @@ export const ReturnRiskScatter: React.FC<ReturnRiskScatterProps> = ({ data, load
                     <ScatterChart margin={{ left: 5, right: 25, top: 20, bottom: 15 }}>
                         <CartesianGrid strokeDasharray="3 3" stroke={tc.gridStrokeLight} />
 
-                        {/* Quadrant shading */}
+                        {/* Quadrant shading — very subtle tints, just enough to hint at zones */}
                         {/* @ts-expect-error Recharts v3 ReferenceArea numeric props */}
-                        <ReferenceArea x1={0} x2={medianRisk} y1={medianReturn} y2={yMax} fill="#22c55e" fillOpacity={quadrantOpacity} />
+                        <ReferenceArea x1={0} x2={medianRisk} y1={medianReturn} y2={yMax} fill="#22c55e" fillOpacity={0.03} stroke="none" />
                         {/* @ts-expect-error Recharts v3 ReferenceArea numeric props */}
-                        <ReferenceArea x1={medianRisk} x2={xMax} y1={medianReturn} y2={yMax} fill="#f59e0b" fillOpacity={quadrantOpacity} />
+                        <ReferenceArea x1={medianRisk} x2={xMax} y1={medianReturn} y2={yMax} fill="#f59e0b" fillOpacity={0.03} stroke="none" />
                         {/* @ts-expect-error Recharts v3 ReferenceArea numeric props */}
-                        <ReferenceArea x1={0} x2={medianRisk} y1={yMin} y2={medianReturn} fill="#94a3b8" fillOpacity={quadrantOpacity * 0.6} />
+                        <ReferenceArea x1={0} x2={medianRisk} y1={yMin} y2={medianReturn} fill="#94a3b8" fillOpacity={0.02} stroke="none" />
                         {/* @ts-expect-error Recharts v3 ReferenceArea numeric props */}
-                        <ReferenceArea x1={medianRisk} x2={xMax} y1={yMin} y2={medianReturn} fill="#ef4444" fillOpacity={quadrantOpacity} />
+                        <ReferenceArea x1={medianRisk} x2={xMax} y1={yMin} y2={medianReturn} fill="#ef4444" fillOpacity={0.03} stroke="none" />
 
                         {/* Crosshairs */}
                         <ReferenceLine x={medianRisk} stroke={tc.referenceLine} strokeDasharray="6 4" />

@@ -18,34 +18,54 @@ const computeMetricsFromSeries = (filtered: BackcastSeriesPoint[]): PeriodMetric
     }
     if (ptfRets.length === 0) return null;
 
+    const n = ptfRets.length;
     const mean = (arr: number[]) => arr.reduce((a, b) => a + b, 0) / arr.length;
+    // Sample std (ddof=1) to match backend
     const std = (arr: number[]) => {
+        if (arr.length < 2) return 0;
         const m = mean(arr);
-        return Math.sqrt(arr.reduce((acc, v) => acc + (v - m) ** 2, 0) / arr.length);
+        return Math.sqrt(arr.reduce((acc, v) => acc + (v - m) ** 2, 0) / (arr.length - 1));
     };
+    // Sample covariance (ddof=1) to match backend
     const covariance = (a: number[], b: number[]) => {
+        if (a.length < 2) return 0;
         const mA = mean(a), mB = mean(b);
-        return a.reduce((acc, v, i) => acc + (v - mA) * (b[i] - mB), 0) / a.length;
+        return a.reduce((acc, v, i) => acc + (v - mA) * (b[i] - mB), 0) / (a.length - 1);
+    };
+    // Proper downside deviation: sqrt(mean(min(r, 0)^2))
+    const downsideDev = (arr: number[]) => {
+        const sumSq = arr.reduce((acc, r) => acc + Math.min(r, 0) ** 2, 0);
+        return Math.sqrt(sumSq / arr.length);
     };
 
     const totalReturn = ((filtered[filtered.length - 1].portfolio - filtered[0].portfolio) / filtered[0].portfolio) * 100;
     const benchmarkReturn = ((filtered[filtered.length - 1].benchmark - filtered[0].benchmark) / filtered[0].benchmark) * 100;
     const alpha = totalReturn - benchmarkReturn;
-    const volatility = std(ptfRets) * Math.sqrt(ptfRets.length) * 100;
-    const benchmarkVolatility = std(bmkRets) * Math.sqrt(bmkRets.length) * 100;
-    const sharpeRatio = volatility > 0 ? totalReturn / volatility : 0;
-    const benchmarkSharpe = benchmarkVolatility > 0 ? benchmarkReturn / benchmarkVolatility : 0;
-    const negRets = ptfRets.filter(r => r < 0);
-    const downsideStd = negRets.length > 0 ? std(negRets) * Math.sqrt(ptfRets.length) * 100 : volatility;
-    const sortinoRatio = downsideStd > 0 ? totalReturn / downsideStd : 0;
-    const bmkNegRets = bmkRets.filter(r => r < 0);
-    const bmkDownsideStd = bmkNegRets.length > 0 ? std(bmkNegRets) * Math.sqrt(bmkRets.length) * 100 : benchmarkVolatility;
-    const benchmarkSortino = bmkDownsideStd > 0 ? benchmarkReturn / bmkDownsideStd : 0;
-    const bmkVar = std(bmkRets) ** 2;
+
+    // Always annualize with sqrt(252) to match backend convention
+    const ptfStd = std(ptfRets);
+    const bmkStd = std(bmkRets);
+    const ptfMean = mean(ptfRets);
+    const bmkMean = mean(bmkRets);
+
+    const volatility = ptfStd * Math.sqrt(252) * 100;
+    const benchmarkVolatility = bmkStd * Math.sqrt(252) * 100;
+    const sharpeRatio = ptfStd > 0 ? (ptfMean / ptfStd) * Math.sqrt(252) : 0;
+    const benchmarkSharpe = bmkStd > 0 ? (bmkMean / bmkStd) * Math.sqrt(252) : 0;
+
+    const ptfDD = downsideDev(ptfRets);
+    const sortinoRatio = ptfDD > 0 ? (ptfMean / ptfDD) * Math.sqrt(252) : 0;
+    const bmkDD = downsideDev(bmkRets);
+    const benchmarkSortino = bmkDD > 0 ? (bmkMean / bmkDD) * Math.sqrt(252) : 0;
+
+    const bmkVar = bmkStd ** 2;
     const beta = bmkVar > 0 ? covariance(ptfRets, bmkRets) / bmkVar : 1;
+
     const excessRets = ptfRets.map((r, i) => r - bmkRets[i]);
-    const trackingError = std(excessRets) * Math.sqrt(excessRets.length) * 100;
-    const informationRatio = trackingError > 0 ? (totalReturn - benchmarkReturn) / trackingError : 0;
+    const trackingError = std(excessRets) * Math.sqrt(252) * 100;
+    const meanExcessAnn = mean(excessRets) * 252;
+    const informationRatio = trackingError > 0 ? (meanExcessAnn * 100) / trackingError : 0;
+
     let maxPtf = filtered[0].portfolio;
     let maxDrawdown = 0;
     let maxBmk = filtered[0].benchmark;
@@ -186,8 +206,29 @@ export const PerformanceView: React.FC = () => {
     }, [data, selectedPeriod]);
 
     const periodMetrics = useMemo((): PeriodMetrics | null => {
+        // For 1Y, use the backend's pre-computed metrics (same data/formula as risk-contribution)
+        // to guarantee consistency across tabs. Only compute frontend metrics for sub-periods
+        // where the backend doesn't have period-specific values.
+        if (selectedPeriod === '1Y' && data?.metrics) {
+            return {
+                totalReturn: data.metrics.totalReturn,
+                benchmarkReturn: data.metrics.benchmarkReturn,
+                alpha: data.metrics.alpha,
+                sharpeRatio: data.metrics.sharpeRatio,
+                sortinoRatio: data.metrics.sortinoRatio,
+                informationRatio: data.metrics.informationRatio,
+                trackingError: data.metrics.trackingError,
+                volatility: data.metrics.volatility,
+                benchmarkVolatility: data.metrics.benchmarkVolatility,
+                benchmarkSharpe: data.metrics.benchmarkSharpe,
+                benchmarkSortino: data.metrics.benchmarkSortino,
+                beta: data.metrics.beta,
+                maxDrawdown: data.metrics.maxDrawdown,
+                benchmarkMaxDrawdown: data.metrics.benchmarkMaxDrawdown,
+            };
+        }
         return computeMetricsFromSeries(filteredSeries);
-    }, [filteredSeries]);
+    }, [filteredSeries, selectedPeriod, data]);
 
     if (loading) {
         return (

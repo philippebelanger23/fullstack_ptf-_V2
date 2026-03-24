@@ -231,7 +231,7 @@ export const RiskTable: React.FC<RiskTableProps> = ({ positions, loading, missin
                                         const sectorWeight = sectorPositions.reduce((s, p) => s + p.weight, 0);
                                         return (
                                             <React.Fragment key={sector}>
-                                                <tr className="bg-wallstreet-accent/5 border-t-2 border-wallstreet-700">
+                                                <tr className="bg-wallstreet-900 border-t-2 border-wallstreet-accent/50">
                                                     <td colSpan={10} className="px-3 py-2">
                                                         <div className="flex items-center justify-between">
                                                             <span className="text-xs font-bold text-wallstreet-accent uppercase tracking-wider">{sector}</span>

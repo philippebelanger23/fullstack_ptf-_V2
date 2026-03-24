@@ -257,9 +257,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ data, customSector
           </div>
           <p className="text-wallstreet-500 mt-1 text-sm">Exposure analysis and allocation breakdown as of {latestDate}.</p>
         </div>
-        <div className="flex items-center gap-2 bg-wallstreet-200 px-3 py-1 rounded text-xs font-mono text-wallstreet-500">
-          <span>{dates.length} Snapshots</span>
-        </div>
       </header>
 
       {/* Error Banner for Market Data Fetch Failures */}

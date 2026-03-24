@@ -37,7 +37,10 @@ def aggregate_weights(items) -> tuple[dict, set]:
         ticker = item.ticker.upper().strip()
         if not ticker or "TICKER" in ticker or "CASH" in ticker.upper():
             continue
-        w = item.weight / 100.0 if item.weight > 1 else item.weight
+        # Frontend sends weights as percentages (e.g. 10.0 = 10%, 0.5 = 0.5%).
+        # Always divide by 100 to convert to decimal.
+        # If weights are already decimal, normalisation (sum→1) preserves proportions.
+        w = item.weight / 100.0
         if ticker in weights_by_ticker:
             weights_by_ticker[ticker] = max(weights_by_ticker[ticker], w)
         else:
@@ -144,22 +147,23 @@ def compute_backcast_metrics(
     ptf_rets = portfolio_returns.iloc[1:].values
     bmk_rets = benchmark_returns.iloc[1:].values
 
-    # Sharpe
+    # Sharpe (ddof=1 for sample std throughout)
     mean_daily_ret = np.mean(ptf_rets)
-    std_daily_ret = np.std(ptf_rets)
+    std_daily_ret = np.std(ptf_rets, ddof=1)
     sharpe_ratio = (mean_daily_ret / std_daily_ret) * np.sqrt(252) if std_daily_ret > 0 else 0.0
 
-    # Sortino
-    negative_rets = ptf_rets[ptf_rets < 0]
-    downside_std = np.std(negative_rets) if len(negative_rets) > 0 else std_daily_ret
-    sortino_ratio = (mean_daily_ret / downside_std) * np.sqrt(252) if downside_std > 0 else 0.0
+    # Sortino – proper downside deviation: sqrt(mean(min(r, 0)^2))
+    downside_sq = np.minimum(ptf_rets, 0) ** 2
+    downside_dev = np.sqrt(np.mean(downside_sq))
+    sortino_ratio = (mean_daily_ret / downside_dev) * np.sqrt(252) if downside_dev > 0 else 0.0
 
     # Volatility (annualized)
     volatility = std_daily_ret * np.sqrt(252)
 
-    # Beta
-    if np.var(bmk_rets) > 0:
-        beta = np.cov(ptf_rets, bmk_rets)[0, 1] / np.var(bmk_rets)
+    # Beta (use sample covariance consistently: ddof=1)
+    bmk_var = np.var(bmk_rets, ddof=1)
+    if bmk_var > 0:
+        beta = np.cov(ptf_rets, bmk_rets)[0, 1] / bmk_var
     else:
         beta = 1.0
 
@@ -188,18 +192,18 @@ def compute_backcast_metrics(
     else:
         alpha = 0.0
 
-    # Benchmark metrics
-    bmk_std = np.std(bmk_rets)
+    # Benchmark metrics (ddof=1 consistent with portfolio)
+    bmk_std = np.std(bmk_rets, ddof=1)
     benchmark_volatility = bmk_std * np.sqrt(252)
     benchmark_sharpe = (np.mean(bmk_rets) / bmk_std) * np.sqrt(252) if bmk_std > 0 else 0.0
 
-    bmk_negative_rets = bmk_rets[bmk_rets < 0]
-    bmk_downside_std = np.std(bmk_negative_rets) if len(bmk_negative_rets) > 0 else bmk_std
-    benchmark_sortino = (np.mean(bmk_rets) / bmk_downside_std) * np.sqrt(252) if bmk_downside_std > 0 else 0.0
+    bmk_downside_sq = np.minimum(bmk_rets, 0) ** 2
+    bmk_downside_dev = np.sqrt(np.mean(bmk_downside_sq))
+    benchmark_sortino = (np.mean(bmk_rets) / bmk_downside_dev) * np.sqrt(252) if bmk_downside_dev > 0 else 0.0
 
     # Information Ratio
     excess_rets = ptf_rets - bmk_rets
-    tracking_error = np.std(excess_rets) * np.sqrt(252)
+    tracking_error = np.std(excess_rets, ddof=1) * np.sqrt(252)
     mean_excess_ret = np.mean(excess_rets) * 252
     information_ratio = mean_excess_ret / tracking_error if tracking_error > 0 else 0.0
 
@@ -265,9 +269,9 @@ def compute_rolling_metrics(
             date_str = dates[i].strftime("%Y-%m-%d")
 
             ptf_mean = np.mean(ptf_slice)
-            ptf_std = np.std(ptf_slice)
+            ptf_std = np.std(ptf_slice, ddof=1)
             bmk_mean = np.mean(bmk_slice)
-            bmk_std = np.std(bmk_slice)
+            bmk_std = np.std(bmk_slice, ddof=1)
 
             ptf_sharpe = (ptf_mean / ptf_std) * np.sqrt(252) if ptf_std > 0 else 0.0
             bmk_sharpe = (bmk_mean / bmk_std) * np.sqrt(252) if bmk_std > 0 else 0.0
@@ -275,7 +279,7 @@ def compute_rolling_metrics(
             ptf_vol = ptf_std * np.sqrt(252) * 100
             bmk_vol = bmk_std * np.sqrt(252) * 100
 
-            bmk_var = np.var(bmk_slice)
+            bmk_var = np.var(bmk_slice, ddof=1)
             beta = np.cov(ptf_slice, bmk_slice)[0, 1] / bmk_var if bmk_var > 0 else 1.0
 
             records.append({

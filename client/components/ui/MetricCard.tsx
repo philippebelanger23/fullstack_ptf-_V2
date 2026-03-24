@@ -48,7 +48,7 @@ export const MetricCard: React.FC<MetricCardProps> = ({
             <h3 className="text-wallstreet-500 text-xs font-medium uppercase tracking-wider">{title}</h3>
             {tooltip && (
                 <div className="relative" onMouseEnter={() => setShowTip(true)} onMouseLeave={() => setShowTip(false)}>
-                    <Info size={11} className="text-wallstreet-600 cursor-help hover:text-wallstreet-400 transition-colors" />
+                    <Info size={15} className="text-wallstreet-400 cursor-help hover:text-wallstreet-200 transition-colors" />
                     {showTip && (
                         <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 z-50 w-56 bg-wallstreet-900 border border-wallstreet-700 rounded-lg p-3 shadow-xl text-[11px] text-wallstreet-400 leading-relaxed pointer-events-none">
                             {tooltip}

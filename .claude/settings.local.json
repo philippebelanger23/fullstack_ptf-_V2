@@ -17,7 +17,10 @@
       "Bash(npm run:*)",
       "Bash(MASTERPLAN.md:*)",
       "Bash(wc -l /c/Users/Phili/Desktop/Local_GitHub/fullstack-ptf-V2/server/routes/*.py)",
-      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(list\\(d.items\\(\\)\\)[:10]\\)\")"
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(list\\(d.items\\(\\)\\)[:10]\\)\")",
+      "Bash(xargs -I {} basename {})",
+      "Bash(grep -r \"snapshots\\\\|Snapshots\" c:/Users/Phili/Desktop/Local_GitHub/fullstack-ptf-V2/client --include=*.tsx)",
+      "Bash(python -c \"import py_compile; py_compile.compile\\(''server/routes/risk.py'', doraise=True\\); print\\(''OK''\\)\")"
     ]
   }
 }

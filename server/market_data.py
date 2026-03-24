@@ -62,14 +62,16 @@ def get_price_on_date(ticker, date, cache):
         cache[cache_key] = price
         return price
     except Exception as e:
-        logger.warning(f"Error fetching price for {ticker} on {date}: {str(e)}. Defaulting to 1.0")
-        return 1.0
+        logger.warning(f"Error fetching price for {ticker} on {date}: {str(e)}. Returning None.")
+        return None
 
 
 def get_fx_return(start_date, end_date, cache):
     """Get FX return for CAD=X over the period."""
     fx_start = get_price_on_date(FX_TICKER, start_date, cache)
     fx_end = get_price_on_date(FX_TICKER, end_date, cache)
+    if fx_start is None or fx_end is None or fx_start == 0:
+        return 0.0
     return (fx_end / fx_start) - 1
 
 
@@ -173,7 +175,10 @@ def calculate_benchmark_returns(dates, cache):
             else:
                 price_start = get_price_on_date(ticker, start_date, cache)
                 price_end = get_price_on_date(ticker, end_date, cache)
-                benchmark_returns[bench_name][(start_date, end_date)] = (price_end / price_start) - 1
+                if price_start is None or price_end is None or price_start == 0:
+                    benchmark_returns[bench_name][(start_date, end_date)] = 0.0
+                else:
+                    benchmark_returns[bench_name][(start_date, end_date)] = (price_end / price_start) - 1
     
     return benchmark_returns
 
@@ -229,8 +234,9 @@ def build_results_dataframe(weights_dict, returns, prices, dates, cache, mutual_
                     if needs_fx_adjustment(ticker, is_mutual_fund=(ticker in mutual_fund_tickers)):
                         fx_start = get_price_on_date(FX_TICKER, first_date, cache)
                         fx_end = get_price_on_date(FX_TICKER, last_date, cache)
-                        fx_return = (fx_end / fx_start) - 1
-                        ytd_return = (1 + ytd_return) * (1 + fx_return) - 1
+                        if fx_start is not None and fx_end is not None and fx_start != 0:
+                            fx_return = (fx_end / fx_start) - 1
+                            ytd_return = (1 + ytd_return) * (1 + fx_return) - 1
             else:
                 ytd_return = 0.0
             
@@ -288,21 +294,18 @@ def get_ticker_performance(tickers, cache):
         ticker_results = {}
         
         # Get current price
-        try:
-            current_price = get_price_on_date(ticker, today, cache)
-        except Exception as e:
+        current_price = get_price_on_date(ticker, today, cache)
+        if current_price is None:
             # Fallback if today's price is not available (e.g. weekend), try yesterday
-            try:
-                current_price = get_price_on_date(ticker, today - pd.Timedelta(days=1), cache)
-            except:
-                 # If totally failed, skip
-                results[ticker] = {k: 0.0 for k in dates}
-                continue
+            current_price = get_price_on_date(ticker, today - pd.Timedelta(days=1), cache)
+        if current_price is None:
+            results[ticker] = {k: 0.0 for k in dates}
+            continue
 
         for period_name, start_date in dates.items():
             try:
                 start_price = get_price_on_date(ticker, start_date, cache)
-                if start_price and start_price != 0:
+                if start_price is not None and start_price != 0:
                     ret = (current_price / start_price) - 1
                     ticker_results[period_name] = ret
                 else:

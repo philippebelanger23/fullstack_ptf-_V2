@@ -139,21 +139,6 @@ export const RiskContributionView: React.FC = () => {
                         Marginal contribution to risk, diversification analysis, and position-level risk decomposition.
                     </p>
                 </div>
-                <div className="flex items-center bg-wallstreet-900 rounded-lg p-0.5 shrink-0">
-                    {(['actual', 'historical'] as PositionMode[]).map((mode) => (
-                        <button
-                            key={mode}
-                            onClick={() => setPositionMode(mode)}
-                            className={`px-3 py-1.5 text-xs font-bold uppercase tracking-wider rounded-md transition-all ${
-                                positionMode === mode
-                                    ? 'bg-wallstreet-800 text-wallstreet-text shadow-sm'
-                                    : 'text-wallstreet-500 hover:text-wallstreet-text'
-                            }`}
-                        >
-                            {mode === 'actual' ? 'Actual Positions' : 'Historical'}
-                        </button>
-                    ))}
-                </div>
             </div>
 
             {/* ── Tier 1: KPIs ── */}

@@ -398,9 +398,9 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
             currentVal = end;
         }
 
-        dataPoints.push({ name: 'Total', value: [0, currentVal], delta: currentVal, isTotal: true, color: '#0A2351' });
+        dataPoints.push({ name: 'Total', value: [0, currentVal], delta: currentVal, isTotal: true, color: tc.isDark ? '#38bdf8' : '#0A2351' });
         return dataPoints;
-    }, [sortedByWeight]);
+    }, [sortedByWeight, tc.isDark]);
 
     const waterfallDomain = useMemo(() => {
         if (waterfallData.length === 0) return [0, 10];
@@ -1082,7 +1082,7 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
                                                             const displayBg = showHyphen ? emptyBg : bg;
 
                                                             return (
-                                                                <div className="w-full h-10 flex items-center justify-center font-mono font-bold cursor-default transition-transform hover:scale-110 hover:z-20 hover:shadow-sm relative text-[11px]" style={{ backgroundColor: displayBg, color }}>
+                                                                <div className="w-full h-10 flex items-center justify-center font-mono font-bold cursor-default transition-transform hover:scale-110 hover:z-20 hover:shadow-sm relative text-sm" style={{ backgroundColor: displayBg, color }}>
                                                                     {!showHyphen ? <span className="opacity-100">{val! < 0 ? `(${Math.abs(val!).toFixed(2)}%)` : `${val! > 0 ? '+' : ''}${val!.toFixed(2)}%`}</span> : <span className="text-gray-300">-</span>}
                                                                     {!showHyphen && val !== null && (
                                                                         <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 px-3 py-2 bg-slate-900 text-white text-[10px] rounded opacity-0 group-hover/cell:opacity-100 pointer-events-none z-30 whitespace-nowrap shadow-xl flex flex-col items-center gap-1">
@@ -1095,7 +1095,7 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
                                                     </td>
                                                 );
                                             })}
-                                            <td className="p-3 text-right font-mono font-bold border-b border-wallstreet-100 border-l border-wallstreet-300 bg-wallstreet-900/80 text-sm">
+                                            <td className="p-3 text-center font-mono font-bold border-b border-wallstreet-100 border-l border-wallstreet-300 bg-wallstreet-900/80 text-sm">
                                                 {(() => {
                                                     const isZeroTotal = Math.abs(row.total) < 0.0001;
                                                     const isZeroLatestWeight = (row.latestWeight || 0) < 0.0001; // Use latestWeight
@@ -1118,12 +1118,12 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
                                             const hasData = heatmapTotals.hasDataMap[key];
                                             const val = heatmapTotals.totals[key];
                                             return (
-                                                <td key={date.toISOString()} className="p-3 text-center font-mono font-bold text-xs border-b border-wallstreet-100 border-l border-wallstreet-700">
+                                                <td key={date.toISOString()} className="p-3 text-center font-mono font-bold text-sm border-b border-wallstreet-100 border-l border-wallstreet-700">
                                                     {hasData ? <span className={val >= 0 ? 'text-green-700' : 'text-red-700'}>{val < 0 ? `(${Math.abs(val).toFixed(2)}%)` : `${val > 0 ? '+' : ''}${val.toFixed(2)}%`}</span> : <span className="text-gray-300">-</span>}
                                                 </td>
                                             )
                                         })}
-                                        <td className="p-3 text-center font-mono font-bold text-xs border-l border-wallstreet-300 bg-wallstreet-200 text-wallstreet-text">
+                                        <td className="p-3 text-center font-mono font-bold text-sm border-l border-wallstreet-300 bg-wallstreet-200 text-wallstreet-text">
                                             <span className={heatmapTotals.grandTotal >= 0 ? 'text-green-800' : 'text-red-800'}>{heatmapTotals.grandTotal < 0 ? `(${Math.abs(heatmapTotals.grandTotal).toFixed(2)}%)` : `${heatmapTotals.grandTotal > 0 ? '+' : ''}${heatmapTotals.grandTotal.toFixed(2)}%`}</span>
                                         </td>
                                     </tr>

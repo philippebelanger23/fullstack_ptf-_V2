@@ -277,19 +277,19 @@ export const IndexPerformanceChart: React.FC<IndexPerformanceChartProps> = ({ da
                 {performanceMetrics && (
                     <div className="flex items-center gap-3 text-xs font-mono">
                         <span className="text-wallstreet-500 italic text-[15px] tracking-wider">CAGR (Annualized)</span>
-                        <div className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-emerald-50 border border-emerald-200 ${getPerformanceColor(performanceMetrics.index)}`}>
+                        <div className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-950 border border-emerald-200 dark:border-emerald-700 ${getPerformanceColor(performanceMetrics.index)}`}>
                             {getPerformanceIcon(performanceMetrics.index)}
-                            <span className="font-bold text-emerald-700">75/25:</span>
+                            <span className="font-bold text-emerald-700 dark:text-emerald-300">75/25:</span>
                             <span className="font-bold">{formatPercent(performanceMetrics.index)}</span>
                         </div>
-                        <div className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-blue-50 border border-blue-200 ${getPerformanceColor(performanceMetrics.acwi)}`}>
+                        <div className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-700 ${getPerformanceColor(performanceMetrics.acwi)}`}>
                             {getPerformanceIcon(performanceMetrics.acwi)}
-                            <span className="font-bold text-blue-700">ACWI:</span>
+                            <span className="font-bold text-blue-700 dark:text-blue-300">ACWI:</span>
                             <span className="font-bold">{formatPercent(performanceMetrics.acwi)}</span>
                         </div>
-                        <div className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-red-50 border border-red-200 ${getPerformanceColor(performanceMetrics.xiu)}`}>
+                        <div className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-700 ${getPerformanceColor(performanceMetrics.xiu)}`}>
                             {getPerformanceIcon(performanceMetrics.xiu)}
-                            <span className="font-bold text-red-700">XIU:</span>
+                            <span className="font-bold text-red-700 dark:text-red-300">XIU:</span>
                             <span className="font-bold">{formatPercent(performanceMetrics.xiu)}</span>
                         </div>
                     </div>

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { LayoutDashboard, FileText, Upload, PieChart, Network, BarChart2, Globe, TrendingUp, Sun, Moon } from 'lucide-react';
+import { LayoutDashboard, FileText, Upload, PieChart, BarChart2, Globe, TrendingUp, Sun, Moon } from 'lucide-react';
 import { ViewState } from '../types';
 
 interface SidebarProps {
@@ -44,7 +44,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, setView, hasData,
     <div className="w-64 h-screen bg-wallstreet-900 border-r border-wallstreet-700 flex flex-col sticky top-0 shadow-sm print-hide">
       <div className="p-6 border-b border-wallstreet-700">
         <h1 className="text-xl font-bold font-mono text-wallstreet-text tracking-tighter">
-          <span className="text-wallstreet-accent">PTF</span> DEEP DIVE
+          <span className="text-wallstreet-accent">PTF</span> TOOL
         </h1>
         <p className="text-xs text-wallstreet-500 mt-1 uppercase tracking-widest">Institutional Grade</p>
       </div>
@@ -80,14 +80,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, setView, hasData,
           <span className="font-medium">Relative Performance</span>
         </div>
 
-        <div className={navItemClass(ViewState.CORRELATION, true)} title="Module currently disabled">
-          <Network size={20} />
-          <span className="font-medium">Correlation Matrix</span>
-        </div>
-
         <div className={navItemClass(ViewState.ANALYSIS, true)} title="Module currently disabled">
           <FileText size={20} />
-          <span className="font-medium">Portfolio Deep Dive</span>
+          <span className="font-medium">One Pager</span>
         </div>
       </nav>
 

@@ -36,16 +36,16 @@ export const CorrelationHeatmap: React.FC<CorrelationHeatmapProps> = ({ correlat
                 <div style={{ width: labelWidth + gridWidth }} className="relative">
                     {/* Legend + hover detail — floated into the empty upper-right triangle */}
                     <div className="absolute flex flex-col items-end gap-1 pointer-events-none" style={{ top: 0, left: labelWidth + (CELL_SIZE + 2) * 2, right: 0 }}>
-                        <div className="flex items-center gap-1.5">
-                            <span className="text-[9px] font-mono text-wallstreet-500">0.0</span>
-                            <div className="h-2 w-24 rounded-full overflow-hidden flex relative">
+                        <div className="flex items-center gap-2.5">
+                            <span className="text-sm font-mono font-bold text-wallstreet-500">0.0</span>
+                            <div className="h-4 w-48 rounded-full overflow-hidden flex relative">
                                 {Array.from({ length: 24 }).map((_, k) => (
                                     <div key={k} className="flex-1 h-full" style={{ backgroundColor: correlationColor(k / 23, tc.isDark) }} />
                                 ))}
                             </div>
-                            <span className="text-[9px] font-mono text-red-500">1.0</span>
+                            <span className="text-sm font-mono font-bold text-red-500">1.0</span>
                         </div>
-                        <div className="h-4 flex items-center text-[10px] font-mono">
+                        <div className="h-6 flex items-center text-sm font-mono">
                             {hovered && hovered.i !== hovered.j ? (
                                 <span className={`font-bold ${
                                     displayMatrix[hovered.i][hovered.j] > 0.7 ? 'text-red-500'
