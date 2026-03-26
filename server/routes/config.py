@@ -7,9 +7,13 @@ import logging
 import shutil
 from pathlib import Path
 
-import yfinance as yf
-from fastapi import APIRouter, File, HTTPException, UploadFile
+import pandas as pd
 
+import yfinance as yf
+from fastapi import APIRouter, File, HTTPException, Query, UploadFile
+
+from cache_manager import load_cache, save_cache
+from market_data import get_price_on_date, get_fx_return, needs_fx_adjustment
 from models import PortfolioConfig
 from routes.portfolio import get_aggregated_nav_data
 from services.config_manager import load_json, save_json
@@ -289,6 +293,78 @@ async def nav_audit():
         return result
     except Exception as e:
         logger.error(f"nav-audit error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/price-audit")
+async def price_audit(
+    ticker: str = Query(..., description="Ticker symbol, e.g. AAPL or CNR.TO"),
+    start_date: str = Query(..., description="Start date YYYY-MM-DD"),
+    end_date: str = Query(..., description="End date YYYY-MM-DD"),
+):
+    """
+    Fetch raw yfinance prices for a ticker over a date range and return the
+    computed return alongside FX details. Used to validate that the app's
+    price base matches known published data (total-return adjusted close).
+    """
+    try:
+        cache = load_cache()
+        nav_dict = get_aggregated_nav_data()
+
+        start_ts = pd.to_datetime(start_date)
+        end_ts = pd.to_datetime(end_date)
+
+        price_start = get_price_on_date(ticker.upper(), start_ts, cache)
+        price_end = get_price_on_date(ticker.upper(), end_ts, cache)
+
+        if price_start is None or price_end is None:
+            raise HTTPException(status_code=404, detail=f"Could not fetch prices for {ticker} on the given dates")
+
+        period_return = (price_end / price_start) - 1
+
+        needs_fx = needs_fx_adjustment(ticker.upper(), nav_dict=nav_dict)
+        fx_start = fx_end = fx_return = cad_adjusted_return = None
+
+        if needs_fx:
+            from constants import FX_TICKER
+            fx_start = get_price_on_date(FX_TICKER, start_ts, cache)
+            fx_end = get_price_on_date(FX_TICKER, end_ts, cache)
+            if fx_start and fx_end and fx_start != 0:
+                fx_return = (fx_end / fx_start) - 1
+                cad_adjusted_return = (1 + period_return) * (1 + fx_return) - 1
+
+        # Fetch the full daily price series for the range
+        try:
+            stock = yf.Ticker(ticker.upper())
+            hist = stock.history(start=start_ts, end=end_ts + pd.Timedelta(days=1), auto_adjust=True)
+            prices_series = [
+                {"date": str(idx.date()), "close": round(float(row["Close"]), 4)}
+                for idx, row in hist.iterrows()
+            ]
+        except Exception:
+            prices_series = []
+
+        save_cache(cache)
+
+        return {
+            "ticker": ticker.upper(),
+            "source": "yfinance auto_adjust=True (total-return adjusted close: split + dividend adjusted)",
+            "start_date": start_date,
+            "end_date": end_date,
+            "price_start": round(float(price_start), 4),
+            "price_end": round(float(price_end), 4),
+            "period_return_pct": round(period_return * 100, 4),
+            "needs_fx": needs_fx,
+            "fx_start": round(float(fx_start), 4) if fx_start else None,
+            "fx_end": round(float(fx_end), 4) if fx_end else None,
+            "fx_return_pct": round(fx_return * 100, 4) if fx_return is not None else None,
+            "cad_adjusted_return_pct": round(cad_adjusted_return * 100, 4) if cad_adjusted_return is not None else None,
+            "prices": prices_series,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"price-audit error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

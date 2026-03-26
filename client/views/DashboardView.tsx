@@ -15,10 +15,9 @@ interface DashboardViewProps {
 }
 
 const COLORS = [
-  '#2563eb', '#ea580c', '#16a34a', '#9333ea', '#dc2626',
-  '#0891b2', '#ca8a04', '#db2777', '#4f46e5', '#0d9488',
-  '#1d4ed8', '#c2410c', '#15803d', '#7e22ce', '#b91c1c',
-  '#0e7490', '#a16207', '#be185d', '#4338ca', '#0f766e'
+  '#09214c', '#2563eb', '#10b981', '#f59e0b', '#8e2cd4',
+  '#f43f5e', '#0ea5e9', '#16a34a', '#ea580c', '#4f46e5',
+  '#db2777', '#06b6d4', '#64748b',
 ];
 
 export const DashboardView: React.FC<DashboardViewProps> = ({ data, customSectors, assetGeo }) => {
@@ -30,7 +29,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ data, customSector
     return { dates, latestDate, currentHoldings, totalWeight };
   }, [data]);
 
-  const { topHoldings, top10TotalWeight, topTickers } = useMemo(() => {
+  const { topHoldings, top10TotalWeight, topTickers, areaChartData } = useMemo(() => {
     // Current top 10 for the Pie Chart and KPI
     const currentTopHoldings = [...currentHoldings]
       .sort((a, b) => b.weight - a.weight)
@@ -40,31 +39,100 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ data, customSector
     const top10TotalWeight = currentTopHoldings.reduce((sum, item) => sum + item.value, 0);
 
     // Global top tickers for the Evolution Chart
-    // RESTRICTED TO CURRENT TOP 10 ONLY based on user feedback to reduce clutter
-    const topTickers = currentTopHoldings.map(h => h.name);
-
-    return { topHoldings: currentTopHoldings, top10TotalWeight, topTickers };
-  }, [currentHoldings, data, dates]);
-
-  const areaChartData = useMemo(() => {
+    const historicalTopTickersSet = new Set<string>();
+    
+    // Process history data map internally here so we can constrain the chart to ONLY the top 10 of each date
     const historyDataMap = new Map<string, any>();
     dates.forEach(date => historyDataMap.set(date, { date }));
 
-    data.forEach((item: PortfolioItem) => {
-      if (topTickers.includes(item.ticker)) {
-        const entry = historyDataMap.get(item.date as string);
-        if (entry) entry[item.ticker] = item.weight;
+    // Group all data by date
+    const dataByDate = new Map<string, typeof data>();
+    data.forEach(d => {
+      const dateStr = d.date as string;
+      if (!dataByDate.has(dateStr)) dataByDate.set(dateStr, []);
+      dataByDate.get(dateStr)!.push(d);
+    });
+
+    dataByDate.forEach((dateItems, dateStr) => {
+      const dailyTop = [...dateItems]
+        .sort((a, b) => b.weight - a.weight)
+        .slice(0, 10);
+      
+      const entry = historyDataMap.get(dateStr);
+      if (entry) {
+        dailyTop.forEach(item => {
+          historicalTopTickersSet.add(item.ticker);
+          entry[item.ticker] = item.weight;
+        });
       }
     });
 
-    return Array.from(historyDataMap.values()).map(entry => {
+    // Build latest-date weight map from currentHoldings (for stack ordering)
+    const latestWeightMap = new Map<string, number>();
+    currentHoldings.forEach(item => latestWeightMap.set(item.ticker, item.weight));
+
+    // Fallback: cumulative historical weight for tickers no longer held
+    const tickerTotalWeightMap = new Map<string, number>();
+    dataByDate.forEach((dateItems) => {
+      dateItems.forEach(item => {
+        if (historicalTopTickersSet.has(item.ticker)) {
+          tickerTotalWeightMap.set(item.ticker, (tickerTotalWeightMap.get(item.ticker) || 0) + item.weight);
+        }
+      });
+    });
+
+    // Sort: largest CURRENT holding → bottom of chart (rendered first in Recharts)
+    // Tickers no longer held fall back to total historical weight, then alpha
+    const topTickersFinal = Array.from(historicalTopTickersSet).sort((a, b) => {
+      const latestA = latestWeightMap.get(a) || 0;
+      const latestB = latestWeightMap.get(b) || 0;
+      if (latestB !== latestA) return latestB - latestA;
+
+      const weightA = tickerTotalWeightMap.get(a) || 0;
+      const weightB = tickerTotalWeightMap.get(b) || 0;
+      if (weightB !== weightA) return weightB - weightA;
+      return a.localeCompare(b);
+    });
+
+    const finalAreaChartData = Array.from(historyDataMap.values()).map(entry => {
       const completeEntry = { ...entry };
-      topTickers.forEach(ticker => {
+      topTickersFinal.forEach(ticker => {
         if (completeEntry[ticker] === undefined) completeEntry[ticker] = 0;
       });
       return completeEntry;
     });
-  }, [dates, data, topTickers]);
+
+    return { topHoldings: currentTopHoldings, top10TotalWeight, topTickers: topTickersFinal, areaChartData: finalAreaChartData };
+  }, [currentHoldings, data, dates]);
+
+  const tickerColorMap = useMemo(() => {
+    const map: Record<string, string> = {};
+    let colorIndex = 0;
+
+    // 1. Assign colors to current holdings (sorted by weight)
+    const sortedCurrent = [...currentHoldings].sort((a, b) => b.weight - a.weight);
+    sortedCurrent.forEach(item => {
+      if (!map[item.ticker]) {
+        map[item.ticker] = COLORS[colorIndex % COLORS.length];
+        colorIndex++;
+      }
+    });
+
+    // 2. Assign colors to all historical tickers that are no longer held
+    const allHistoricalTickers = Array.from(new Set<string>(data.map(d => d.ticker as string))).sort();
+    allHistoricalTickers.forEach(ticker => {
+      if (!map[ticker]) {
+        map[ticker] = COLORS[colorIndex % COLORS.length];
+        colorIndex++;
+      }
+    });
+
+    return map;
+  }, [currentHoldings, data]);
+
+  const chartColors = useMemo(() => {
+    return topTickers.map(t => tickerColorMap[t] || COLORS[0]);
+  }, [topTickers, tickerColorMap]);
 
   // Separate state for sector map - persists independently of data changes
   const [sectorMap, setSectorMap] = React.useState<Record<string, string>>({});
@@ -91,10 +159,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ data, customSector
     const fetchData = async () => {
       // Get unique tickers
       const tickersToFetch = Array.from(
-        new Set(
+        new Set<string>(
           data
-            .filter(d => d.ticker && !d.ticker.includes('$'))
-            .map(d => d.ticker.trim())
+            .filter(d => d.ticker && !(d.ticker as string).includes('$'))
+            .map(d => (d.ticker as string).trim())
         )
       );
 
@@ -442,7 +510,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ data, customSector
       </div>
 
       <div className="grid grid-cols-1 gap-6 mb-8 items-stretch" style={{ gridTemplateColumns: 'minmax(0, 2fr) minmax(0, 1.5fr) minmax(0, 1.5fr)' }}>
-        <PortfolioEvolutionChart data={areaChartData} topTickers={topTickers} dates={dates} colors={COLORS} />
+        <PortfolioEvolutionChart data={areaChartData} topTickers={topTickers} dates={dates} colors={chartColors} />
         <SectorDeviationCard
           currentHoldings={enrichedCurrentHoldings}
           benchmarkData={benchmarkSectors}

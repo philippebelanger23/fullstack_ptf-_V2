@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { PortfolioItem } from '../types';
 import { useThemeColors } from '../hooks/useThemeColors';
 
@@ -112,16 +112,7 @@ function getBenchGeoTotals(benchmarkGeography: GeoEntry[]): Record<GeoKey, numbe
     return totals;
 }
 
-// Light background tint (rose-50 → rose-200 range) + #f43f5e/#10b981 text
-function getDeltaBg(delta: number, minDelta: number, maxDelta: number): string {
-    if (Math.abs(delta) < 0.005) return 'transparent';
-    if (delta < 0 && minDelta < 0) {
-        const t = Math.min(1, delta / minDelta);
-        return `rgba(220, 38, 38, ${0.2 + t * 0.65})`;
-    } else if (delta > 0 && maxDelta > 0) {
-        const t = Math.min(1, delta / maxDelta);
-        return `rgba(22, 163, 74, ${0.2 + t * 0.65})`;
-    }
+function getDeltaBg(_delta: number, _minDelta: number, _maxDelta: number): string {
     return 'transparent';
 }
 
@@ -131,6 +122,15 @@ function getDeltaTextColor(delta: number, isDark: boolean): string {
     return isDark ? '#94a3b8' : '#64748b'; // slate-400/500
 }
 
+function getAbsoluteBg(_weight: number, _maxWeight: number): string {
+    return 'transparent';
+}
+
+function getAbsoluteTextColor(weight: number, isDark: boolean): string {
+    if (weight < 0.005) return isDark ? '#cbd5e1' : '#94a3b8';
+    return isDark ? '#f1f5f9' : '#0f172a';
+}
+
 export const SectorGeographyDeviationCard: React.FC<Props> = ({
     currentHoldings,
     benchmarkSectors,
@@ -138,7 +138,9 @@ export const SectorGeographyDeviationCard: React.FC<Props> = ({
     assetGeo,
 }) => {
     const { isDark } = useThemeColors();
-    const { deltaGrid, totalDelta, minDelta, maxDelta } = useMemo(() => {
+    const [viewMode, setViewMode] = useState<'RELATIVE' | 'ABSOLUTE'>('RELATIVE');
+    
+    const { deltaGrid, totalDelta, portfolioGrid, portfolioGeoTotal, minDelta, maxDelta, maxPortfolioWeight } = useMemo(() => {
         // ── Portfolio: sector × geo grid ─────────────────────────────────
         const portfolioGrid: Record<string, Record<GeoKey, number>> = {};
         SECTOR_ORDER.forEach(s => { portfolioGrid[s] = { CA: 0, US: 0, INTL: 0 }; });
@@ -212,26 +214,52 @@ export const SectorGeographyDeviationCard: React.FC<Props> = ({
             if (totalDelta[geo] > maxDelta) maxDelta = totalDelta[geo];
         });
 
-        return { deltaGrid, totalDelta, minDelta, maxDelta };
+        // ── ABSOLUTE max for green tint
+        let maxPortfolioWeight = 0;
+        SECTOR_ORDER.forEach(s => {
+            GEOS.forEach(geo => {
+                const w = portfolioGrid[s][geo] || 0;
+                if (w > maxPortfolioWeight) maxPortfolioWeight = w;
+            });
+        });
+
+        GEOS.forEach(geo => {
+             if (portfolioGeoTotal[geo] > maxPortfolioWeight) maxPortfolioWeight = portfolioGeoTotal[geo];
+        });
+
+        return { deltaGrid, totalDelta, portfolioGrid, portfolioGeoTotal, minDelta, maxDelta, maxPortfolioWeight };
     }, [currentHoldings, benchmarkSectors, benchmarkGeography, assetGeo]);
 
-    const formatDelta = (v: number) => {
-        if (Math.abs(v) < 0.005) return <span style={{ color: isDark ? '#cbd5e1' : '#94a3b8' }}>—</span>;
-        if (v < 0) return `(${Math.abs(v).toFixed(2)}%)`;
-        return `+${v.toFixed(2)}%`;
-    };
+    const DataCell = ({ val, isRelative, bgColor, noBg, isBold }: { val: number; isRelative: boolean; bgColor?: string; noBg?: boolean; isBold?: boolean }) => {
+        const cellBgColor = noBg 
+            ? 'transparent' 
+            : (isRelative ? getDeltaBg(val, minDelta, maxDelta) : getAbsoluteBg(val, maxPortfolioWeight));
 
-    const DeltaCell = ({ delta, bgColor, noBg }: { delta: number; bgColor?: string; noBg?: boolean }) => {
-        const deltaBgColor = noBg ? 'transparent' : getDeltaBg(delta, minDelta, maxDelta);
+        const textColor = isRelative 
+            ? getDeltaTextColor(val, isDark) 
+            : getAbsoluteTextColor(val, isDark);
+
+        const formatValue = (v: number) => {
+            if (Math.abs(v) < 0.005) return <span style={{ color: isDark ? '#cbd5e1' : '#94a3b8' }}>—</span>;
+            if (isRelative) {
+                if (v < 0) return `(${Math.abs(v).toFixed(2)}%)`;
+                return `+${v.toFixed(2)}%`;
+            } else {
+                return `${v.toFixed(2)}%`;
+            }
+        };
+
         return (
-            <td
-                className={`p-2 text-center font-bold text-sm ${bgColor || ''}`}
-                style={{
-                    backgroundColor: deltaBgColor === 'transparent' ? undefined : deltaBgColor,
-                    color: getDeltaTextColor(delta, isDark),
-                }}
-            >
-                {formatDelta(delta)}
+            <td className={`p-0 align-middle ${bgColor || ''} relative`} style={{ height: '42px' }}>
+                <div
+                    className={`w-full h-full flex items-center justify-center p-2 text-center text-sm relative cursor-default ${isBold ? 'font-black' : 'font-bold'}`}
+                    style={{
+                        backgroundColor: cellBgColor === 'transparent' ? undefined : cellBgColor,
+                        color: textColor,
+                    }}
+                >
+                    {formatValue(val)}
+                </div>
             </td>
         );
     };
@@ -244,10 +272,32 @@ export const SectorGeographyDeviationCard: React.FC<Props> = ({
 
     return (
         <div className="lg:col-span-1 bg-wallstreet-800 p-6 rounded-xl border border-wallstreet-700 shadow-sm flex flex-col h-full">
-            <div className="mb-4">
+            <div className="flex items-center justify-between mb-4">
                 <h3 className="font-mono font-bold text-wallstreet-text uppercase tracking-wider text-sm">
                     Regional Sector Tilt
                 </h3>
+                <div className="flex gap-0.5 bg-wallstreet-50 rounded-lg p-0.5">
+                    <button
+                        onClick={() => setViewMode('RELATIVE')}
+                        className={`px-2.5 py-1 text-xs font-mono rounded-md transition-all ${
+                            viewMode === 'RELATIVE'
+                                ? 'bg-wallstreet-800 text-wallstreet-text shadow-sm'
+                                : 'text-wallstreet-500 hover:text-wallstreet-600'
+                        }`}
+                    >
+                        Relative
+                    </button>
+                    <button
+                        onClick={() => setViewMode('ABSOLUTE')}
+                        className={`px-2.5 py-1 text-xs font-mono rounded-md transition-all ${
+                            viewMode === 'ABSOLUTE'
+                                ? 'bg-wallstreet-800 text-wallstreet-text shadow-sm'
+                                : 'text-wallstreet-500 hover:text-wallstreet-600'
+                        }`}
+                    >
+                        Absolute
+                    </button>
+                </div>
             </div>
 
             <div className="flex-1 w-full overflow-auto">
@@ -265,7 +315,7 @@ export const SectorGeographyDeviationCard: React.FC<Props> = ({
                         {GROUPS.map((group, gIdx) => (
                             <React.Fragment key={group.name}>
                                 {group.sectors.map((sector, sIdx) => (
-                                    <tr key={sector} className="hover:bg-wallstreet-50" style={{ height: '42px' }}>
+                                    <tr key={sector} style={{ height: '42px' }}>
                                         {sIdx === 0 && (
                                             <td
                                                 rowSpan={group.sectors.length}
@@ -287,7 +337,12 @@ export const SectorGeographyDeviationCard: React.FC<Props> = ({
                                             </span>
                                         </td>
                                         {GEOS.map(geo => (
-                                            <DeltaCell key={geo} delta={deltaGrid[sector]?.[geo] ?? 0} bgColor={group.bgColor} />
+                                            <DataCell 
+                                                key={geo} 
+                                                val={viewMode === 'RELATIVE' ? (deltaGrid[sector]?.[geo] ?? 0) : (portfolioGrid[sector]?.[geo] ?? 0)} 
+                                                isRelative={viewMode === 'RELATIVE'}
+                                                bgColor={group.bgColor} 
+                                            />
                                         ))}
                                     </tr>
                                 ))}
@@ -299,7 +354,13 @@ export const SectorGeographyDeviationCard: React.FC<Props> = ({
                             <td></td>
                             <td className="p-2 font-bold text-right text-xs uppercase text-wallstreet-500">Total</td>
                             {GEOS.map(geo => (
-                                <DeltaCell key={geo} delta={totalDelta[geo]} noBg />
+                                <DataCell
+                                    key={geo}
+                                    val={viewMode === 'RELATIVE' ? totalDelta[geo] : portfolioGeoTotal[geo]}
+                                    isRelative={viewMode === 'RELATIVE'}
+                                    noBg
+                                    isBold
+                                />
                             ))}
                         </tr>
                     </tfoot>

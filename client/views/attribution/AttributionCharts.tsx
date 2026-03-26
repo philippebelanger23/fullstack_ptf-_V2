@@ -230,18 +230,6 @@ export const SectorAttributionCharts: React.FC<SectorAttributionChartsProps> = (
             </div>
         ) : (<>
         <div className="flex h-full min-h-0 w-full">
-            {/* Dedicated Label Column for aligned Y-Axis */}
-            <div className="w-[105px] flex flex-col shrink-0">
-                <div className="h-[44px]"></div> {/* Title Spacer */}
-                <div className="flex-1 w-full relative">
-                    <ResponsiveContainer width="100%" height="100%">
-                        <BarChart data={sectorAttributionData.data} layout="vertical" margin={{ top: 0, right: 0, left: 5, bottom: 0 }} barCategoryGap="20%">
-                            <YAxis dataKey="displayName" type="category" width={100} tick={{ fontSize: 11, fontFamily: "'JetBrains Mono', monospace", fill: tc.tickFill, fontWeight: 'bold' }} axisLine={false} tickLine={false} interval={0} />
-                        </BarChart>
-                    </ResponsiveContainer>
-                </div>
-            </div>
-
             <div className="grid grid-cols-3 gap-1 flex-1 min-h-0">
                 {/* SELECTION EFFECT */}
                 <div className="flex flex-col">
@@ -265,7 +253,7 @@ export const SectorAttributionCharts: React.FC<SectorAttributionChartsProps> = (
                             >
                                 <CartesianGrid strokeDasharray="3 3" horizontal={false} vertical={true} stroke={tc.gridStrokeLight} />
                                 <XAxis type="number" domain={sectorAttributionData.selectionDomain} hide />
-                                <YAxis dataKey="displayName" type="category" hide />
+                                <YAxis dataKey="displayName" type="category" width={105} tick={{ fontSize: 11, fontFamily: "'JetBrains Mono', monospace", fill: tc.tickFill, fontWeight: 'bold' }} axisLine={false} tickLine={false} interval={0} />
                                 <Tooltip cursor={{ fill: 'rgba(148,163,184,0.10)', radius: 4 }} content={({ active, payload }) => {
                                     if (active && payload && payload.length) {
                                         const d = payload[0].payload;

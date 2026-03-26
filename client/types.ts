@@ -11,6 +11,8 @@ export interface PortfolioItem {
   isEtf?: boolean; // Flag for ETFs
   isCash?: boolean; // Flag for cash equivalents
   sectorWeights?: Record<string, number>; // Custom sector breakdown percentage
+  startPrice?: number; // Price at start of sub-period
+  endPrice?: number; // Price at end of sub-period
 }
 
 

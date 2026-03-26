@@ -17,6 +17,8 @@ class PortfolioItem(BaseModel):
     isEtf: Optional[bool] = None  # Flag for ETFs
     isCash: Optional[bool] = None  # Flag for cash equivalents
     sectorWeights: Optional[dict] = None  # Custom sector breakdowns percentage (e.g. {"Technology": 10.0})
+    startPrice: Optional[float] = None  # Price at start of sub-period (for direct return calc)
+    endPrice: Optional[float] = None  # Price at end of sub-period (for direct return calc)
 
 
 class TickerRow(BaseModel):

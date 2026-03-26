@@ -7,6 +7,37 @@ export interface TableItem {
     contribution: number;
 }
 
+/**
+ * Forward-compounded contribution across sub-periods (ATTRIBUTION_LOGIC.md §4).
+ *
+ * Formula:  C = Σ_t [ w_t × r_t × Π_{s>t}(1 + r_s) ]
+ *
+ * Each sub-period's contribution is compounded forward by the holding's
+ * subsequent returns so that all contributions share the same end-of-period base.
+ *
+ * @param items  Chronologically-sorted sub-period data with weight (%-form, e.g. 1.5)
+ *               and returnPct (decimal form, e.g. 0.34 for 34%).
+ */
+export const forwardCompoundedContribution = (
+    items: { weight: number; returnPct?: number | null | undefined }[]
+): number => {
+    if (items.length === 0) return 0;
+    if (items.length === 1) return (items[0].weight) * (items[0].returnPct || 0);
+
+    let contribution = 0;
+    for (let t = 0; t < items.length; t++) {
+        const w_t = items[t].weight;
+        const r_t = items[t].returnPct || 0;
+        let forwardFactor = 1.0;
+        for (let s = t + 1; s < items.length; s++) {
+            const r_s = items[s].returnPct || 0;
+            forwardFactor *= (1 + r_s);
+        }
+        contribution += w_t * r_t * forwardFactor;
+    }
+    return contribution;
+};
+
 export const aggregatePeriodData = (data: PortfolioItem[]): TableItem[] => {
     if (data.length === 0) return [];
 
@@ -22,63 +53,33 @@ export const aggregatePeriodData = (data: PortfolioItem[]): TableItem[] => {
     Object.keys(byTicker).forEach(ticker => {
         const items = byTicker[ticker];
 
-        // DEBUG: Log raw data for CCO.TO
-        if (ticker.toUpperCase() === "CCO.TO") {
-            console.log(`[aggregatePeriodData] RAW DATA for ${ticker}:`);
-            items.forEach((item, idx) => {
-                console.log(`  Item ${idx}: date=${item.date} weight=${item.weight} returnPct=${item.returnPct} contribution=${item.contribution}`);
-            });
-        }
+        // Sort items chronologically
+        const sortedItems = [...items].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
         // 1. Weight: End-of-Period Weight
-        // Find the item with the latest date (max date)
-        // Sort items by date ascending to find the last one easily
-        const sortedItems = [...items].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
         const lastItem = sortedItems[sortedItems.length - 1];
         const endOfPeriodWeight = lastItem.weight;
 
-        // 2. Contribution: Sum of all particular contributions
-        const totalContrib = items.reduce((sum, item) => sum + (item.contribution || 0), 0);
+        // 2. Contribution: Forward-compounded across sub-periods (ATTRIBUTION_LOGIC.md §4)
+        const totalContrib = forwardCompoundedContribution(sortedItems);
 
-        // 3. Performance (Return): Period return calculated from first and last price
-        // Find earliest and latest dates in this period
-        const sortedByDate = [...items].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-        const firstDate = sortedByDate[0];
-        const lastDate = sortedByDate[sortedByDate.length - 1];
-
-        // If we have multiple items with price-based returns, compound them properly
-        // Formula: (1 + r1) × (1 + r2) × ... × (1 + rn) - 1
-        // NOTE: returnPct is in decimal form from backend (e.g., 0.3397 for 33.97%), NOT percentage form
-        const compoundReturn = items.reduce((product, item) => {
-            const r = item.returnPct || 0; // Already in decimal form, do NOT divide by 100
+        // 3. Performance (Return): Geometric chain of sub-period returns
+        //    This perfectly respects FX adjustments and multi-period chaining 
+        //    from the server (ATTRIBUTION_LOGIC.md)
+        const compoundReturn = sortedItems.reduce((product, item) => {
+            const r = item.returnPct || 0;
             return product * (1 + r);
         }, 1) - 1;
-
-        const weightedAvgReturn = compoundReturn * 100; // Convert to percentage for display
-
-        // DEBUG: Log to verify the calculation
-        console.debug(`[aggregatePeriodData] ${ticker} from ${firstDate?.date} to ${lastDate?.date}: entries=${items.length} returnPcts=${items.map(i => (i.returnPct || 0).toFixed(4)).join(',')} contributions=${items.map(i => (i.contribution || 0).toFixed(6)).join(',')} -> return=${(compoundReturn * 100).toFixed(2)}% totalContrib=${totalContrib.toFixed(2)}% (percentage form)`);
+        const periodReturn = compoundReturn * 100;
 
         // Only push if there is a non-zero weight OR a non-zero contribution
-        // Use a small epsilon for contribution to avoid floating point noise
         if (endOfPeriodWeight > 0.001 || Math.abs(totalContrib) > 0.0001) {
-            const result = {
+            results.push({
                 ticker,
                 weight: endOfPeriodWeight,
                 contribution: totalContrib,
-                returnPct: weightedAvgReturn
-            };
-
-            // DEBUG: Log aggregated output for CCO.TO
-            if (ticker.toUpperCase() === "CCO.TO") {
-                console.log(`[aggregatePeriodData] AGGREGATED for ${ticker}:`);
-                console.log(`  weight=${result.weight}`);
-                console.log(`  contribution=${result.contribution}`);
-                console.log(`  returnPct=${result.returnPct}`);
-                console.log(`  formatBps(contribution) would show: ${Math.round(result.contribution * 100)}`);
-            }
-
-            results.push(result);
+                returnPct: periodReturn
+            });
         }
     });
 

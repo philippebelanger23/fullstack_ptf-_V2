@@ -10,7 +10,7 @@ const API_Base_URL = ''; // Use relative path to leverage Vite proxy
 const CACHE_VERSIONS = {
     sector: 3,    // Increment when sector classification logic changes (v3: ATD.TO override → Consumer Staples)
     beta: 2,      // Increment when beta calculation changes
-    dividend: 5,  // Increment when dividend yield normalization changes (was 4)
+    dividend: 6,  // Increment when dividend yield normalization changes (was 5: yfinance 1.2.0 returns dividendYield as % directly)
 };
 
 /**

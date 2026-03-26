@@ -53,7 +53,7 @@ def get_price_on_date(ticker, date, cache):
         start_date = date - pd.Timedelta(days=10)
         
         stock = yf.Ticker(ticker)
-        hist = stock.history(start=start_date, end=end_date + pd.Timedelta(days=1))
+        hist = stock.history(start=start_date, end=end_date + pd.Timedelta(days=1), auto_adjust=True)
         
         if hist.empty:
             raise ValueError(f"No data available for {ticker} on {date}")
@@ -182,7 +182,14 @@ def calculate_benchmark_returns(dates, cache):
                 if price_start is None or price_end is None or price_start == 0:
                     benchmark_returns[bench_name][(start_date, end_date)] = 0.0
                 else:
-                    benchmark_returns[bench_name][(start_date, end_date)] = (price_end / price_start) - 1
+                    raw_return = (price_end / price_start) - 1
+                    # Apply USD->CAD FX for non-CAD benchmarks so they are comparable to the CAD portfolio
+                    # ^GSPTSE (TSX) is CAD-denominated; everything else (^GSPC, ^DJI, ^IXIC, ACWI) is USD
+                    if ticker == "^GSPTSE":
+                        benchmark_returns[bench_name][(start_date, end_date)] = raw_return
+                    else:
+                        fx_return = get_fx_return(start_date, end_date, cache)
+                        benchmark_returns[bench_name][(start_date, end_date)] = (1 + raw_return) * (1 + fx_return) - 1
     
     return benchmark_returns
 
@@ -253,12 +260,21 @@ def build_results_dataframe(weights_dict, returns, prices, dates, cache, mutual_
             else:
                 ytd_return = 0.0
             
-            # Use period[0] (start_date) for weight lookup — the weight at the start of the
-            # period is the allocation that was in effect during that period.
-            ytd_contrib = sum(
-                returns.get(ticker, {}).get(period, 0.0) * weights_dict.get(ticker, {}).get(period[0], 0.0)
+            # Forward-compounded contribution (ATTRIBUTION_LOGIC.md §4)
+            # C = Σ_t [ w_t × r_t × Π_{s>t}(1 + r_s) ]
+            sub_data = [
+                (weights_dict.get(ticker, {}).get(period[0], 0.0),
+                 returns.get(ticker, {}).get(period, 0.0))
                 for period in periods
-            )
+            ]
+            ytd_contrib = 0.0
+            for t_idx in range(len(sub_data)):
+                w_t, r_t = sub_data[t_idx]
+                forward_factor = 1.0
+                for s_idx in range(t_idx + 1, len(sub_data)):
+                    _, r_s = sub_data[s_idx]
+                    forward_factor *= (1.0 + r_s)
+                ytd_contrib += w_t * r_t * forward_factor
         
         row["YTD_Return"] = ytd_return
         row["YTD_Contrib"] = ytd_contrib

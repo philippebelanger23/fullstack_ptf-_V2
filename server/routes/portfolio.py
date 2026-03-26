@@ -102,10 +102,14 @@ def run_portfolio_analysis(
     if df.empty:
         return []
 
+    now_ts = pd.Timestamp.now().normalize()
+
     # Iterate through each period to create time-series data for the client
     for i, period in enumerate(periods):
         end_date_ts = period[1]
-        date_str = end_date_ts.strftime("%Y-%m-%d")
+        # Clamp synthetic future endpoint dates (used to make today a period start) to today
+        display_ts = end_date_ts if end_date_ts <= now_ts else now_ts
+        date_str = display_ts.strftime("%Y-%m-%d")
 
         for _, row in df.iterrows():
             ticker = row["Ticker"]
@@ -116,6 +120,16 @@ def run_portfolio_analysis(
             contrib = row.get(f"Contrib_{i}", 0.0)
 
             ticker_custom_sectors = custom_sectors.get(ticker)
+
+            # Look up raw prices for this sub-period so the client can
+            # compute monthly return as price_end / price_start − 1.
+            sp = None
+            ep = None
+            if ticker in prices:
+                sp_val = prices[ticker].get(period[0])
+                ep_val = prices[ticker].get(period[1])
+                sp = float(sp_val) if sp_val is not None else None
+                ep = float(ep_val) if ep_val is not None else None
 
             item = PortfolioItem(
                 ticker=ticker,
@@ -130,10 +144,18 @@ def run_portfolio_analysis(
                 isEtf=t_upper in etf_tickers,
                 isCash=t_upper in cash_tickers,
                 sectorWeights=ticker_custom_sectors,
+                startPrice=sp,
+                endPrice=ep,
             )
             result_items.append(item)
 
-    return result_items
+    # Deduplicate by (ticker, date): when a synthetic terminal endpoint causes two
+    # consecutive periods to share the same display date, keep only the last occurrence
+    # so the most recently entered weights win (the synthetic period's weights).
+    seen: dict = {}
+    for item in result_items:
+        seen[(item.ticker, item.date)] = item
+    return list(seen.values())
 
 
 # ---------------------------------------------------------------------------
@@ -180,11 +202,53 @@ async def analyze_manual(request: ManualAnalysisRequest):
         if not dates:
             raise HTTPException(status_code=400, detail="No valid dates found in data")
 
+        # ── Step 0: Prepend the prior month-end to ensure the first month's
+        #    return captures the full month from its true starting base.
+        first_date = dates[0]
+        prior_me = (first_date.replace(day=1) - pd.Timedelta(days=1)).normalize()
+        if prior_me not in dates_set:
+            dates.insert(0, prior_me)
+            dates_set.add(prior_me)
+            # Weights for prior_me will default to 0.0 dynamically during allocation mapping
+
+        # ── Step 1: Inject month-end boundaries between ALL consecutive
+        #    config dates that span a month boundary.  Without this, a
+        #    period such as Jan-21 → Feb-26 would be assigned entirely
+        #    to February, leaving January with an incomplete return.
+        #    This must run unconditionally so cross-month spans are always split.
+        sorted_dates = sorted(dates)
+        extra_month_ends = set()
+        for idx in range(len(sorted_dates) - 1):
+            d_start = sorted_dates[idx]
+            d_end = sorted_dates[idx + 1]
+            # Generate month-end dates that fall strictly between d_start and d_end
+            if d_start.month != d_end.month or d_start.year != d_end.year:
+                me_dates = pd.date_range(
+                    start=d_start + pd.DateOffset(days=1),
+                    end=d_end - pd.DateOffset(days=1),
+                    freq="ME",
+                )
+                for me in me_dates:
+                    me_ts = pd.Timestamp(me).normalize()
+                    if me_ts not in dates_set:
+                        extra_month_ends.add(me_ts)
+
+        for me_ts in extra_month_ends:
+            dates.append(me_ts)
+            dates_set.add(me_ts)
+            for ticker in weights_dict:
+                prior_dates = sorted([d for d in weights_dict[ticker] if d <= me_ts])
+                if prior_dates:
+                    weights_dict[ticker][me_ts] = weights_dict[ticker][prior_dates[-1]]
+
         # Automatically add 'Today' if the last date is in the past
-        latest_date = dates[-1]
+        latest_date = sorted(dates)[-1]
         now = pd.Timestamp.now().normalize()
         if latest_date < now:
-            # Inject intermediate month-end dates between the last config date and today
+            # ── Step 2: Inject month-end dates between the last config date
+            #    and today (existing behaviour).
+            dates = sorted(dates)
+            latest_date = dates[-1]
             month_end_dates = pd.date_range(
                 start=latest_date + pd.DateOffset(days=1),
                 end=now,
@@ -206,6 +270,20 @@ async def analyze_manual(request: ManualAnalysisRequest):
                 if prior_dates:
                     weights_dict[ticker][now] = weights_dict[ticker][prior_dates[-1]]
 
+            dates = sorted(dates)
+        else:
+            # latest_date >= now: the most recent config date is today or in the future.
+            # Inject a one-day synthetic endpoint so that latest_date becomes the START
+            # of the final period — ensuring its weights are shown in the Holdings Breakdown.
+            # run_portfolio_analysis will clamp this synthetic date back to today.
+            synthetic = latest_date + pd.Timedelta(days=1)
+            if synthetic not in dates_set:
+                dates.append(synthetic)
+                dates_set.add(synthetic)
+                for ticker in weights_dict:
+                    prior = sorted([d for d in weights_dict[ticker] if d <= latest_date])
+                    if prior:
+                        weights_dict[ticker][synthetic] = weights_dict[ticker][prior[-1]]
             dates = sorted(dates)
 
         nav_dict = get_aggregated_nav_data()

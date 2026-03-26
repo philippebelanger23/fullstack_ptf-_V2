@@ -7,7 +7,7 @@ import { fetchSectorHistory, fetchSectors, fetchIndexExposure, SectorHistoryData
 import { PortfolioItem } from '../../types';
 import { FreshnessBadge } from '../../components/ui/FreshnessBadge';
 import { formatPct, formatBps } from '../../utils/formatters';
-import { aggregatePeriodData } from './attributionUtils';
+import { aggregatePeriodData, forwardCompoundedContribution } from './attributionUtils';
 import { AttributionTable } from './AttributionTable';
 import { WaterfallChart, SectorAttributionCharts } from './AttributionCharts';
 
@@ -255,7 +255,9 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
 
         return uniqueTickers.map(ticker => {
             const history = filteredOverviewData.filter(d => d.ticker === ticker);
-            const totalContrib = history.reduce((sum, item) => sum + (item.contribution || 0), 0);
+            // Forward-compounded contribution (ATTRIBUTION_LOGIC.md §4)
+            const sortedHistory = [...history].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+            const totalContrib = forwardCompoundedContribution(sortedHistory);
             // Removed avgWeight calculation as per user request
 
             // Calculate StdDev of *Contribution* (Risk Contribution Proxy) and *Return* (Standalone Risk)
@@ -299,7 +301,10 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
             }, history[0]);
             const latestWeight = latestEntry ? latestEntry.weight : 0;
 
-            const totalReturn = history.reduce((sum, item) => sum + (item.returnPct || 0), 0);
+            const totalReturn = (history.reduce(
+                (product: number, item: PortfolioItem) => product * (1 + (item.returnPct || 0)),
+                1
+            ) - 1) * 100;
 
             return { ticker, totalContrib, totalReturn, history, latestWeight, stdDevContrib, beta, riskScore: stdDevContrib };
         }).filter(t => t.latestWeight > 0.001 || Math.abs(t.totalContrib) > 0.0001);
@@ -319,7 +324,13 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
                 return d.getMonth() === m && d.getFullYear() === y;
             });
             const key = `${y}-${m}`;
-            row[key] = monthlyEntries.length > 0 ? monthlyEntries.reduce((acc, curr) => acc + (curr.contribution || 0), 0) : null;
+            // Forward-compounded contribution per month (ATTRIBUTION_LOGIC.md §4)
+            if (monthlyEntries.length > 0) {
+                const sorted = [...monthlyEntries].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+                row[key] = forwardCompoundedContribution(sorted);
+            } else {
+                row[key] = null;
+            }
             // Capture max weight for this month to determine if 0.00% is due to strict 0 position
             row[`w-${key}`] = monthlyEntries.length > 0 ? Math.max(...monthlyEntries.map(e => e.weight)) : 0;
         });
@@ -1154,7 +1165,7 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
                                 {[0, 1, 2].map(monthIdx => {
                                     const date = allMonths[monthIdx];
                                     if (!date) return <div key={monthIdx} className="hidden" />;
-                                    const monthlyData = data.filter(d => {
+                                    const monthlyData = cleanData.filter((d: PortfolioItem) => {
                                         const dDate = new Date(d.date);
                                         return dDate.getFullYear() === date.getFullYear() && dDate.getMonth() === date.getMonth() && !d.ticker.toUpperCase().includes('CASH');
                                     });
@@ -1206,7 +1217,7 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
                                 {[3, 4, 5].map(monthIdx => {
                                     const date = allMonths[monthIdx];
                                     if (!date) return <div key={monthIdx} className="hidden" />;
-                                    const monthlyData = data.filter(d => {
+                                    const monthlyData = cleanData.filter((d: PortfolioItem) => {
                                         const dDate = new Date(d.date);
                                         return dDate.getFullYear() === date.getFullYear() && dDate.getMonth() === date.getMonth() && !d.ticker.toUpperCase().includes('CASH');
                                     });
@@ -1262,7 +1273,7 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
                                 {[6, 7, 8].map(monthIdx => {
                                     const date = allMonths[monthIdx];
                                     if (!date) return <div key={monthIdx} className="hidden" />;
-                                    const monthlyData = data.filter(d => {
+                                    const monthlyData = cleanData.filter((d: PortfolioItem) => {
                                         const dDate = new Date(d.date);
                                         return dDate.getFullYear() === date.getFullYear() && dDate.getMonth() === date.getMonth() && !d.ticker.toUpperCase().includes('CASH');
                                     });
@@ -1314,7 +1325,7 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
                                 {[9, 10, 11].map(monthIdx => {
                                     const date = allMonths[monthIdx];
                                     if (!date) return <div key={monthIdx} className="hidden" />;
-                                    const monthlyData = data.filter(d => {
+                                    const monthlyData = cleanData.filter((d: PortfolioItem) => {
                                         const dDate = new Date(d.date);
                                         return dDate.getFullYear() === date.getFullYear() && dDate.getMonth() === date.getMonth() && !d.ticker.toUpperCase().includes('CASH');
                                     });

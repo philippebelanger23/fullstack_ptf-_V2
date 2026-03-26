@@ -264,37 +264,30 @@ async def fetch_dividends(request: dict):
 
                     info = found_ticker.info
 
-                    def normalize_yield(val):
-                        """
-                        Normalize dividend yield to percentage format.
-
-                        yfinance typically returns yield as a decimal (0.0126 = 1.26%).
-                        However, we need to handle edge cases:
-                        - 0.0126 -> 1.26% (multiply by 100)
-                        - 1.26 -> 1.26% (already percentage, keep as is)
-                        - 126.0 -> 1.26% (over-multiplied, divide by 100)
-
-                        Key insight: Real dividend yields rarely exceed 15% for normal equities.
-                        High-yield REITs/MLPs may reach 15%, but 20%+ is extremely rare.
-                        """
+                    # yfinance 1.2.0: dividendYield is already a percentage value
+                    # (e.g. 0.41 = 0.41%, 5.15 = 5.15%) — use as-is.
+                    # trailingAnnualDividendYield is a decimal fraction
+                    # (e.g. 0.00408 = 0.41%) — multiply by 100.
+                    def pct_from_fraction(val):
                         if val is None:
                             return 0.0
                         try:
                             v = float(val)
-                            if v < 0:
-                                return 0.0
-                            if v < 1.0:
-                                return v * 100.0
-                            elif v > 50.0:
-                                return v / 100.0
-                            else:
-                                return v
+                            return max(0.0, v * 100.0)
                         except (ValueError, TypeError):
                             return 0.0
 
-                    div_yield_pct = normalize_yield(info.get("dividendYield"))
+                    raw = info.get("dividendYield")
+                    if raw is not None:
+                        try:
+                            div_yield_pct = max(0.0, float(raw))
+                        except (ValueError, TypeError):
+                            div_yield_pct = 0.0
+                    else:
+                        div_yield_pct = 0.0
+
                     if div_yield_pct == 0:
-                        div_yield_pct = normalize_yield(info.get("trailingAnnualDividendYield"))
+                        div_yield_pct = pct_from_fraction(info.get("trailingAnnualDividendYield"))
 
                     results[ticker] = div_yield_pct
                     server_cache[ticker] = div_yield_pct
