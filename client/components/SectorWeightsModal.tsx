@@ -23,6 +23,12 @@ const GICS_SECTORS = [
     'Utilities'
 ];
 
+const SECTOR_DISPLAY: Record<string, string> = {
+    'Consumer Discretionary': 'Discretionary',
+    'Communication Services': 'Communications',
+    'Consumer Staples': 'Staples',
+};
+
 export const SectorWeightsModal: React.FC<SectorWeightsModalProps> = ({ isOpen, onClose, onSave, ticker, initialWeights }) => {
     const [weights, setWeights] = useState<Record<string, string>>({});
 
@@ -94,7 +100,7 @@ export const SectorWeightsModal: React.FC<SectorWeightsModalProps> = ({ isOpen, 
                         {GICS_SECTORS.map(sector => (
                             <div key={sector} className="flex items-center justify-between p-3 bg-wallstreet-900 rounded-xl border border-transparent hover:border-wallstreet-700 hover:bg-wallstreet-800 transition-all group">
                                 <label className="text-sm font-semibold text-wallstreet-500 group-hover:text-wallstreet-text transition-colors">
-                                    {sector}
+                                    {SECTOR_DISPLAY[sector] || sector}
                                 </label>
                                 <div className="relative group/input">
                                     <input

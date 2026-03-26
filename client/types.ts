@@ -13,12 +13,6 @@ export interface PortfolioItem {
   sectorWeights?: Record<string, number>; // Custom sector breakdown percentage
 }
 
-export interface AnalysisState {
-  status: 'idle' | 'analyzing' | 'complete' | 'error';
-  markdownResult: string;
-  riskScore?: number;
-  lastUpdated?: Date;
-}
 
 export enum ViewState {
   UPLOAD = 'UPLOAD',

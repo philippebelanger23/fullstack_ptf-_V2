@@ -266,7 +266,7 @@ export const PortfolioTable: React.FC<PortfolioTableProps> = ({ currentHoldings:
               <th className="min-w-[60px]"></th>
               {GICS_SECTORS.map(sector => (
                 <th key={sector} className="px-2 py-3 text-center min-w-[70px] text-[10px]">
-                  {sector.replace('Consumer ', 'Cons. ').replace('Communication ', 'Comm. ').replace('Health Care', 'Health')}
+                  {sector === 'Consumer Discretionary' ? 'Discretionary' : sector === 'Consumer Staples' ? 'Staples' : sector === 'Communication Services' ? 'Communications' : sector}
                 </th>
               ))}
               <th className="px-3 py-3 text-center min-w-[60px] bg-wallstreet-200">Total</th>

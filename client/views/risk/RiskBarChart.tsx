@@ -16,13 +16,19 @@ interface RiskBarChartProps {
 
 /* ── Shared helpers ── */
 const SHORT_SECTOR: Record<string, string> = {
-    'Basic Materials': 'Basic\nMaterials',
-    'Consumer Cyclical': 'Cons.\nCyclical',
-    'Consumer Defensive': 'Cons.\nDefensive',
-    'Communication Services': 'Comm.\nServices',
-    'Financial Services': 'Financial\nServices',
-    'Health Care': 'Health\nCare',
-    'Real Estate': 'Real\nEstate',
+    'Basic Materials': 'Materials',
+    'Materials': 'Materials',
+    'Consumer Cyclical': 'Discretionary',
+    'Consumer Discretionary': 'Discretionary',
+    'Consumer Defensive': 'Staples',
+    'Consumer Staples': 'Staples',
+    'Communication Services': 'Communications',
+    'Financial Services': 'Financials',
+    'Financials': 'Financials',
+    'Health Care': 'Health Care',
+    'Real Estate': 'Real Estate',
+    'Information Technology': 'Technology',
+    'Technology': 'Technology',
 };
 
 const MultiLineTick = ({ x, y, payload, fill, fontSize = 9 }: any) => {
@@ -120,7 +126,7 @@ const SectorTooltip = ({ payload, positions }: { payload?: any[]; positions: Ris
                     {avgVol !== null && (
                         <div>
                             <p className="text-wallstreet-500 text-[9px] uppercase tracking-wider">Avg Vol</p>
-                            <p className="text-wallstreet-text font-bold">{(avgVol * 100).toFixed(1)}%</p>
+                            <p className="text-wallstreet-text font-bold">{avgVol.toFixed(1)}%</p>
                         </div>
                     )}
                 </div>
@@ -133,7 +139,7 @@ const SectorTooltip = ({ payload, positions }: { payload?: any[]; positions: Ris
                             <div key={p.ticker} className="flex justify-between items-center gap-3">
                                 <span className="text-wallstreet-text font-bold">{p.ticker}</span>
                                 <div className="flex items-center gap-2">
-                                    <span className="text-wallstreet-500 text-[10px]">{(p.weight * 100).toFixed(1)}% wt</span>
+                                    <span className="text-wallstreet-500 text-[10px]">{p.weight.toFixed(1)}% wt</span>
                                     <span className="text-red-400 font-bold">{p.pctOfTotalRisk.toFixed(1)}%</span>
                                 </div>
                             </div>

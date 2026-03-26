@@ -136,7 +136,7 @@ export const RiskContributionView: React.FC = () => {
                         <FreshnessBadge fetchedAt={data?.fetchedAt ?? null} />
                     </div>
                     <p className="text-wallstreet-500 mt-2 text-sm">
-                        Marginal contribution to risk, diversification analysis, and position-level risk decomposition.
+                        Marginal contribution to risk, diversification analysis, and position-level risk decomposition. Based on 1 year of daily returns.
                     </p>
                 </div>
             </div>
@@ -156,12 +156,12 @@ export const RiskContributionView: React.FC = () => {
             </div>
 
             {/* ── Tier 2B: Treemap + Correlation side by side ── */}
-            <div className={`grid gap-6 items-stretch ${hasCorrelation ? 'grid-cols-1 lg:grid-cols-5' : 'grid-cols-1'}`}>
-                <div className={hasCorrelation ? 'lg:col-span-3' : ''}>
+            <div className={`grid gap-6 items-stretch ${hasCorrelation ? 'grid-cols-1 lg:grid-cols-10' : 'grid-cols-1'}`}>
+                <div className={hasCorrelation ? 'lg:col-span-7' : ''}>
                     <RiskTreemap positions={data?.positions ?? []} loading={loading} sectorCount={data?.sectorRisk?.length ?? 11} />
                 </div>
                 {hasCorrelation && (
-                    <div className="lg:col-span-2">
+                    <div className="lg:col-span-3">
                         <CorrelationHeatmap correlationMatrix={data!.correlationMatrix!} loading={loading} />
                     </div>
                 )}

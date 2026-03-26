@@ -20,7 +20,14 @@
       "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(list\\(d.items\\(\\)\\)[:10]\\)\")",
       "Bash(xargs -I {} basename {})",
       "Bash(grep -r \"snapshots\\\\|Snapshots\" c:/Users/Phili/Desktop/Local_GitHub/fullstack-ptf-V2/client --include=*.tsx)",
-      "Bash(python -c \"import py_compile; py_compile.compile\\(''server/routes/risk.py'', doraise=True\\); print\\(''OK''\\)\")"
+      "Bash(python -c \"import py_compile; py_compile.compile\\(''server/routes/risk.py'', doraise=True\\); print\\(''OK''\\)\")",
+      "Bash(grep -r \"Return.*Contribution\\\\|Return contribution\\\\|return_contribution\\\\|return-contribution\" /c/Users/Phili/Desktop/Local_GitHub/fullstack-ptf-V2 --include=*.tsx --include=*.ts --include=*.md)",
+      "Bash(npx --no-install tsc --noEmit --pretty)",
+      "Bash(npx --package typescript tsc --noEmit --project client/tsconfig.json)",
+      "Bash(node -e \":*)",
+      "Bash(find /c/Users/Phili/Desktop/Local_GitHub/fullstack-ptf-V2/server/data -type f -name *.json)",
+      "Bash(curl -s http://localhost:5173)",
+      "Bash(python3:*)"
     ]
   }
 }

@@ -144,15 +144,19 @@ def calculate_returns(weights_dict, nav_dict, dates, cache, mutual_fund_tickers=
                 continue
             
             period_return = (price_end / price_start) - 1
-            
+
             # Use centralized FX logic for consistency across all views
             is_mf = ticker in mutual_fund_tickers
             if needs_fx_adjustment(ticker, is_mutual_fund=is_mf, nav_dict=nav_dict):
                 fx_return = get_fx_return(start_date, end_date, cache)
                 cad_adjusted_return = (1 + period_return) * (1 + fx_return) - 1
                 returns[ticker][(start_date, end_date)] = cad_adjusted_return
+                # DEBUG: Log period return calculation
+                logger.debug(f"Period {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}: {ticker} price_start={price_start:.2f} price_end={price_end:.2f} period_return={period_return*100:.2f}% fx_return={fx_return*100:.2f}% -> final={cad_adjusted_return*100:.2f}%")
             else:
                 returns[ticker][(start_date, end_date)] = period_return
+                # DEBUG: Log period return calculation
+                logger.debug(f"Period {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}: {ticker} price_start={price_start:.2f} price_end={price_end:.2f} -> return={period_return*100:.2f}%")
 
     
     return returns, prices
@@ -212,7 +216,16 @@ def build_results_dataframe(weights_dict, returns, prices, dates, cache, mutual_
             weight = weights_dict.get(ticker, {}).get(start_date, 0.0)
             period_return = returns.get(ticker, {}).get(period, 0.0)
             contribution = weight * period_return
-            
+
+            # DEBUG: Log period details with comprehensive audit info
+            if ticker.upper() == "CCO.TO":
+                logger.info(f"AUDIT CCO.TO Period {period_idx} ({start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')})")
+                logger.info(f"  weight_raw={weight:.6f} weight_pct={weight*100:.2f}%")
+                logger.info(f"  return_raw={period_return:.6f} return_pct={period_return*100:.2f}%")
+                logger.info(f"  contribution_raw={contribution:.6f} contribution_pct={contribution*100:.2f}%")
+                logger.info(f"  contribution_bps={contribution*10000:.1f} (for formatBps which does val*100)")
+            logger.debug(f"Period {period_idx} ({start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}): {ticker} weight={weight:.4f} ({weight*100:.2f}%) return={period_return:.4f} ({period_return*100:.2f}%) contribution={contribution:.6f}")
+
             row[f"Weight_{period_idx}"] = weight
             row[f"Return_{period_idx}"] = period_return
             row[f"Contrib_{period_idx}"] = contribution

@@ -3,7 +3,7 @@ import ReactDOM from 'react-dom';
 import { Info, ChevronUp, ChevronDown, Search, Layers, AlertCircle } from 'lucide-react';
 import { RiskPosition } from '../../types';
 
-export type SortKey = 'ticker' | 'sector' | 'weight' | 'individualVol' | 'beta' | 'mctr' | 'pctOfTotalRisk' | 'annualizedReturn' | 'riskAdjustedReturn';
+export type SortKey = 'ticker' | 'sector' | 'weight' | 'individualVol' | 'beta' | 'mctr' | 'pctOfTotalRisk' | 'annualizedReturn' | 'riskAdjustedReturn' | 'riskVsWeight';
 
 const COLUMN_INFO: Record<string, string> = {
     ticker: 'Security identifier',
@@ -15,8 +15,64 @@ const COLUMN_INFO: Record<string, string> = {
     pctOfTotalRisk: 'Share of total portfolio variance attributed to this position',
     annualizedReturn: 'Annualized return based on daily returns over the past year',
     riskAdjustedReturn: 'Return divided by volatility (position-level Sharpe ratio)',
-    riskVsWeight: 'Difference between risk contribution and weight — positive means disproportionate risk',
+    riskVsWeight: 'Difference between risk contribution and weight — positive means disproportionate risk taker',
 };
+
+/* ── Sector color palette ── */
+const SECTOR_COLORS: Record<string, { bg: string; text: string }> = {
+    'Technology':             { bg: 'rgba(99,102,241,0.15)',  text: '#a5b4fc' },
+    'Information Technology': { bg: 'rgba(99,102,241,0.15)',  text: '#a5b4fc' },
+    'Financial Services':     { bg: 'rgba(16,185,129,0.15)',  text: '#6ee7b7' },
+    'Financials':             { bg: 'rgba(16,185,129,0.15)',  text: '#6ee7b7' },
+    'Health Care':            { bg: 'rgba(244,63,94,0.12)',   text: '#fda4af' },
+    'Healthcare':             { bg: 'rgba(244,63,94,0.12)',   text: '#fda4af' },
+    'Energy':                 { bg: 'rgba(245,158,11,0.15)',  text: '#fcd34d' },
+    'Consumer Cyclical':      { bg: 'rgba(168,85,247,0.15)',  text: '#d8b4fe' },
+    'Consumer Discretionary': { bg: 'rgba(168,85,247,0.15)',  text: '#d8b4fe' },
+    'Consumer Defensive':     { bg: 'rgba(20,184,166,0.15)',  text: '#5eead4' },
+    'Consumer Staples':       { bg: 'rgba(20,184,166,0.15)',  text: '#5eead4' },
+    'Communication Services': { bg: 'rgba(14,165,233,0.15)',  text: '#7dd3fc' },
+    'Industrials':            { bg: 'rgba(100,116,139,0.15)', text: '#94a3b8' },
+    'Basic Materials':        { bg: 'rgba(132,204,22,0.15)',  text: '#bef264' },
+    'Materials':              { bg: 'rgba(132,204,22,0.15)',  text: '#bef264' },
+    'Utilities':              { bg: 'rgba(52,211,153,0.12)',  text: '#6ee7b7' },
+    'Real Estate':            { bg: 'rgba(251,146,60,0.15)',  text: '#fdba74' },
+    'Mixed':                  { bg: 'rgba(100,116,139,0.12)', text: '#94a3b8' },
+};
+const defaultSectorColor = { bg: 'rgba(100,116,139,0.12)', text: '#94a3b8' };
+
+const SectorBadge: React.FC<{ sector: string }> = ({ sector }) => {
+    const c = SECTOR_COLORS[sector] ?? defaultSectorColor;
+    return (
+        <span
+            className="inline-block px-2 py-0.5 rounded text-[10px] font-semibold leading-tight whitespace-nowrap"
+            style={{ backgroundColor: c.bg, color: c.text }}
+        >
+            {sector}
+        </span>
+    );
+};
+
+/* ── Mini bar scaled relative to column max ── */
+const MiniBar: React.FC<{ value: number; max: number; color: string; width?: number }> = ({
+    value, max, color, width = 56,
+}) => (
+    <div className="bg-wallstreet-900 rounded-full overflow-hidden shrink-0" style={{ width, height: 6 }}>
+        <div
+            className="h-full rounded-full"
+            style={{ width: `${Math.min(100, max > 0 ? (Math.abs(value) / max) * 100 : 0)}%`, backgroundColor: color }}
+        />
+    </div>
+);
+
+/* ── Signed number ── */
+const Signed: React.FC<{ value: number; decimals?: number; suffix?: string; className?: string }> = ({
+    value, decimals = 2, suffix = '', className = '',
+}) => (
+    <span className={className}>
+        {value > 0 ? '+' : ''}{value.toFixed(decimals)}{suffix}
+    </span>
+);
 
 interface RiskTableProps {
     positions: RiskPosition[];
@@ -29,6 +85,21 @@ export const RiskTable: React.FC<RiskTableProps> = ({ positions, loading, missin
     const [sortAsc, setSortAsc] = useState(false);
     const [search, setSearch] = useState('');
     const [groupBySector, setGroupBySector] = useState(false);
+
+    const colMax = useMemo(() => ({
+        weight: Math.max(1, ...positions.map(p => p.weight)),
+        vol:    Math.max(1, ...positions.map(p => p.individualVol)),
+        mctr:   Math.max(0.001, ...positions.map(p => Math.abs(p.mctr))),
+        risk:   Math.max(1, ...positions.map(p => p.pctOfTotalRisk)),
+        delta:  Math.max(1, ...positions.map(p => Math.abs(p.pctOfTotalRisk - p.weight))),
+    }), [positions]);
+
+    const riskRank = useMemo(() => {
+        const ranked = [...positions].sort((a, b) => b.pctOfTotalRisk - a.pctOfTotalRisk);
+        const map = new Map<string, number>();
+        ranked.forEach((p, i) => map.set(p.ticker, i + 1));
+        return map;
+    }, [positions]);
 
     const handleSort = (key: SortKey) => {
         if (sortKey === key) setSortAsc(!sortAsc);
@@ -45,7 +116,15 @@ export const RiskTable: React.FC<RiskTableProps> = ({ positions, loading, missin
 
     const sorted = useMemo(() =>
         [...filtered].sort((a, b) => {
-            const aVal = a[sortKey]; const bVal = b[sortKey];
+            let aVal: number | string;
+            let bVal: number | string;
+            if (sortKey === 'riskVsWeight') {
+                aVal = a.pctOfTotalRisk - a.weight;
+                bVal = b.pctOfTotalRisk - b.weight;
+            } else {
+                aVal = a[sortKey as keyof RiskPosition] as number | string;
+                bVal = b[sortKey as keyof RiskPosition] as number | string;
+            }
             if (typeof aVal === 'string' && typeof bVal === 'string')
                 return sortAsc ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
             return sortAsc ? (aVal as number) - (bVal as number) : (bVal as number) - (aVal as number);
@@ -60,97 +139,154 @@ export const RiskTable: React.FC<RiskTableProps> = ({ positions, loading, missin
             arr.push(p);
             map.set(p.sector, arr);
         });
-        return [...map.entries()].sort((a, b) => {
-            const aRisk = a[1].reduce((s, p) => s + p.pctOfTotalRisk, 0);
-            const bRisk = b[1].reduce((s, p) => s + p.pctOfTotalRisk, 0);
-            return bRisk - aRisk;
-        });
+        return [...map.entries()].sort((a, b) =>
+            b[1].reduce((s, p) => s + p.pctOfTotalRisk, 0) - a[1].reduce((s, p) => s + p.pctOfTotalRisk, 0)
+        );
     }, [sorted, groupBySector]);
 
-    const maxAbsDelta = Math.max(1, ...positions.map(p => Math.abs(p.pctOfTotalRisk - p.weight)));
+    const totals = useMemo(() => {
+        const totalWeight = positions.reduce((s, p) => s + p.weight, 0);
+        const wt = totalWeight / 100 || 1;
+        return {
+            weight:    totalWeight,
+            risk:      positions.reduce((s, p) => s + p.pctOfTotalRisk, 0),
+            avgBeta:   positions.reduce((s, p) => s + p.beta * p.weight / 100, 0) / wt,
+            avgReturn: positions.reduce((s, p) => s + p.annualizedReturn * p.weight / 100, 0) / wt,
+            avgRiskAdj: positions.reduce((s, p) => s + p.riskAdjustedReturn * p.weight / 100, 0) / wt,
+        };
+    }, [positions]);
 
-    const totals = useMemo(() => ({
-        weight: positions.reduce((s, p) => s + p.weight, 0),
-        risk: positions.reduce((s, p) => s + p.pctOfTotalRisk, 0),
-        avgBeta: positions.length > 0 ? positions.reduce((s, p) => s + p.beta * p.weight / 100, 0) / (positions.reduce((s, p) => s + p.weight, 0) / 100 || 1) : 0,
-    }), [positions]);
-
-    const COLUMNS: [SortKey, string, string][] = [
-        ['ticker', 'Ticker', 'w-[80px]'],
-        ['sector', 'Sector', 'w-[90px]'],
-        ['weight', 'Weight', 'w-[70px]'],
-        ['individualVol', 'Vol', 'w-[65px]'],
-        ['beta', 'Beta', 'w-[60px]'],
-        ['mctr', 'MCTR', 'w-[65px]'],
-        ['pctOfTotalRisk', 'Risk %', 'w-[70px]'],
-        ['annualizedReturn', 'Return', 'w-[75px]'],
-        ['riskAdjustedReturn', 'Risk-Adj', 'w-[75px]'],
+    const COLUMNS: [SortKey, string, 'pos' | 'perf'][] = [
+        ['ticker',            'Ticker',     'pos'],
+        ['sector',            'Sector',     'pos'],
+        ['weight',            'Weight',     'pos'],
+        ['individualVol',     'Vol',        'pos'],
+        ['beta',              'Beta',       'pos'],
+        ['mctr',              'MCTR',       'pos'],
+        ['pctOfTotalRisk',    'Risk %',     'perf'],
+        ['annualizedReturn',  'Return',     'perf'],
+        ['riskAdjustedReturn','Risk-Adj',   'perf'],
+        ['riskVsWeight',      'Risk vs Wt', 'perf'],
     ];
 
     const SortIcon: React.FC<{ col: SortKey }> = ({ col }) => {
-        if (sortKey !== col) return <ChevronDown size={13} className="text-wallstreet-500/40" />;
+        if (sortKey !== col) return <ChevronDown size={12} className="text-wallstreet-500/40 shrink-0" />;
         return sortAsc
-            ? <ChevronUp size={13} className="text-wallstreet-accent" />
-            : <ChevronDown size={13} className="text-wallstreet-accent" />;
+            ? <ChevronUp size={12} className="text-wallstreet-accent shrink-0" />
+            : <ChevronDown size={12} className="text-wallstreet-accent shrink-0" />;
     };
 
     const renderRow = (p: RiskPosition, idx: number) => {
         const delta = p.pctOfTotalRisk - p.weight;
-        const isRisky = delta > 2;
+        const isRisky     = delta > 2;
         const isDiversifier = delta < -2;
+        const rank = riskRank.get(p.ticker) ?? 99;
+        const isTopRisk = rank <= 3;
+
+        /* Beta pill */
+        const betaColor = p.beta > 1.2
+            ? 'bg-red-500/15 text-red-400'
+            : p.beta > 1.0
+                ? 'bg-amber-500/15 text-amber-400'
+                : p.beta < 0.8
+                    ? 'bg-green-500/15 text-green-400'
+                    : 'bg-wallstreet-700/50 text-wallstreet-400';
+
         return (
             <tr
                 key={p.ticker}
-                className={`border-t border-wallstreet-700/50 hover:bg-wallstreet-900/50 transition-colors ${
-                    idx % 2 === 0 ? '' : 'bg-wallstreet-900/20'
+                className={`border-t border-wallstreet-700/40 hover:bg-wallstreet-700/25 transition-colors cursor-default ${
+                    idx % 2 !== 0 ? 'bg-wallstreet-900/30' : ''
                 }`}
             >
-                <td className="px-3 py-2.5">
-                    <div className="flex items-center gap-1.5">
-                        <div className={`w-0.5 h-5 rounded-full ${isRisky ? 'bg-red-500' : isDiversifier ? 'bg-green-500' : 'bg-wallstreet-700'}`} />
-                        <span className="font-mono font-bold text-wallstreet-text text-[13px]">{p.ticker}</span>
+                {/* Ticker */}
+                <td className="px-4 py-3.5">
+                    <div className="flex items-center gap-2">
+                        <div className={`w-[3px] h-6 rounded-full shrink-0 ${isRisky ? 'bg-red-500' : isDiversifier ? 'bg-green-500' : 'bg-wallstreet-700'}`} />
+                        <span className="font-mono font-bold text-wallstreet-text text-[14px] tracking-tight">{p.ticker}</span>
                     </div>
                 </td>
-                <td className="px-3 py-2.5 text-[11px] text-wallstreet-500">{p.sector}</td>
-                <td className="px-3 py-2.5">
-                    <div className="flex items-center gap-1.5">
-                        <div className="w-10 h-1.5 bg-wallstreet-900 rounded-full overflow-hidden">
-                            <div className="h-full bg-blue-500 rounded-full" style={{ width: `${Math.min(100, p.weight)}%` }} />
-                        </div>
-                        <span className="font-mono text-wallstreet-text text-[13px]">{p.weight.toFixed(1)}%</span>
+
+                {/* Sector */}
+                <td className="px-4 py-3.5 border-r border-wallstreet-700/30">
+                    <SectorBadge sector={p.sector} />
+                </td>
+
+                {/* Weight */}
+                <td className="px-4 py-3.5">
+                    <div className="flex items-center gap-2">
+                        <MiniBar value={p.weight} max={colMax.weight} color="#3b82f6" />
+                        <span className="font-mono text-wallstreet-text text-[13px] tabular-nums w-10 shrink-0">{p.weight.toFixed(1)}%</span>
                     </div>
                 </td>
-                <td className="px-3 py-2.5 font-mono text-wallstreet-text text-[13px]">{p.individualVol.toFixed(1)}%</td>
-                <td className={`px-3 py-2.5 font-mono text-[13px] ${
-                    p.beta > 1.2 ? 'text-red-500 font-semibold' : p.beta > 1.0 ? 'text-amber-500' : p.beta < 0.8 ? 'text-green-500' : 'text-wallstreet-text'
-                }`}>{p.beta.toFixed(2)}</td>
-                <td className="px-3 py-2.5 font-mono text-wallstreet-text text-[13px]">{p.mctr.toFixed(2)}%</td>
-                <td className="px-3 py-2.5">
-                    <div className="flex items-center gap-1.5">
-                        <div className="w-10 h-1.5 bg-wallstreet-900 rounded-full overflow-hidden">
-                            <div className={`h-full rounded-full ${isRisky ? 'bg-red-500' : isDiversifier ? 'bg-green-500' : 'bg-wallstreet-500'}`}
-                                style={{ width: `${Math.min(100, p.pctOfTotalRisk)}%` }} />
-                        </div>
-                        <span className="font-mono font-bold text-wallstreet-text text-[13px]">{p.pctOfTotalRisk.toFixed(1)}%</span>
+
+                {/* Vol */}
+                <td className="px-4 py-3.5">
+                    <div className="flex items-center gap-2">
+                        <MiniBar value={p.individualVol} max={colMax.vol} color="#64748b" />
+                        <span className="font-mono text-wallstreet-400 text-[13px] tabular-nums w-10 shrink-0">{p.individualVol.toFixed(1)}%</span>
                     </div>
                 </td>
-                <td className={`px-3 py-2.5 font-mono text-[13px] ${p.annualizedReturn >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                    {p.annualizedReturn >= 0 ? '' : ''}{p.annualizedReturn.toFixed(1)}%
+
+                {/* Beta — pill badge */}
+                <td className="px-4 py-3.5">
+                    <span className={`inline-block px-2 py-0.5 rounded text-[12px] font-bold font-mono tabular-nums ${betaColor}`}>
+                        {p.beta.toFixed(2)}
+                    </span>
                 </td>
-                <td className={`px-3 py-2.5 font-mono font-medium text-[13px] ${p.riskAdjustedReturn >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                    {p.riskAdjustedReturn < 0 ? `(${Math.abs(p.riskAdjustedReturn).toFixed(2)})` : p.riskAdjustedReturn.toFixed(2)}
+
+                {/* MCTR */}
+                <td className="px-4 py-3.5 border-r border-wallstreet-700/30">
+                    <div className="flex items-center gap-2">
+                        <MiniBar value={p.mctr} max={colMax.mctr} color="#8b5cf6" />
+                        <span className="font-mono text-wallstreet-400 text-[13px] tabular-nums w-12 shrink-0">{p.mctr.toFixed(2)}%</span>
+                    </div>
                 </td>
-                <td className="px-3 py-2.5">
-                    <div className="flex items-center gap-1.5">
-                        <div className="w-16 h-1.5 bg-wallstreet-900 rounded-full overflow-hidden">
-                            <div
-                                className={`h-full rounded-full ${isRisky ? 'bg-red-400' : isDiversifier ? 'bg-green-400' : 'bg-slate-400'}`}
-                                style={{ width: `${Math.min(100, (Math.abs(delta) / maxAbsDelta) * 100)}%` }}
-                            />
-                        </div>
-                        <span className={`text-[11px] font-mono ${isRisky ? 'text-red-600' : isDiversifier ? 'text-green-600' : 'text-wallstreet-500'}`}>
-                            {delta > 0 ? '+' : ''}{delta.toFixed(1)}
+
+                {/* Risk % — hero column */}
+                <td className="px-4 py-3.5 bg-wallstreet-900/20">
+                    <div className="flex items-center gap-2">
+                        <MiniBar value={p.pctOfTotalRisk} max={colMax.risk} color={isRisky ? '#ef4444' : isDiversifier ? '#22c55e' : '#475569'} width={64} />
+                        <span className={`font-mono font-bold text-[15px] tabular-nums w-10 shrink-0 ${isRisky ? 'text-red-400' : isDiversifier ? 'text-green-400' : 'text-wallstreet-text'}`}>
+                            {p.pctOfTotalRisk.toFixed(1)}%
                         </span>
+                        {isTopRisk && (
+                            <span className="text-[9px] font-bold font-mono px-1 py-px rounded leading-tight bg-wallstreet-accent text-wallstreet-900">
+                                #{rank}
+                            </span>
+                        )}
+                    </div>
+                </td>
+
+                {/* Return */}
+                <td className="px-4 py-3.5 bg-wallstreet-900/20">
+                    <Signed
+                        value={p.annualizedReturn}
+                        decimals={1}
+                        suffix="%"
+                        className={`font-mono font-semibold text-[14px] tabular-nums ${p.annualizedReturn >= 0 ? 'text-green-400' : 'text-red-400'}`}
+                    />
+                </td>
+
+                {/* Risk-Adj */}
+                <td className="px-4 py-3.5 bg-wallstreet-900/20">
+                    <Signed
+                        value={p.riskAdjustedReturn}
+                        decimals={2}
+                        className={`font-mono font-semibold text-[14px] tabular-nums ${p.riskAdjustedReturn >= 0 ? 'text-green-400' : 'text-red-400'}`}
+                    />
+                </td>
+
+                {/* Risk vs Weight */}
+                <td className="px-4 py-3.5 bg-wallstreet-900/20">
+                    <div className="flex items-center gap-2">
+                        <MiniBar value={delta} max={colMax.delta} color={isRisky ? '#ef4444' : isDiversifier ? '#22c55e' : '#475569'} width={52} />
+                        <Signed
+                            value={delta}
+                            decimals={1}
+                            suffix="%"
+                            className={`text-[13px] font-mono font-semibold tabular-nums w-12 shrink-0 ${isRisky ? 'text-red-400' : isDiversifier ? 'text-green-400' : 'text-wallstreet-500'}`}
+                        />
                     </div>
                 </td>
             </tr>
@@ -161,10 +297,9 @@ export const RiskTable: React.FC<RiskTableProps> = ({ positions, loading, missin
         <>
             <div className="bg-wallstreet-800 rounded-2xl border border-wallstreet-700 shadow-sm overflow-hidden">
                 {/* Header bar */}
-                <div className="px-5 py-3.5 border-b border-wallstreet-700 flex items-center justify-between gap-4">
+                <div className="px-5 py-4 border-b border-wallstreet-700 flex items-center justify-between gap-4">
                     <h3 className="text-sm font-bold text-wallstreet-text uppercase tracking-wider shrink-0">Position Risk Detail</h3>
                     <div className="flex items-center gap-3">
-                        {/* Search */}
                         <div className="relative">
                             <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-wallstreet-500" />
                             <input
@@ -175,7 +310,6 @@ export const RiskTable: React.FC<RiskTableProps> = ({ positions, loading, missin
                                 className="pl-8 pr-3 py-1.5 text-xs font-mono bg-wallstreet-900 border border-wallstreet-700 rounded-lg text-wallstreet-text placeholder-wallstreet-500 w-36 focus:outline-none focus:ring-1 focus:ring-wallstreet-accent"
                             />
                         </div>
-                        {/* Group toggle */}
                         <button
                             onClick={() => setGroupBySector(!groupBySector)}
                             className={`flex items-center gap-1.5 px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-wider rounded-lg transition-all ${
@@ -202,41 +336,48 @@ export const RiskTable: React.FC<RiskTableProps> = ({ positions, loading, missin
                     <div className="overflow-x-auto">
                         <table className="w-full text-sm">
                             <thead>
-                                <tr className="bg-wallstreet-900 text-wallstreet-500 text-[10px] uppercase tracking-wider sticky top-0 z-10">
-                                    {COLUMNS.map(([key, label]) => (
-                                        <th
-                                            key={key}
-                                            className="px-3 py-2.5 text-left cursor-pointer hover:bg-wallstreet-700/50 transition-colors select-none"
-                                            onClick={() => handleSort(key)}
-                                        >
-                                            <div className="flex items-center gap-1">
-                                                {label}
-                                                <InfoBubble tooltipKey={key} />
-                                                <SortIcon col={key} />
-                                            </div>
-                                        </th>
-                                    ))}
-                                    <th className="px-3 py-2.5 text-left">
-                                        <div className="flex items-center gap-1">
-                                            Risk vs Wt
-                                            <InfoBubble tooltipKey="riskVsWeight" />
-                                        </div>
-                                    </th>
+                                <tr className="bg-wallstreet-900 text-[10px] uppercase tracking-wider sticky top-0 z-10">
+                                    {COLUMNS.map(([key, label, group], i) => {
+                                        const isFirstPerf = group === 'perf' && COLUMNS[i - 1]?.[2] !== 'perf';
+                                        const isPerf = group === 'perf';
+                                        return (
+                                            <th
+                                                key={key}
+                                                className={`px-4 py-3 text-left cursor-pointer hover:bg-wallstreet-700/50 transition-colors select-none font-semibold ${
+                                                    isFirstPerf ? 'border-l border-wallstreet-700/50' : ''
+                                                } ${isPerf ? 'text-wallstreet-accent/70 bg-wallstreet-900/20' : 'text-wallstreet-500'}`}
+                                                onClick={() => handleSort(key)}
+                                            >
+                                                <div className="flex items-center gap-1">
+                                                    {label}
+                                                    <InfoBubble tooltipKey={key} />
+                                                    <SortIcon col={key} />
+                                                </div>
+                                            </th>
+                                        );
+                                    })}
                                 </tr>
                             </thead>
                             <tbody>
                                 {grouped ? (
                                     grouped.map(([sector, sectorPositions]) => {
-                                        const sectorRisk = sectorPositions.reduce((s, p) => s + p.pctOfTotalRisk, 0);
+                                        const sectorRisk   = sectorPositions.reduce((s, p) => s + p.pctOfTotalRisk, 0);
                                         const sectorWeight = sectorPositions.reduce((s, p) => s + p.weight, 0);
+                                        const sectorDelta  = sectorRisk - sectorWeight;
+                                        const c = SECTOR_COLORS[sector] ?? defaultSectorColor;
                                         return (
                                             <React.Fragment key={sector}>
-                                                <tr className="bg-wallstreet-900 border-t-2 border-wallstreet-accent/50">
-                                                    <td colSpan={10} className="px-3 py-2">
+                                                <tr className="border-t-2 border-wallstreet-700" style={{ backgroundColor: c.bg }}>
+                                                    <td colSpan={10} className="px-4 py-2.5">
                                                         <div className="flex items-center justify-between">
-                                                            <span className="text-xs font-bold text-wallstreet-accent uppercase tracking-wider">{sector}</span>
-                                                            <span className="text-[10px] font-mono text-wallstreet-500">
-                                                                {sectorPositions.length} positions · Weight {sectorWeight.toFixed(1)}% · Risk {sectorRisk.toFixed(1)}%
+                                                            <span className="text-[11px] font-bold uppercase tracking-wider" style={{ color: c.text }}>{sector}</span>
+                                                            <span className="text-[11px] font-mono text-wallstreet-500 flex items-center gap-4">
+                                                                <span>{sectorPositions.length} position{sectorPositions.length !== 1 ? 's' : ''}</span>
+                                                                <span>Weight <span className="text-wallstreet-text font-semibold">{sectorWeight.toFixed(1)}%</span></span>
+                                                                <span>Risk <span className="text-wallstreet-text font-semibold">{sectorRisk.toFixed(1)}%</span></span>
+                                                                <span className={sectorDelta > 1 ? 'text-red-400 font-semibold' : sectorDelta < -1 ? 'text-green-400 font-semibold' : 'text-wallstreet-500'}>
+                                                                    {sectorDelta > 0 ? '▲' : '▼'} {Math.abs(sectorDelta).toFixed(1)}%
+                                                                </span>
                                                             </span>
                                                         </div>
                                                     </td>
@@ -249,16 +390,21 @@ export const RiskTable: React.FC<RiskTableProps> = ({ positions, loading, missin
                                     sorted.map((p, idx) => renderRow(p, idx))
                                 )}
                             </tbody>
-                            {/* Summary footer */}
                             <tfoot>
-                                <tr className="border-t-2 border-wallstreet-700 bg-wallstreet-900/50 font-semibold">
-                                    <td className="px-3 py-2.5 text-xs text-wallstreet-text uppercase tracking-wider" colSpan={2}>Portfolio Total</td>
-                                    <td className="px-3 py-2.5 font-mono text-wallstreet-text text-[13px]">{totals.weight.toFixed(1)}%</td>
-                                    <td className="px-3 py-2.5" />
-                                    <td className="px-3 py-2.5 font-mono text-wallstreet-text text-[13px]">{totals.avgBeta.toFixed(2)}</td>
-                                    <td className="px-3 py-2.5" />
-                                    <td className="px-3 py-2.5 font-mono text-wallstreet-text text-[13px]">{totals.risk.toFixed(1)}%</td>
-                                    <td className="px-3 py-2.5" colSpan={3} />
+                                <tr className="border-t-2 border-wallstreet-700 bg-wallstreet-900/60 font-semibold">
+                                    <td className="px-4 py-3 text-xs text-wallstreet-text uppercase tracking-wider font-bold" colSpan={2}>Portfolio Total</td>
+                                    <td className="px-4 py-3 font-mono text-wallstreet-text text-[13px]">{totals.weight.toFixed(1)}%</td>
+                                    <td className="px-4 py-3" />
+                                    <td className="px-4 py-3 font-mono text-wallstreet-text text-[13px]">{totals.avgBeta.toFixed(2)}</td>
+                                    <td className="px-4 py-3 border-r border-wallstreet-700/30" />
+                                    <td className="px-4 py-3 bg-wallstreet-900/20 font-mono text-wallstreet-text font-bold text-[14px]">{totals.risk.toFixed(1)}%</td>
+                                    <td className="px-4 py-3 bg-wallstreet-900/20">
+                                        <Signed value={totals.avgReturn} decimals={1} suffix="%" className={`font-mono font-bold text-[14px] ${totals.avgReturn >= 0 ? 'text-green-400' : 'text-red-400'}`} />
+                                    </td>
+                                    <td className="px-4 py-3 bg-wallstreet-900/20">
+                                        <Signed value={totals.avgRiskAdj} decimals={2} className={`font-mono font-bold text-[14px] ${totals.avgRiskAdj >= 0 ? 'text-green-400' : 'text-red-400'}`} />
+                                    </td>
+                                    <td className="px-4 py-3 bg-wallstreet-900/20" />
                                 </tr>
                             </tfoot>
                         </table>
@@ -305,7 +451,7 @@ const InfoBubble: React.FC<{ tooltipKey: string }> = ({ tooltipKey }) => {
     return (
         <span className="relative" onMouseEnter={handleEnter} onMouseLeave={() => setShow(false)}>
             <span ref={iconRef}>
-                <Info size={11} className="text-wallstreet-500/50 hover:text-wallstreet-500 transition-colors cursor-help" />
+                <Info size={10} className="text-wallstreet-500/40 hover:text-wallstreet-500 transition-colors cursor-help" />
             </span>
             {show && coords && COLUMN_INFO[tooltipKey] && ReactDOM.createPortal(
                 <span

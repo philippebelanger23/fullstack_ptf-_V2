@@ -80,9 +80,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, setView, hasData,
           <span className="font-medium">Relative Performance</span>
         </div>
 
-        <div className={navItemClass(ViewState.ANALYSIS, true)} title="Module currently disabled">
+        <div onClick={() => hasData && !isLocked && setView(ViewState.ANALYSIS)} className={navItemClass(ViewState.ANALYSIS, !hasData || isLocked)}>
           <FileText size={20} />
-          <span className="font-medium">One Pager</span>
+          <span className="font-medium">Portfolio Report</span>
         </div>
       </nav>
 

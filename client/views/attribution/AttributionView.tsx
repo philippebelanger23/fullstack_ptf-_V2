@@ -1,4 +1,4 @@
-import React, { useMemo, useState, Component, ErrorInfo } from 'react';
+import React, { useMemo, useState, useRef, useCallback, Component, ErrorInfo } from 'react';
 import { useThemeColors } from '../../hooks/useThemeColors';
 import { KPICard } from '../../components/KPICard';
 import { Dropdown } from '../../components/Dropdown';
@@ -52,6 +52,7 @@ interface AttributionViewProps {
     selectedYear: number;
     setSelectedYear: (year: number) => void;
     customSectors?: Record<string, Record<string, number>>;
+    tablesRequest?: number;
 }
 
 // ── FuturePeriodMessage ──────────────────────────────────────────────────────
@@ -86,25 +87,67 @@ const FuturePeriodMessage = () => (
 
 // ── AttributionViewContent ───────────────────────────────────────────────────
 
-const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selectedYear, setSelectedYear, customSectors }) => {
+const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selectedYear, setSelectedYear, customSectors, tablesRequest }) => {
     const tc = useThemeColors();
     const [viewMode, setViewMode] = useState<'OVERVIEW' | 'TABLES'>('OVERVIEW');
+
+    // Deep-link from Portfolio Report: switch to TABLES mode when requested
+    React.useEffect(() => {
+        if ((tablesRequest ?? 0) > 0) setViewMode('TABLES');
+    }, [tablesRequest]);
     const [timeRange, setTimeRange] = useState<'YTD' | 'Q1' | 'Q2' | 'Q3' | 'Q4'>('YTD');
     const [sectorHistory, setSectorHistory] = useState<{ US: SectorHistoryData, CA: SectorHistoryData, OVERALL: SectorHistoryData }>({ US: {}, CA: {}, OVERALL: {} });
     const [tickerSectors, setTickerSectors] = useState<Record<string, string>>({});
-    const [loadingSectors, setLoadingSectors] = useState(true);
-    const [loadingExposure, setLoadingExposure] = useState(true);
-    const [loadingTickerSectors, setLoadingTickerSectors] = useState(true);
+    const [isAttributionLoading, setIsAttributionLoading] = useState(true);
     const [regionFilter, setRegionFilter] = useState<'ALL' | 'US' | 'CA'>('ALL');
     const [benchmarkMode, setBenchmarkMode] = useState<'SECTOR' | 'SP500' | 'TSX60'>('SECTOR');
     const [benchmarkExposure, setBenchmarkExposure] = useState<any[]>([]);
-
-    const isAttributionLoading = loadingSectors || loadingExposure || loadingTickerSectors;
     const [fetchedAt, setFetchedAt] = useState<string | null>(null);
 
+    // Stable ticker key — only changes when actual ticker set changes, not on every data reference swap
+    const tickerKey = useMemo(() => {
+        return Array.from(new Set(data.map(d => d.ticker))).filter(t => t !== 'CASH').sort().join(',');
+    }, [data]);
+    const prevTickerKeyRef = useRef(tickerKey);
+
+    // Single consolidated load: runs all fetches in parallel, sets state once
+    const loadAllData = useCallback(async (tickers: string[]) => {
+        setIsAttributionLoading(true);
+        try {
+            const [exposureRes, historyRes, sectorsRes] = await Promise.all([
+                fetchIndexExposure(),
+                fetchSectorHistory(),
+                tickers.length > 0 ? fetchSectors(tickers) : Promise.resolve({} as Record<string, string>),
+            ]);
+
+            if (exposureRes?.sectors) setBenchmarkExposure(exposureRes.sectors);
+            setSectorHistory(historyRes);
+            setTickerSectors(sectorsRes);
+        } finally {
+            setIsAttributionLoading(false);
+            setFetchedAt(new Date().toISOString());
+        }
+    }, []);
+
+    // Initial load
     React.useEffect(() => {
-        if (!isAttributionLoading) setFetchedAt(new Date().toISOString());
-    }, [isAttributionLoading]);
+        const tickers = tickerKey ? tickerKey.split(',') : [];
+        loadAllData(tickers);
+    }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+    // Re-fetch only ticker sectors when the ticker set actually changes (not on every data reference swap)
+    React.useEffect(() => {
+        if (tickerKey === prevTickerKeyRef.current) return;
+        prevTickerKeyRef.current = tickerKey;
+        if (!tickerKey) return;
+        const tickers = tickerKey.split(',');
+        let cancelled = false;
+        (async () => {
+            const sectors = await fetchSectors(tickers);
+            if (!cancelled) setTickerSectors(sectors);
+        })();
+        return () => { cancelled = true; };
+    }, [tickerKey]);
 
     const isFuture = useMemo(() => {
         const now = new Date();
@@ -116,41 +159,6 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
         if (timeRange === 'YTD') return false;
         return now.getMonth() < quarterStarts[timeRange];
     }, [selectedYear, timeRange]);
-
-    React.useEffect(() => {
-        const loadExposure = async () => {
-            setLoadingExposure(true);
-            const res = await fetchIndexExposure();
-            if (res && res.sectors) {
-                setBenchmarkExposure(res.sectors);
-            }
-            setLoadingExposure(false);
-        };
-        loadExposure();
-    }, []);
-
-    React.useEffect(() => {
-        const loadData = async () => {
-            setLoadingSectors(true);
-            const res = await fetchSectorHistory();
-            setSectorHistory(res);
-            setLoadingSectors(false);
-        };
-        loadData();
-    }, []);
-
-    // Fetch sector classifications for all tickers in the portfolio
-    React.useEffect(() => {
-        const tickers = Array.from(new Set(data.map(d => d.ticker))).filter(t => t !== 'CASH');
-        if (tickers.length === 0) { setLoadingTickerSectors(false); return; }
-        const loadTickerSectors = async () => {
-            setLoadingTickerSectors(true);
-            const sectors = await fetchSectors(tickers);
-            setTickerSectors(sectors);
-            setLoadingTickerSectors(false);
-        };
-        loadTickerSectors();
-    }, [data]);
 
     // Select sector history based on region filter: CA uses Canadian ETFs, US uses US ETFs
     const activeSectorHistory = useMemo(() => {
@@ -565,15 +573,15 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
         };
 
         const CANONICAL_TO_DISPLAY: Record<string, string> = {
-            "Materials": "Basic Materials",
-            "Consumer Discretionary": "Cons. Cyclical",
+            "Materials": "Materials",
+            "Consumer Discretionary": "Discretionary",
             "Financials": "Financials",
             "Real Estate": "Real Estate",
-            "Communication Services": "Comm. Services",
+            "Communication Services": "Communications",
             "Energy": "Energy",
             "Industrials": "Industrials",
             "Information Technology": "Technology",
-            "Consumer Staples": "Cons. Defensive",
+            "Consumer Staples": "Staples",
             "Health Care": "Health Care",
             "Utilities": "Utilities"
         };
@@ -1134,9 +1142,15 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
                 </div>
             ) : (
                         <div className="space-y-6 print-area">
+                        {/* Page 1: Q1 + Q2 */}
+                        <div className="print-page">
+                        {/* Print-only title */}
+                        <div className="hidden print-title-block">
+                            <h1 className="font-bold text-center">Top Contributors &amp; Disruptors — {primaryYear}</h1>
+                        </div>
                         {/* Row 1: Jan, Feb, Mar, Q1 */}
                         {allMonths.length >= 3 && (
-                            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 items-end print-spaced-row print-top-spacing">
+                            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 items-end print-row">
                                 {[0, 1, 2].map(monthIdx => {
                                     const date = allMonths[monthIdx];
                                     if (!date) return <div key={monthIdx} className="hidden" />;
@@ -1188,7 +1202,7 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
 
                         {/* Row 2: Apr, May, Jun, Q2 */}
                         {allMonths.length >= 6 && (
-                            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 items-end print-break-after">
+                            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 items-end print-row">
                                 {[3, 4, 5].map(monthIdx => {
                                     const date = allMonths[monthIdx];
                                     if (!date) return <div key={monthIdx} className="hidden" />;
@@ -1238,9 +1252,13 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
                             </div>
                         )}
 
+                        </div>{/* end print-page 1 */}
+
+                        {/* Page 2: Q3 + Q4 */}
+                        <div className="print-page">
                         {/* Row 3: Jul, Aug, Sep, Q3 */}
                         {allMonths.length >= 9 && (
-                            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 items-end print-spaced-row print-top-spacing">
+                            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 items-end print-row">
                                 {[6, 7, 8].map(monthIdx => {
                                     const date = allMonths[monthIdx];
                                     if (!date) return <div key={monthIdx} className="hidden" />;
@@ -1292,7 +1310,7 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
 
                         {/* Row 4: Oct, Nov, Dec, Q4 */}
                         {allMonths.length >= 12 && (
-                            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 items-end">
+                            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 items-end print-row">
                                 {[9, 10, 11].map(monthIdx => {
                                     const date = allMonths[monthIdx];
                                     if (!date) return <div key={monthIdx} className="hidden" />;
@@ -1341,6 +1359,7 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
                                 })()}
                             </div>
                         )}
+                        </div>{/* end print-page 2 */}
                     </div>
                 )}
             </>

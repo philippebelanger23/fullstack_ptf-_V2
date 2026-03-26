@@ -2,7 +2,7 @@ import React, { useState, useRef, Component, ErrorInfo, useEffect } from 'react'
 import { Sidebar } from './components/Sidebar';
 import { UploadView } from './views/UploadView';
 import { DashboardView } from './views/DashboardView';
-import { AnalysisView } from './views/AnalysisView';
+import { ReportView } from './views/ReportView';
 import { CorrelationView } from './views/CorrelationView';
 import { AttributionView } from './views/attribution/AttributionView';
 import { IndexView } from './views/IndexView';
@@ -78,6 +78,9 @@ function App() {
   const [customSectors, setCustomSectors] = useState<Record<string, Record<string, number>>>({});
   const [assetGeo, setAssetGeo] = useState<Record<string, string>>({});
   const [lagStatus, setLagStatus] = useState<Record<string, any>>({});
+
+  // Deep-link state: incremented to trigger Attribution view to switch to TABLES mode
+  const [attributionTablesRequest, setAttributionTablesRequest] = useState(0);
 
   // Logic to determine if all active ETFs/MFs have sector data and no lags
   const getIsAssetSpecsComplete = () => {
@@ -235,7 +238,7 @@ function App() {
             <IndexView />
           )}
           {visited.has(ViewState.ATTRIBUTION) && viewPane(ViewState.ATTRIBUTION,
-            <AttributionView data={portfolioData} selectedYear={selectedYear} setSelectedYear={setSelectedYear} customSectors={customSectors} />
+            <AttributionView data={portfolioData} selectedYear={selectedYear} setSelectedYear={setSelectedYear} customSectors={customSectors} tablesRequest={attributionTablesRequest} />
           )}
           {visited.has(ViewState.PERFORMANCE) && viewPane(ViewState.PERFORMANCE,
             <PerformanceView />
@@ -253,7 +256,15 @@ function App() {
             />
           )}
           {visited.has(ViewState.ANALYSIS) && viewPane(ViewState.ANALYSIS,
-            <AnalysisView data={portfolioData} />
+            <ReportView
+              data={portfolioData}
+              customSectors={customSectors}
+              assetGeo={assetGeo}
+              onViewAttribution={() => {
+                setAttributionTablesRequest(r => r + 1);
+                setCurrentView(ViewState.ATTRIBUTION);
+              }}
+            />
           )}
         </main>
       </div>

@@ -38,15 +38,15 @@ const SECTOR_ORDER = [
 ] as const;
 
 const SECTOR_DISPLAY: Record<string, string> = {
-    'Materials': 'Basic Materials',
-    'Consumer Discretionary': 'Cons. Cyclical',
+    'Materials': 'Materials',
+    'Consumer Discretionary': 'Discretionary',
     'Financials': 'Financials',
     'Real Estate': 'Real Estate',
-    'Communication Services': 'Comm. Services',
+    'Communication Services': 'Communications',
     'Energy': 'Energy',
     'Industrials': 'Industrials',
     'Technology': 'Technology',
-    'Consumer Staples': 'Cons. Defensive',
+    'Consumer Staples': 'Staples',
     'Health Care': 'Health Care',
     'Utilities': 'Utilities',
 };

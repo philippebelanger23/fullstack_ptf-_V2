@@ -22,10 +22,10 @@ export const ClevelandDotPlot: React.FC<DotPlotProps> = ({ data }) => {
     // Map of raw sector names to user-preferred display names
     const sectorMap: Record<string, string> = {
         "Information Technology": "Technology",
-        "Consumer Discretionary": "Cons. Disc.",
-        "Consumer Staples": "Cons.Staples",
-        "Communication": "Communication", // Already matches or close enough
-        "Communication Services": "Communication", // Handle potential variation
+        "Consumer Discretionary": "Discretionary",
+        "Consumer Staples": "Staples",
+        "Communication": "Communications",
+        "Communication Services": "Communications",
     };
 
     // Transform data: Map names, filter Cash, calculate range
@@ -40,15 +40,15 @@ export const ClevelandDotPlot: React.FC<DotPlotProps> = ({ data }) => {
 
     // Sort by specific order requested by user
     const sortOrder = [
-        "Materials",        // Basic Materials
-        "Cons. Disc.",      // Consumer Cyclical
+        "Materials",
+        "Discretionary",
         "Financials",
         "Real Estate",
-        "Communication",    // Communication Services
+        "Communications",
         "Energy",
         "Industrials",
         "Technology",
-        "Cons.Staples",     // Consumer Defensive
+        "Staples",
         "Health Care",
         "Utilities"
     ];
@@ -83,7 +83,7 @@ export const ClevelandDotPlot: React.FC<DotPlotProps> = ({ data }) => {
                         const { x, y, payload } = props;
                         return (
                             <text
-                                x={x - 108}
+                                x={x - 100}
                                 y={y}
                                 fill={tc.tickFill}
                                 fontSize={12}
