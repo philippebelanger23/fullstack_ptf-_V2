@@ -17,6 +17,8 @@ from services.backcast_service import (
     build_benchmark_returns,
     build_portfolio_returns,
     compute_backcast_metrics,
+    compute_beta,
+    compute_annualized_vol,
     compute_rolling_metrics,
     fetch_returns_df,
 )
@@ -46,7 +48,7 @@ async def portfolio_backcast(request: BackcastRequest):
 
     # 2. Fetch price data
     try:
-        returns_df, missing_tickers = fetch_returns_df(list(weights_by_ticker.keys()))
+        returns_df, _, missing_tickers = fetch_returns_df(list(weights_by_ticker.keys()))
     except ValueError as e:
         return {"error": str(e)}
     except Exception as e:
@@ -88,7 +90,7 @@ async def risk_contribution(request: BackcastRequest):
 
     # 2. Fetch price data
     try:
-        returns_df, _ = fetch_returns_df(list(weights_by_ticker.keys()))
+        returns_df, raw_returns_df, _ = fetch_returns_df(list(weights_by_ticker.keys()))
     except ValueError as e:
         return {"error": str(e)}
     except Exception as e:
@@ -169,7 +171,8 @@ async def risk_contribution(request: BackcastRequest):
     top3_concentration = float(np.sum(sorted_pct[:3])) if len(sorted_pct) >= 3 else float(np.sum(sorted_pct))
 
     # Benchmark volatility & portfolio beta to benchmark
-    # Use the SAME shared functions as /portfolio-backcast to guarantee matching values
+    # Use the canonical primitives from backcast_service to guarantee values
+    # match /portfolio-backcast and /rolling-metrics exactly.
     bmk_vol = 0.0
     portfolio_beta = 1.0
     shared_ptf_returns, _ = build_portfolio_returns(returns_df, weights_by_ticker, mutual_fund_tickers)
@@ -177,10 +180,8 @@ async def risk_contribution(request: BackcastRequest):
     ptf_daily = shared_ptf_returns.iloc[1:].values
     bmk_daily = shared_bmk_returns.iloc[1:].values
     if len(bmk_daily) > 0:
-        bmk_vol = float(np.std(bmk_daily, ddof=1) * np.sqrt(252))
-        bmk_daily_var = np.var(bmk_daily, ddof=1)
-        if bmk_daily_var > 0:
-            portfolio_beta = float(np.cov(ptf_daily, bmk_daily)[0, 1] / bmk_daily_var)
+        bmk_vol = compute_annualized_vol(bmk_daily)
+        portfolio_beta = compute_beta(ptf_daily, bmk_daily)
 
     # Historical VaR 95% & CVaR 95% (1-day)
     var_threshold = np.percentile(port_daily_ret, 5)
@@ -269,30 +270,51 @@ async def risk_contribution(request: BackcastRequest):
         logger.warning(f"Could not aggregate sector risk: {e}")
 
     # 10. Compute correlation matrix (top 15 positions by risk contribution)
+    # EWMA (Exponentially Weighted Moving Average) correlation — RiskMetrics standard.
+    # Halflife of 63 trading days (~3 months): recent data weighted more, old regimes decay out.
+    # More robust than sample Pearson: adapts to correlation regime changes over the 1Y window.
+    EWMA_HALFLIFE = 63   # ~3-month halflife for daily data
+    EWMA_MIN_OBS = 21    # require at least 1 month of data before trusting a series
     correlation_matrix = None
     try:
         sorted_positions = sorted(positions, key=lambda x: -x["pctOfTotalRisk"])[:15]
         corr_tickers = [p["ticker"] for p in sorted_positions]
 
-        # Build correlation matrix from covariance
-        corr_matrix = np.zeros((len(corr_tickers), len(corr_tickers)))
-        for i, ticker_i in enumerate(corr_tickers):
-            idx_i = ticker_list.index(ticker_i)
-            for j, ticker_j in enumerate(corr_tickers):
-                idx_j = ticker_list.index(ticker_j)
-                cov_ij = cov_matrix[idx_i, idx_j]
-                vol_i = individual_vols[idx_i]
-                vol_j = individual_vols[idx_j]
-                if vol_i > 0 and vol_j > 0:
-                    corr_val = cov_ij / (vol_i * vol_j)
-                    corr_val = float(np.clip(corr_val, -1, 1))
-                else:
-                    corr_val = 1.0 if i == j else 0.0
-                corr_matrix[i, j] = round(corr_val, 3)
+        # Build FX-adjusted raw return series (NaN preserved for genuinely missing price days)
+        raw_corr_cols = {}
+        for ticker in corr_tickers:
+            if ticker not in raw_returns_df.columns:
+                continue
+            is_mf = ticker in mutual_fund_tickers
+            if needs_fx_adjustment(ticker, is_mutual_fund=is_mf) and "USDCAD=X" in raw_returns_df.columns:
+                fx_ret = raw_returns_df["USDCAD=X"]
+                raw_corr_cols[ticker] = (1 + raw_returns_df[ticker]) * (1 + fx_ret) - 1
+            else:
+                raw_corr_cols[ticker] = raw_returns_df[ticker]
+
+        corr_returns = pd.DataFrame(raw_corr_cols).iloc[1:]  # drop first NaN row
+
+        # EWMA covariance matrix — last row of the rolling estimate = current estimate
+        ewma_cov_panel = corr_returns.ewm(halflife=EWMA_HALFLIFE, min_periods=EWMA_MIN_OBS).cov()
+        last_ts = ewma_cov_panel.index.get_level_values(0)[-1]
+        cov_now = ewma_cov_panel.loc[last_ts].values.astype(float)   # (n × n)
+        final_tickers = list(ewma_cov_panel.loc[last_ts].index)
+
+        # Normalise covariance → correlation
+        std_now = np.sqrt(np.maximum(np.diag(cov_now), 0.0))
+        outer_std = np.outer(std_now, std_now)
+        with np.errstate(divide='ignore', invalid='ignore'):
+            corr_array = np.where(outer_std > 0, cov_now / outer_std, 0.0)
+
+        np.fill_diagonal(corr_array, 1.0)
+        corr_array = np.clip(corr_array, -1.0, 1.0)
+        # Any NaN left (ticker had < EWMA_MIN_OBS observations) → 0 off-diagonal
+        corr_array = np.nan_to_num(corr_array, nan=0.0)
+        np.fill_diagonal(corr_array, 1.0)
 
         correlation_matrix = {
-            "tickers": corr_tickers,
-            "matrix": corr_matrix.tolist(),
+            "tickers": final_tickers,
+            "matrix": np.round(corr_array, 3).tolist(),
         }
     except Exception as e:
         logger.warning(f"Could not compute correlation matrix: {e}")
@@ -330,7 +352,7 @@ async def rolling_metrics_endpoint(request: BackcastRequest):
         return {"error": "No valid tickers found"}
 
     try:
-        returns_df, _ = fetch_returns_df(list(weights_by_ticker.keys()))
+        returns_df, _, _ = fetch_returns_df(list(weights_by_ticker.keys()))
     except ValueError as e:
         return {"error": str(e)}
     except Exception as e:

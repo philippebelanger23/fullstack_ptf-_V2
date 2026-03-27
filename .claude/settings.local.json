@@ -33,7 +33,16 @@
       "Bash(find /c/Users/Phili/Desktop/Local_GitHub/fullstack-ptf-V2 -type f -name *[Hh]olding*)",
       "Bash(find /c/Users/Phili/Desktop/Local_GitHub/fullstack-ptf-V2 -type f -name *.json -path */src/*)",
       "Bash(curl -s \"http://localhost:8000/price-audit?ticker=CCO.TO&start_date=2026-01-01&end_date=2026-01-31\")",
-      "Bash(python -m json.tool)"
+      "Bash(python -m json.tool)",
+      "Bash(python compute_returns.py)",
+      "Bash(python -c \":*)",
+      "Bash(uvicorn server.main:app --reload)",
+      "Bash(uvicorn main:app --reload)",
+      "Bash(python main.py)",
+      "Bash(python audit_prices.py)",
+      "Bash(grep -E \"\\\\.\\(py|ts|tsx\\)$\")",
+      "Bash(python -m pytest test_kpi_primitives.py -v)",
+      "Bash(pip install:*)"
     ]
   }
 }

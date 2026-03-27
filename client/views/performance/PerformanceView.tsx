@@ -1,11 +1,12 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { AlertCircle } from 'lucide-react';
-import { loadPortfolioConfig, convertConfigToItems, fetchPortfolioBackcast, fetchRollingMetrics } from '../../services/api';
-import { BackcastResponse, BackcastSeriesPoint, RollingMetricsResponse } from '../../types';
+import { loadPortfolioConfig, convertConfigToItems, fetchPortfolioBackcast, fetchIndexExposure, loadAssetGeo, fetchSectors } from '../../services/api';
+import { BackcastResponse, BackcastSeriesPoint, PortfolioItem } from '../../types';
 import { FreshnessBadge } from '../../components/ui/FreshnessBadge';
 import type { Period, PeriodMetrics } from './PerformanceKPIs';
 import { PerformanceCharts, ChartView } from './PerformanceCharts';
-import { RollingMetricsChart } from '../../components/RollingMetricsChart';
+import { SectorDeviationCard } from '../../components/SectorDeviationCard';
+import { SectorGeographyDeviationCard } from '../../components/SectorGeographyDeviationCard';
 
 const computeMetricsFromSeries = (filtered: BackcastSeriesPoint[]): PeriodMetrics | null => {
     if (filtered.length < 5) return null;
@@ -107,11 +108,14 @@ export const PerformanceView: React.FC = () => {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [data, setData] = useState<BackcastResponse | null>(null);
-    const [rollingData, setRollingData] = useState<RollingMetricsResponse | null>(null);
     const [selectedPeriod, setSelectedPeriod] = useState<Period>('YTD');
     const [chartView, setChartView] = useState<ChartView>('absolute');
     const [isFullscreen, setIsFullscreen] = useState(false);
     const [benchmark, setBenchmark] = useState<string>('75/25');
+    const [benchmarkSectors, setBenchmarkSectors] = useState<any[]>([]);
+    const [benchmarkGeography, setBenchmarkGeography] = useState<any[]>([]);
+    const [assetGeo, setAssetGeo] = useState<Record<string, string>>({});
+    const [portfolioHoldings, setPortfolioHoldings] = useState<PortfolioItem[]>([]);
 
     useEffect(() => {
         const handleEsc = (e: KeyboardEvent) => {
@@ -140,17 +144,37 @@ export const PerformanceView: React.FC = () => {
                     setLoading(false);
                     return;
                 }
-                const [result, rolling] = await Promise.all([
+                const latestDate = items.reduce((max, item) => item.date > max ? item.date : max, '');
+                const currentHoldings = items.filter(item => item.date === latestDate);
+
+                const [result, exposure, geo] = await Promise.all([
                     fetchPortfolioBackcast(items, benchmark),
-                    fetchRollingMetrics(items, benchmark),
+                    fetchIndexExposure(),
+                    loadAssetGeo(),
                 ]);
                 if (result.error) {
                     setError(result.error);
                 } else {
                     setData(result);
                 }
-                if (!rolling.error) {
-                    setRollingData(rolling);
+                setBenchmarkSectors(exposure.sectors || []);
+                setBenchmarkGeography(exposure.geography || []);
+                setAssetGeo(geo);
+
+                // Enrich holdings with sector data
+                const tickers = currentHoldings.map(h => h.ticker).filter(t => t !== 'CASH');
+                if (tickers.length > 0) {
+                    try {
+                        const sectors = await fetchSectors(tickers);
+                        setPortfolioHoldings(currentHoldings.map(h => ({
+                            ...h,
+                            sector: sectors[h.ticker] || h.sector,
+                        })));
+                    } catch {
+                        setPortfolioHoldings(currentHoldings);
+                    }
+                } else {
+                    setPortfolioHoldings(currentHoldings);
                 }
             } catch (e) {
                 setError(String(e));
@@ -281,23 +305,54 @@ export const PerformanceView: React.FC = () => {
                     <p className="text-wallstreet-500 mt-1">Portfolio backcast based on current holdings vs. {benchmark === '75/25' ? 'Custom Benchmark (75% ACWI in CAD + 25% XIU.TO)' : benchmark === 'TSX60' ? 'TSX 60 (XIU.TO)' : 'S&P 500 CAD (XUS.TO)'}.</p>
                 </div>
             </div>
-            <PerformanceCharts
-                data={data}
-                chartData={chartData}
-                chartView={chartView}
-                setChartView={setChartView}
-                isFullscreen={isFullscreen}
-                setIsFullscreen={setIsFullscreen}
-                selectedPeriod={selectedPeriod}
-                setSelectedPeriod={setSelectedPeriod}
-                periodMetrics={periodMetrics}
-                loading={loading}
-                benchmark={benchmark}
-                setBenchmark={setBenchmark}
-            />
-            {rollingData && !rollingData.error && (
-                <RollingMetricsChart windows={rollingData.windows} />
-            )}
+            <div
+                className="grid gap-6"
+                style={{
+                    gridTemplateColumns: '5fr 3fr 3fr',
+                    gridTemplateRows: '1fr 1fr',
+                    height: 'calc(100vh - 300px)',
+                    minHeight: '640px',
+                }}
+            >
+                {/* Left column: Performance Charts spanning both rows */}
+                <div style={{ gridRow: '1 / 3' }} className="flex flex-col h-full">
+                    <PerformanceCharts
+                        noWrapper
+                        data={data}
+                        chartData={chartData}
+                        chartView={chartView}
+                        setChartView={setChartView}
+                        isFullscreen={isFullscreen}
+                        setIsFullscreen={setIsFullscreen}
+                        selectedPeriod={selectedPeriod}
+                        setSelectedPeriod={setSelectedPeriod}
+                        periodMetrics={periodMetrics}
+                        loading={loading}
+                        benchmark={benchmark}
+                        setBenchmark={setBenchmark}
+                    />
+                </div>
+
+                {/* Top right: Benchmark Deviation */}
+                <SectorDeviationCard
+                    currentHoldings={portfolioHoldings}
+                    benchmarkData={benchmarkSectors}
+                    benchmarkGeography={benchmarkGeography}
+                    assetGeo={assetGeo}
+                />
+
+                {/* Top right: Regional Sector Tilt */}
+                <SectorGeographyDeviationCard
+                    currentHoldings={portfolioHoldings}
+                    benchmarkSectors={benchmarkSectors}
+                    benchmarkGeography={benchmarkGeography}
+                    assetGeo={assetGeo}
+                />
+
+                {/* Bottom right: Empty panels */}
+                <div className="bg-wallstreet-800 rounded-2xl border border-wallstreet-700 shadow-sm" />
+                <div className="bg-wallstreet-800 rounded-2xl border border-wallstreet-700 shadow-sm" />
+            </div>
         </div>
     );
 };

@@ -1104,7 +1104,7 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
                                                                 <div className="w-full h-10 flex items-center justify-center font-mono font-bold cursor-default transition-transform hover:scale-110 hover:z-20 hover:shadow-sm relative text-sm" style={{ backgroundColor: displayBg, color }}>
                                                                     {!showHyphen ? <span className="opacity-100">{val! < 0 ? `(${Math.abs(val!).toFixed(2)}%)` : `${val! > 0 ? '+' : ''}${val!.toFixed(2)}%`}</span> : <span className="text-gray-300">-</span>}
                                                                     {!showHyphen && val !== null && (
-                                                                        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 px-3 py-2 bg-slate-900 text-white text-[10px] rounded opacity-0 group-hover/cell:opacity-100 pointer-events-none z-30 whitespace-nowrap shadow-xl flex flex-col items-center gap-1">
+                                                                        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 px-3 py-2 bg-slate-900 text-white text-[10px] rounded opacity-0 group-hover/cell:opacity-100 pointer-events-none z-50 whitespace-nowrap shadow-xl flex flex-col items-center gap-1">
                                                                             <div className="font-bold border-b-0 pb-0 mb-0">{row.ticker} - {date.toLocaleDateString('en-US', { month: 'short' }).toUpperCase()}</div>
                                                                         </div>
                                                                     )}

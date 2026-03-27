@@ -49,16 +49,20 @@ def get_price_on_date(ticker, date, cache):
         return cache[cache_key]
     
     try:
-        end_date = date
         start_date = date - pd.Timedelta(days=10)
-        
-        stock = yf.Ticker(ticker)
-        hist = stock.history(start=start_date, end=end_date + pd.Timedelta(days=1), auto_adjust=True)
-        
-        if hist.empty:
+        data = yf.download(ticker, start=start_date, end=date + pd.Timedelta(days=1),
+                           progress=False, auto_adjust=True)
+
+        if data.empty:
             raise ValueError(f"No data available for {ticker} on {date}")
-        
-        price = hist['Close'].iloc[-1]
+
+        # Handle multi-level column index from yfinance
+        if isinstance(data.columns, pd.MultiIndex):
+            close_price = data['Close'][ticker]
+        else:
+            close_price = data['Close']
+
+        price = float(close_price.iloc[-1])
         cache[cache_key] = price
         return price
     except Exception as e:
@@ -119,15 +123,15 @@ def calculate_returns(weights_dict, nav_dict, dates, cache, mutual_fund_tickers=
         if ticker == CASH_TICKER:
             returns[ticker] = {}
             for i in range(len(dates) - 1):
-                start_date = pd.to_datetime(dates[i], format="%d/%m/%Y")
-                end_date = pd.to_datetime(dates[i+1], format="%d/%m/%Y")
+                start_date = pd.to_datetime(dates[i])
+                end_date = pd.to_datetime(dates[i+1])
                 returns[ticker][(start_date, end_date)] = 0.0
             continue
-        
+
         returns[ticker] = {}
         for i in range(len(dates) - 1):
-            start_date = pd.to_datetime(dates[i], format="%d/%m/%Y")
-            end_date = pd.to_datetime(dates[i+1], format="%d/%m/%Y")
+            start_date = pd.to_datetime(dates[i])
+            end_date = pd.to_datetime(dates[i+1])
             
             # Check if we have valid price data for both dates
             if ticker not in prices or start_date not in prices[ticker] or end_date not in prices[ticker]:

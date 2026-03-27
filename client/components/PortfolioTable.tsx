@@ -342,7 +342,10 @@ export const PortfolioTable: React.FC<PortfolioTableProps> = ({ currentHoldings:
                             </span>
                           )}
                         </td>
-                        <td className="px-3 py-3 text-center font-mono text-wallstreet-text">
+                        <td
+                          className="px-3 py-3 text-center font-mono text-wallstreet-text"
+                          title="Beta to S&P 500 (market beta). See Risk Contribution view for portfolio-level beta analysis."
+                        >
                           <span className={`font-bold text-xs ${isCash(item) ? 'text-wallstreet-500' : 'text-wallstreet-text'}`}>
                             {isCash(item) ? '-' : beta.toFixed(2)}
                           </span>

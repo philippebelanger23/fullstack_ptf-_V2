@@ -88,8 +88,9 @@ const SectorTooltip = ({ payload, positions }: { payload?: any[]; positions: Ris
         .filter(p => p.sector === d.sector)
         .sort((a, b) => b.pctOfTotalRisk - a.pctOfTotalRisk);
     const topDrivers = sectorPositions.slice(0, 5);
-    const avgBeta = sectorPositions.length
-        ? sectorPositions.reduce((s, p) => s + p.beta, 0) / sectorPositions.length : null;
+    const sectorTotalWeight = sectorPositions.reduce((s, p) => s + p.weight, 0);
+    const avgBeta = sectorTotalWeight > 0
+        ? sectorPositions.reduce((s, p) => s + p.beta * p.weight, 0) / sectorTotalWeight : null;
     const avgVol = sectorPositions.length
         ? sectorPositions.reduce((s, p) => s + p.individualVol, 0) / sectorPositions.length : null;
     const deltaPositive = d.delta > 0;

@@ -14,6 +14,8 @@ interface UnifiedPerformancePanelProps {
     selectedPeriod: string;
     benchmark: string;
     loading?: boolean;
+    hideKPIs?: boolean;
+    noWrapper?: boolean;
 }
 
 const METRIC_DESCRIPTIONS: Record<string, string> = {
@@ -34,6 +36,8 @@ export const UnifiedPerformancePanel: React.FC<UnifiedPerformancePanelProps> = (
     selectedPeriod,
     benchmark,
     loading = false,
+    hideKPIs = false,
+    noWrapper = false,
 }) => {
     const tc = useThemeColors();
     const [hoveredMetric, setHoveredMetric] = useState<string | null>(null);
@@ -142,9 +146,9 @@ export const UnifiedPerformancePanel: React.FC<UnifiedPerformancePanelProps> = (
     };
 
     return (
-        <div className="bg-wallstreet-800 p-6 rounded-2xl border border-wallstreet-700 shadow-sm h-[calc(100vh-280px)] flex flex-col lg:flex-row gap-6">
-            {/* 70% - Chart */}
-            <div className="lg:w-[70%] w-full flex-1 flex flex-col">
+        <div className={`${noWrapper ? 'flex-1' : 'bg-wallstreet-800 p-6 rounded-2xl border border-wallstreet-700 shadow-sm h-[calc(100vh-280px)]'} flex flex-col ${hideKPIs ? '' : 'lg:flex-row gap-6'}`}>
+            {/* 70% - Chart (full width when hideKPIs) */}
+            <div className={`${hideKPIs ? 'w-full' : 'lg:w-[70%]'} w-full flex-1 flex flex-col`}>
                 <div className="w-full h-full">
                     {loading ? (
                         <div className="flex items-center justify-center h-full">
@@ -307,7 +311,7 @@ export const UnifiedPerformancePanel: React.FC<UnifiedPerformancePanelProps> = (
             </div>
 
             {/* 30% - KPI Table */}
-            <div className="lg:w-[30%] w-full flex flex-col overflow-hidden">
+            {!hideKPIs && <div className="lg:w-[30%] w-full flex flex-col overflow-hidden">
                 <h3 className="text-sm font-bold text-wallstreet-500 uppercase tracking-wider px-4 pb-3">Key Metrics ({selectedPeriod})</h3>
                 <div className="flex-1 overflow-y-auto">
                     <div className="overflow-x-auto h-full">
@@ -369,7 +373,7 @@ export const UnifiedPerformancePanel: React.FC<UnifiedPerformancePanelProps> = (
                 <div className="text-xs text-wallstreet-500 px-4 mt-3 pt-3 border-t border-wallstreet-700/30">
                     <p>Benchmark: {benchmark === '75/25' ? 'Custom (75% ACWI + 25% TSX60)' : benchmark === 'TSX60' ? 'TSX 60 (XIU.TO)' : 'S&P 500 CAD (XUS.TO)'}</p>
                 </div>
-            </div>
+            </div>}
         </div>
     );
 };

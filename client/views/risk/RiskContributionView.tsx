@@ -156,12 +156,12 @@ export const RiskContributionView: React.FC = () => {
             </div>
 
             {/* ── Tier 2B: Treemap + Correlation side by side ── */}
-            <div className={`grid gap-6 items-stretch ${hasCorrelation ? 'grid-cols-1 lg:grid-cols-10' : 'grid-cols-1'}`}>
-                <div className={hasCorrelation ? 'lg:col-span-7' : ''}>
+            <div className={`grid gap-6 items-stretch ${hasCorrelation ? 'grid-cols-1 lg:grid-cols-[65%_1fr]' : 'grid-cols-1'}`}>
+                <div>
                     <RiskTreemap positions={data?.positions ?? []} loading={loading} sectorCount={data?.sectorRisk?.length ?? 11} />
                 </div>
                 {hasCorrelation && (
-                    <div className="lg:col-span-3">
+                    <div>
                         <CorrelationHeatmap correlationMatrix={data!.correlationMatrix!} loading={loading} />
                     </div>
                 )}
@@ -172,6 +172,7 @@ export const RiskContributionView: React.FC = () => {
                 positions={data?.positions ?? []}
                 loading={loading}
                 missingTickers={data?.missingTickers ?? []}
+                portfolioBeta={data?.portfolioBeta}
             />
         </div>
     );

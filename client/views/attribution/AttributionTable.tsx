@@ -39,9 +39,10 @@ export const AttributionTable = ({ title, items, isQuarter = false, status = 'CO
     return (
         <div className={`${isQuarter ? 'bg-black' : 'bg-wallstreet-800'} rounded-xl shadow-sm flex flex-col h-full font-mono text-xs overflow-hidden print-table ${isQuarter ? 'border-4 border-black' : 'border-4 border-wallstreet-700'}`}>
             {/* Title Row */}
-            <div className={`py-4 text-center font-bold uppercase tracking-wider text-sm ${
-                status === 'IN_PROGRESS' ? 'bg-wallstreet-900 text-wallstreet-text' : 'bg-black text-white'
-            }`}>
+            <div
+                className={`py-4 text-center font-bold uppercase tracking-wider text-sm ${status === 'IN_PROGRESS' ? 'text-white' : 'bg-black text-white'}`}
+                style={status === 'IN_PROGRESS' ? { backgroundColor: '#4a4c4e' } : undefined}
+            >
                 {title}
             </div>
 

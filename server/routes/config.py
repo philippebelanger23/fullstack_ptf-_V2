@@ -335,11 +335,17 @@ async def price_audit(
 
         # Fetch the full daily price series for the range
         try:
-            stock = yf.Ticker(ticker.upper())
-            hist = stock.history(start=start_ts, end=end_ts + pd.Timedelta(days=1), auto_adjust=True)
+            hist = yf.download(ticker.upper(), start=start_ts,
+                               end=end_ts + pd.Timedelta(days=1),
+                               progress=False, auto_adjust=True)
+            # Handle multi-level column index from yfinance
+            if isinstance(hist.columns, pd.MultiIndex):
+                close_col = hist['Close'][ticker.upper()]
+            else:
+                close_col = hist['Close']
             prices_series = [
-                {"date": str(idx.date()), "close": round(float(row["Close"]), 4)}
-                for idx, row in hist.iterrows()
+                {"date": str(idx.date()), "close": round(float(val), 4)}
+                for idx, val in close_col.items()
             ]
         except Exception:
             prices_series = []

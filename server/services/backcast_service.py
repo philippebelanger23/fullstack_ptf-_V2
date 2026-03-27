@@ -5,6 +5,10 @@ Provides helpers for:
 - Aggregating portfolio weights from PortfolioItem lists
 - Fetching price data and building FX-adjusted returns DataFrames
 - Computing all risk / performance metrics for the backcast response
+
+KPI primitives (compute_beta, compute_annualized_vol, compute_sharpe, compute_sortino)
+are the canonical single source of truth — all endpoints must call these instead of
+reimplementing the formulas inline.
 """
 
 import logging
@@ -20,6 +24,57 @@ from constants import BENCHMARK_BLEND_TICKERS
 
 logger = logging.getLogger(__name__)
 
+
+# =============================================================================
+# KPI Primitives — canonical implementations, used by every endpoint
+# =============================================================================
+
+def compute_beta(ptf_rets: np.ndarray, bmk_rets: np.ndarray) -> float:
+    """Portfolio beta to benchmark.
+
+    cov(ptf, bmk) / var(bmk), ddof=1 throughout for sample statistics.
+    Returns 1.0 when benchmark variance is zero (degenerate case).
+    """
+    bmk_var = np.var(bmk_rets, ddof=1)
+    if bmk_var > 0:
+        return float(np.cov(ptf_rets, bmk_rets)[0, 1] / bmk_var)
+    return 1.0
+
+
+def compute_annualized_vol(daily_rets: np.ndarray) -> float:
+    """Annualized volatility from daily returns (decimal, not %).
+
+    Uses sample std (ddof=1) × sqrt(252).
+    """
+    return float(np.std(daily_rets, ddof=1) * np.sqrt(252))
+
+
+def compute_sharpe(daily_rets: np.ndarray) -> float:
+    """Annualized Sharpe ratio from daily returns (assumes risk-free rate = 0).
+
+    Returns 0.0 when std is at or below floating-point noise threshold.
+    """
+    std = np.std(daily_rets, ddof=1)
+    if std > 1e-12:
+        return float((np.mean(daily_rets) / std) * np.sqrt(252))
+    return 0.0
+
+
+def compute_sortino(daily_rets: np.ndarray) -> float:
+    """Annualized Sortino ratio from daily returns (assumes MAR = 0).
+
+    Downside deviation = sqrt(mean(min(r, 0)^2)).
+    Returns 0.0 when downside deviation is zero.
+    """
+    downside_dev = float(np.sqrt(np.mean(np.minimum(daily_rets, 0) ** 2)))
+    if downside_dev > 0:
+        return float((np.mean(daily_rets) / downside_dev) * np.sqrt(252))
+    return 0.0
+
+
+# =============================================================================
+# Data helpers
+# =============================================================================
 
 def aggregate_weights(items) -> tuple[dict, set]:
     """
@@ -59,20 +114,23 @@ def aggregate_weights(items) -> tuple[dict, set]:
 def fetch_returns_df(
     portfolio_tickers: List[str],
     period: str = "1y",
-) -> tuple[pd.DataFrame, list]:
+) -> tuple[pd.DataFrame, pd.DataFrame, list]:
     """
     Download price data for *portfolio_tickers* plus benchmark tickers.
-    Returns (returns_df, missing_tickers).
+    Returns (returns_df, raw_returns_df, missing_tickers).
+    - returns_df: ffill/bfill + fillna(0) — for portfolio returns and covariance
+    - raw_returns_df: pct_change with NaN preserved — for pairwise correlation
     """
     fetch_list = list(set(portfolio_tickers + BENCHMARK_BLEND_TICKERS))
     data = yf.download(fetch_list, period=period, interval="1d", progress=False)
     if data.empty:
         raise ValueError("Failed to fetch price data")
     closes = data["Close"] if "Close" in data.columns else data
-    closes = closes.ffill().bfill()
-    returns_df = closes.pct_change().fillna(0)
+    raw_returns_df = closes.pct_change()
+    filled_closes = closes.ffill().bfill()
+    returns_df = filled_closes.pct_change().fillna(0)
     missing = [t for t in portfolio_tickers if t not in returns_df.columns]
-    return returns_df, missing
+    return returns_df, raw_returns_df, missing
 
 
 def build_portfolio_returns(
@@ -133,6 +191,10 @@ def build_benchmark_returns(
     return benchmark_returns
 
 
+# =============================================================================
+# Composite metric functions
+# =============================================================================
+
 def compute_backcast_metrics(
     portfolio_returns: pd.Series,
     benchmark_returns: pd.Series,
@@ -147,25 +209,10 @@ def compute_backcast_metrics(
     ptf_rets = portfolio_returns.iloc[1:].values
     bmk_rets = benchmark_returns.iloc[1:].values
 
-    # Sharpe (ddof=1 for sample std throughout)
-    mean_daily_ret = np.mean(ptf_rets)
-    std_daily_ret = np.std(ptf_rets, ddof=1)
-    sharpe_ratio = (mean_daily_ret / std_daily_ret) * np.sqrt(252) if std_daily_ret > 0 else 0.0
-
-    # Sortino – proper downside deviation: sqrt(mean(min(r, 0)^2))
-    downside_sq = np.minimum(ptf_rets, 0) ** 2
-    downside_dev = np.sqrt(np.mean(downside_sq))
-    sortino_ratio = (mean_daily_ret / downside_dev) * np.sqrt(252) if downside_dev > 0 else 0.0
-
-    # Volatility (annualized)
-    volatility = std_daily_ret * np.sqrt(252)
-
-    # Beta (use sample covariance consistently: ddof=1)
-    bmk_var = np.var(bmk_rets, ddof=1)
-    if bmk_var > 0:
-        beta = np.cov(ptf_rets, bmk_rets)[0, 1] / bmk_var
-    else:
-        beta = 1.0
+    sharpe_ratio    = compute_sharpe(ptf_rets)
+    sortino_ratio   = compute_sortino(ptf_rets)
+    volatility      = compute_annualized_vol(ptf_rets)
+    beta            = compute_beta(ptf_rets, bmk_rets)
 
     # Max Drawdown – Portfolio
     cumulative_series = (1 + portfolio_returns).cumprod()
@@ -192,18 +239,14 @@ def compute_backcast_metrics(
     else:
         alpha = 0.0
 
-    # Benchmark metrics (ddof=1 consistent with portfolio)
-    bmk_std = np.std(bmk_rets, ddof=1)
-    benchmark_volatility = bmk_std * np.sqrt(252)
-    benchmark_sharpe = (np.mean(bmk_rets) / bmk_std) * np.sqrt(252) if bmk_std > 0 else 0.0
-
-    bmk_downside_sq = np.minimum(bmk_rets, 0) ** 2
-    bmk_downside_dev = np.sqrt(np.mean(bmk_downside_sq))
-    benchmark_sortino = (np.mean(bmk_rets) / bmk_downside_dev) * np.sqrt(252) if bmk_downside_dev > 0 else 0.0
+    # Benchmark metrics
+    benchmark_volatility = compute_annualized_vol(bmk_rets)
+    benchmark_sharpe     = compute_sharpe(bmk_rets)
+    benchmark_sortino    = compute_sortino(bmk_rets)
 
     # Information Ratio
     excess_rets = ptf_rets - bmk_rets
-    tracking_error = np.std(excess_rets, ddof=1) * np.sqrt(252)
+    tracking_error = compute_annualized_vol(excess_rets)
     mean_excess_ret = np.mean(excess_rets) * 252
     information_ratio = mean_excess_ret / tracking_error if tracking_error > 0 else 0.0
 
@@ -268,19 +311,11 @@ def compute_rolling_metrics(
             bmk_slice = benchmark_returns.iloc[i - window:i].values
             date_str = dates[i].strftime("%Y-%m-%d")
 
-            ptf_mean = np.mean(ptf_slice)
-            ptf_std = np.std(ptf_slice, ddof=1)
-            bmk_mean = np.mean(bmk_slice)
-            bmk_std = np.std(bmk_slice, ddof=1)
-
-            ptf_sharpe = (ptf_mean / ptf_std) * np.sqrt(252) if ptf_std > 0 else 0.0
-            bmk_sharpe = (bmk_mean / bmk_std) * np.sqrt(252) if bmk_std > 0 else 0.0
-
-            ptf_vol = ptf_std * np.sqrt(252) * 100
-            bmk_vol = bmk_std * np.sqrt(252) * 100
-
-            bmk_var = np.var(bmk_slice, ddof=1)
-            beta = np.cov(ptf_slice, bmk_slice)[0, 1] / bmk_var if bmk_var > 0 else 1.0
+            ptf_sharpe = compute_sharpe(ptf_slice)
+            bmk_sharpe = compute_sharpe(bmk_slice)
+            ptf_vol    = compute_annualized_vol(ptf_slice) * 100
+            bmk_vol    = compute_annualized_vol(bmk_slice) * 100
+            beta       = compute_beta(ptf_slice, bmk_slice)
 
             records.append({
                 "date": date_str,

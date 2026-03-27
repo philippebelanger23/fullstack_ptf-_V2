@@ -71,17 +71,19 @@ def fetch_and_save_price_data(output_dir: Path = Path("data/price_history")):
         try:
             print(f"Fetching {ticker}...", end=" ")
             
-            # Use Ticker object for single ticker (more reliable)
-            t = yf.Ticker(ticker)
-            data = t.history(period="5y", interval="1d")
-            
+            # Use yf.download for consistent adjusted close prices
+            data = yf.download(ticker, period="5y", interval="1d",
+                               progress=False, auto_adjust=True)
+
             if data.empty:
                 print(f"FAILED - No data returned")
                 failed.append((ticker, "No data returned"))
                 continue
-            
-            # Get Close column (history() uses 'Close' not 'Adj Close')
-            if 'Close' in data.columns:
+
+            # Handle multi-level column index from yfinance
+            if isinstance(data.columns, pd.MultiIndex):
+                close_prices = data['Close'][ticker]
+            elif 'Close' in data.columns:
                 close_prices = data['Close']
             else:
                 print(f"FAILED - No Close column found")

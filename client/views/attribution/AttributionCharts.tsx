@@ -68,7 +68,7 @@ export const WaterfallChart: React.FC<WaterfallChartProps> = ({ waterfallData, w
                                         {!d.isTotal && <div className="flex justify-between gap-4"><span className="text-wallstreet-500">Cumulative</span><span>{d.value[1].toFixed(2)}%</span></div>}
                                         {d.weight !== undefined && <div className="flex justify-between gap-4"><span className="text-wallstreet-500">Weight</span><span className="text-blue-600 font-bold">{d.weight.toFixed(2)}%</span></div>}
                                         {d.totalReturn !== undefined && !d.isTotal && <div className="flex justify-between gap-4"><span className="text-wallstreet-500">Period Return</span><span className={d.totalReturn >= 0 ? 'text-green-600' : 'text-red-600'}>{d.totalReturn < 0 ? `(${Math.abs(d.totalReturn).toFixed(2)}%)` : `+${d.totalReturn.toFixed(2)}%`}</span></div>}
-                                        {d.beta !== undefined && !d.isTotal && <div className="flex justify-between gap-4"><span className="text-wallstreet-500">Beta</span><span>{d.beta.toFixed(2)}</span></div>}
+                                        {d.beta !== undefined && !d.isTotal && <div className="flex justify-between gap-4"><span className="text-wallstreet-500">Contrib Sensitivity</span><span>{d.beta.toFixed(2)}</span></div>}
                                         {d.sector && <div className="flex justify-between gap-4"><span className="text-wallstreet-500">Sector</span><span className="text-wallstreet-text">{d.sector}</span></div>}
                                     </div>
                                 </div>

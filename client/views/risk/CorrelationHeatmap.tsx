@@ -29,7 +29,7 @@ export const CorrelationHeatmap: React.FC<CorrelationHeatmapProps> = ({ correlat
         <div className="bg-wallstreet-800 rounded-2xl border border-wallstreet-700 shadow-sm p-6">
             <div className="mb-5">
                 <h3 className="text-sm font-bold text-wallstreet-text uppercase tracking-wider">Correlation Matrix</h3>
-                <p className="text-[11px] text-wallstreet-500 mt-0.5">Pairwise return correlations (1Y daily) — top {maxShow} by risk contribution</p>
+                <p className="text-[11px] text-wallstreet-500 mt-0.5">EWMA pairwise correlations (63-day halflife) — top {maxShow} by risk contribution</p>
             </div>
 
             <div className="flex justify-center overflow-x-auto">

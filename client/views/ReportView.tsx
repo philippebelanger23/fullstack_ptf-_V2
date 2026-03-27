@@ -1,13 +1,11 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { AlertCircle, Printer } from 'lucide-react';
-import {
-    LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine
-} from 'recharts';
-import { useThemeColors } from '../hooks/useThemeColors';
 import { FreshnessBadge } from '../components/ui/FreshnessBadge';
 import { SectorDeviationCard } from '../components/SectorDeviationCard';
 import { SectorGeographyDeviationCard } from '../components/SectorGeographyDeviationCard';
-import { AttributionTable } from './attribution/AttributionTable';
+import type { ChartView } from './performance/PerformanceCharts';
+import type { Period } from './performance/PerformanceKPIs';
+import { UnifiedPerformancePanel } from './performance/UnifiedPerformancePanel';
 import {
     loadPortfolioConfig, convertConfigToItems,
     fetchPortfolioBackcast, fetchRiskContribution, fetchIndexExposure, fetchSectors,
@@ -17,7 +15,6 @@ import { formatPct, formatPercent } from '../utils/formatters';
 import { aggregatePeriodData } from './attribution/attributionUtils';
 import {
     PortfolioItem, BackcastResponse, RiskContributionResponse,
-    BackcastSeriesPoint
 } from '../types';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -29,24 +26,20 @@ interface ReportViewProps {
     onViewAttribution?: () => void;
 }
 
-type Period = '1M' | '3M' | '6M' | 'YTD' | '1Y';
-
-const PERIOD_LABELS: Record<Period, string> = {
-    '1M': 'Last Month',
-    '3M': 'Last 3 Months',
-    '6M': 'Last 6 Months',
-    'YTD': 'Year to Date',
-    '1Y': 'Last 12 Months',
-};
-
-const getPeriodCutoff = (period: Period): Date => {
+const getDateRangeForPeriod = (period: Period): { start: Date; end?: Date } => {
     const now = new Date();
-    if (period === '1M') { const d = new Date(now); d.setMonth(d.getMonth() - 1); return d; }
-    if (period === '3M') { const d = new Date(now); d.setMonth(d.getMonth() - 3); return d; }
-    if (period === '6M') { const d = new Date(now); d.setMonth(d.getMonth() - 6); return d; }
-    if (period === 'YTD') { return new Date(now.getFullYear(), 0, 1); }
-    /* 1Y */ const d = new Date(now); d.setFullYear(d.getFullYear() - 1); return d;
+    now.setHours(0, 0, 0, 0);
+    switch (period) {
+        case '2025': return { start: new Date(2025, 0, 1), end: new Date(2025, 11, 31) };
+        case 'YTD': return { start: new Date(now.getFullYear(), 0, 1) };
+        case '3M': return { start: new Date(new Date().setMonth(now.getMonth() - 3)) };
+        case '6M': return { start: new Date(new Date().setMonth(now.getMonth() - 6)) };
+        case '1Y': return { start: new Date(new Date().setFullYear(now.getFullYear() - 1)) };
+        default:   return { start: new Date(new Date().setFullYear(now.getFullYear() - 1)) };
+    }
 };
+
+const getPeriodCutoff = (period: Period): Date => getDateRangeForPeriod(period).start;
 
 // ── KPI cell ──────────────────────────────────────────────────────────────────
 
@@ -71,18 +64,9 @@ const KPI: React.FC<{
     );
 };
 
-const ttStyle = (tc: ReturnType<typeof useThemeColors>) => ({
-    backgroundColor: tc.tooltipBg,
-    border: `1px solid ${tc.gridStroke}`,
-    borderRadius: '6px',
-    fontSize: '11px',
-    fontFamily: "'JetBrains Mono', monospace",
-});
-
 // ── Main Component ─────────────────────────────────────────────────────────────
 
 export const ReportView: React.FC<ReportViewProps> = ({ data, customSectors, assetGeo, onViewAttribution }) => {
-    const tc = useThemeColors();
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [backcast, setBackcast] = useState<BackcastResponse | null>(null);
@@ -92,7 +76,8 @@ export const ReportView: React.FC<ReportViewProps> = ({ data, customSectors, ass
     const [sectorMap, setSectorMap] = useState<Record<string, string>>({});
     const [localCustomSectorWeights, setLocalCustomSectorWeights] = useState<Record<string, Record<string, number>>>({});
     const [localAssetGeo, setLocalAssetGeo] = useState<Record<string, string>>({});
-    const [period, setPeriod] = useState<Period>('YTD');
+    const [selectedPeriod, setSelectedPeriod] = useState<Period>('YTD');
+    const [chartView, setChartView] = useState<ChartView>('absolute');
 
     const effectiveCustomSectors = customSectors || localCustomSectorWeights;
     const effectiveAssetGeo = assetGeo || localAssetGeo;
@@ -199,53 +184,49 @@ export const ReportView: React.FC<ReportViewProps> = ({ data, customSectors, ass
 
     const chartData = useMemo(() => {
         if (!backcast?.series?.length) return [];
-        const cutoff = getPeriodCutoff(period);
-        const filtered = backcast.series.filter((p: BackcastSeriesPoint) => new Date(p.date) >= cutoff);
+        const { start, end } = getDateRangeForPeriod(selectedPeriod);
+        const startStr = start.toISOString().split('T')[0];
+        const endStr = end ? end.toISOString().split('T')[0] : '9999-12-31';
+        const filtered = backcast.series.filter(p => p.date >= startStr && p.date <= endStr);
         if (!filtered.length) return [];
-        const base = filtered[0];
-        return filtered.map((p: BackcastSeriesPoint) => ({
-            date: p.date,
-            portfolio: ((p.portfolio - base.portfolio) / base.portfolio) * 100,
-            benchmark: ((p.benchmark - base.benchmark) / base.benchmark) * 100,
-        }));
-    }, [backcast, period]);
+        const s = filtered[0];
+        if (chartView === 'absolute') {
+            return filtered.map(p => ({
+                date: p.date,
+                Portfolio: ((p.portfolio - s.portfolio) / s.portfolio) * 100,
+                Benchmark: ((p.benchmark - s.benchmark) / s.benchmark) * 100,
+            }));
+        } else if (chartView === 'relative') {
+            return filtered.map(p => ({
+                date: p.date,
+                'Excess Return': ((p.portfolio - s.portfolio) / s.portfolio - (p.benchmark - s.benchmark) / s.benchmark) * 100,
+            }));
+        } else {
+            let maxPtf = s.portfolio, maxBmk = s.benchmark;
+            return filtered.map(p => {
+                maxPtf = Math.max(maxPtf, p.portfolio);
+                maxBmk = Math.max(maxBmk, p.benchmark);
+                return {
+                    date: p.date,
+                    Portfolio: ((p.portfolio - maxPtf) / maxPtf) * 100,
+                    Benchmark: ((p.benchmark - maxBmk) / maxBmk) * 100,
+                };
+            });
+        }
+    }, [backcast, selectedPeriod, chartView]);
 
     const periodAttribution = useMemo(() => {
         if (!data.length) return [];
-        const cutoff = getPeriodCutoff(period);
+        const cutoff = getPeriodCutoff(selectedPeriod);
         const filtered = data.filter(d => new Date(d.date) >= cutoff);
         return aggregatePeriodData(filtered).sort((a, b) => b.contribution - a.contribution);
-    }, [data, period]);
+    }, [data, selectedPeriod]);
 
     const fetchedAt = useMemo(() => {
         const times = [backcast?.fetchedAt, riskData?.fetchedAt].filter(Boolean) as string[];
         return times.length > 0 ? times.sort()[0] : null;
     }, [backcast, riskData]);
 
-    // ── Extract monthly data for attribution cards ──────────────────────────────
-    const monthlyCardData = useMemo(() => {
-        if (!data.length) return [];
-        const cutoff = getPeriodCutoff(period);
-        const filtered = data.filter(d => new Date(d.date) >= cutoff);
-
-        // Group by month
-        const byMonth: Record<string, PortfolioItem[]> = {};
-        filtered.forEach(d => {
-            const date = new Date(d.date);
-            const key = `${date.getFullYear()}-${String(date.getMonth()).padStart(2, '0')}`;
-            if (!byMonth[key]) byMonth[key] = [];
-            byMonth[key].push(d);
-        });
-
-        // Convert to array of {monthKey, monthDate, items}
-        return Object.entries(byMonth)
-            .sort((a, b) => a[0].localeCompare(b[0]))
-            .map(([key, items]) => {
-                const [year, month] = key.split('-');
-                const monthDate = new Date(parseInt(year), parseInt(month));
-                return { monthKey: key, monthDate, items };
-            });
-    }, [data, period]);
 
     // ── Enrich Top Holdings with period contribution + risk % ──────────────────
     const enrichedTop10 = useMemo(() => {
@@ -312,21 +293,6 @@ export const ReportView: React.FC<ReportViewProps> = ({ data, customSectors, ass
                     </p>
                 </div>
                 <div className="print-hide flex items-center gap-3">
-                    <div className="flex bg-wallstreet-700 rounded-xl p-1 gap-0.5">
-                        {(['1M', '3M', '6M', 'YTD', '1Y'] as Period[]).map(p => (
-                            <button
-                                key={p}
-                                onClick={() => setPeriod(p)}
-                                className={`px-4 py-1.5 rounded-lg text-xs font-bold font-mono transition-all ${
-                                    period === p
-                                        ? 'bg-wallstreet-accent text-white shadow-sm'
-                                        : 'text-wallstreet-500 hover:text-wallstreet-text'
-                                }`}
-                            >
-                                {p}
-                            </button>
-                        ))}
-                    </div>
                     <button
                         onClick={() => window.print()}
                         className="flex items-center gap-2 px-4 py-2 bg-wallstreet-accent text-white rounded-lg text-sm font-bold hover:opacity-90 transition-opacity"
@@ -348,157 +314,121 @@ export const ReportView: React.FC<ReportViewProps> = ({ data, customSectors, ass
                 <KPI label="VaR 95%" value={`${riskData.var95.toFixed(2)}%`} positive={false} />
             </div>
 
-            {/* ── Bento Grid ──────────────────────────────────────────────── */}
-            {/*
-                4-column layout:
-                Row 1: [Performance ×2] [Benchmark Deviation] [Regional Tilt]  ← all same height
-                Row 2: [Top Holdings ×4]
-            */}
-            <div
-                className="grid gap-4 mb-8"
-                style={{
-                    gridTemplateAreas: '"perf perf sector geosector" "top10 top10 top10 top10"',
-                    gridTemplateColumns: '1fr 1fr 1fr 1fr',
-                }}
-            >
+            {/* ── Main Bento: Performance (left) + 4 cards (right) ────────── */}
+            <div className="grid gap-4 mb-4" style={{
+                gridTemplateColumns: '2fr 1fr 1fr',
+                gridTemplateRows: '1fr 1fr',
+                height: 'calc(40vh - 112px)',
+                minHeight: '320px',
+            }}>
 
-                {/* ── Performance Chart ────────────────────────────────────── */}
-                <div style={{ gridArea: 'perf' }} className="bg-wallstreet-800 border border-wallstreet-700 rounded-xl p-5 shadow-sm">
-                    <div className="mb-3">
+                {/* ── LEFT: Performance Chart spanning both rows ───────────── */}
+                <div style={{ gridRow: '1 / 3' }} className="bg-wallstreet-800 border border-wallstreet-700 rounded-2xl p-5 shadow-sm flex flex-col h-full">
+                    {/* Toolbar: title left · view center · period right */}
+                    <div className="flex items-center justify-between mb-3">
                         <h3 className="text-xs font-bold font-mono text-wallstreet-text uppercase tracking-wider">Performance</h3>
-                        <p className="text-[10px] text-wallstreet-500 font-mono mt-0.5">{PERIOD_LABELS[period]} · Rebased to 0%</p>
-                    </div>
-                    <div className="report-chart-container h-[260px]">
-                        <ResponsiveContainer width="100%" height="100%">
-                            <LineChart data={chartData} margin={{ top: 4, right: 8, left: -16, bottom: 0 }}>
-                                <XAxis
-                                    dataKey="date"
-                                    tick={{ fontSize: 9, fill: tc.axisColor, fontFamily: 'monospace' }}
-                                    tickFormatter={d => {
-                                        const dt = new Date(d);
-                                        return `${dt.toLocaleString('en', { month: 'short' })} '${String(dt.getFullYear()).slice(2)}`;
-                                    }}
-                                    interval="preserveStartEnd"
-                                    stroke={tc.gridStroke}
-                                />
-                                <YAxis
-                                    tick={{ fontSize: 9, fill: tc.axisColor, fontFamily: 'monospace' }}
-                                    tickFormatter={v => `${v.toFixed(0)}%`}
-                                    stroke={tc.gridStroke}
-                                    width={42}
-                                />
-                                <ReferenceLine y={0} stroke={tc.gridStroke} strokeDasharray="3 3" />
-                                <Tooltip
-                                    contentStyle={ttStyle(tc)}
-                                    formatter={(val: number, name: string) => [
-                                        `${val >= 0 ? '+' : ''}${val.toFixed(2)}%`,
-                                        name === 'portfolio' ? 'Portfolio' : 'Benchmark',
-                                    ]}
-                                    labelFormatter={d => new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                                />
-                                <Line type="monotone" dataKey="portfolio" stroke={tc.accentColor ?? '#0ea5e9'} strokeWidth={2} dot={false} name="portfolio" />
-                                <Line type="monotone" dataKey="benchmark" stroke="#94a3b8" strokeWidth={1.5} dot={false} strokeDasharray="4 2" name="benchmark" />
-                            </LineChart>
-                        </ResponsiveContainer>
-                    </div>
-                    <div className="flex gap-5 mt-2 text-[10px] font-mono text-wallstreet-500">
-                        <span className="flex items-center gap-1.5">
-                            <span className="inline-block w-5 h-0.5" style={{ background: tc.accentColor ?? '#0ea5e9' }} />
-                            Portfolio
-                        </span>
-                        <span className="flex items-center gap-1.5">
-                            <span className="inline-block w-5" style={{ borderTop: '1.5px dashed #94a3b8' }} />
-                            Benchmark
-                        </span>
-                    </div>
-                </div>
-
-                {/* ── Benchmark Deviation ──────────────────────────────────── */}
-                <div style={{ gridArea: 'sector' }}>
-                    <SectorDeviationCard
-                        currentHoldings={enrichedCurrentHoldings}
-                        benchmarkData={benchmarkSectors}
-                        benchmarkGeography={benchmarkGeography}
-                        assetGeo={effectiveAssetGeo}
-                    />
-                </div>
-
-                {/* ── Regional Sector Tilt ─────────────────────────────────── */}
-                <div style={{ gridArea: 'geosector' }}>
-                    <SectorGeographyDeviationCard
-                        currentHoldings={enrichedCurrentHoldings}
-                        benchmarkSectors={benchmarkSectors}
-                        benchmarkGeography={benchmarkGeography}
-                        assetGeo={effectiveAssetGeo}
-                    />
-                </div>
-
-                {/* ── Top 10 Holdings (enriched with contribution + risk %) ──── */}
-                <div style={{ gridArea: 'top10' }} className="bg-wallstreet-800 border border-wallstreet-700 rounded-xl p-5 shadow-sm flex flex-col">
-                    <h3 className="text-xs font-bold font-mono text-wallstreet-text uppercase tracking-wider mb-3">Top Holdings</h3>
-                    <table className="w-full text-xs font-mono">
-                        <thead>
-                            <tr className="text-[10px] text-wallstreet-500 uppercase border-b border-wallstreet-700">
-                                <th className="text-left pb-1.5 font-medium">#</th>
-                                <th className="text-left pb-1.5 font-medium">Ticker</th>
-                                <th className="text-right pb-1.5 font-medium">Wt</th>
-                                <th className="text-right pb-1.5 font-medium">Contrib</th>
-                                <th className="text-right pb-1.5 font-medium">Risk %</th>
-                                <th className="text-left pb-1.5 pl-2 font-medium">Sector</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {enrichedTop10.map((item, i) => (
-                                <tr key={item.ticker} className="border-b border-wallstreet-700 last:border-0">
-                                    <td className="py-1.5 text-wallstreet-500 text-[10px]">{i + 1}</td>
-                                    <td className="py-1.5 text-wallstreet-text font-bold">{item.ticker}</td>
-                                    <td className="py-1.5 text-right text-wallstreet-text">{item.weight.toFixed(2)}%</td>
-                                    <td className="py-1.5 text-right text-wallstreet-text">{(item.periodContribution * 100).toFixed(2)} bps</td>
-                                    <td className="py-1.5 text-right text-wallstreet-text">{(item.riskPercent * 100).toFixed(2)}%</td>
-                                    <td className="py-1.5 pl-2 text-wallstreet-500 truncate max-w-[80px]">{item.sector ?? '—'}</td>
-                                </tr>
+                        <div className="flex items-center gap-1">
+                            {(['absolute', 'relative', 'drawdowns'] as ChartView[]).map(v => (
+                                <button
+                                    key={v}
+                                    onClick={() => setChartView(v)}
+                                    className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all duration-200 ${
+                                        chartView === v
+                                            ? 'bg-wallstreet-accent text-white shadow-sm'
+                                            : 'text-wallstreet-500 hover:text-wallstreet-text hover:bg-wallstreet-900'
+                                    }`}
+                                >
+                                    {v.charAt(0).toUpperCase() + v.slice(1)}
+                                </button>
                             ))}
-                        </tbody>
-                        <tfoot>
-                            <tr className="border-t-2 border-wallstreet-700">
-                                <td className="pt-2 pb-1 text-[10px] text-wallstreet-500 uppercase font-medium" colSpan={2}>Top 10 Total</td>
-                                <td className="pt-2 pb-1 text-right font-bold text-wallstreet-text">{top10Sum.toFixed(2)}%</td>
-                                <td className="pt-2 pb-1 text-right font-bold text-wallstreet-text">{(periodAttribution.reduce((s, i) => s + i.contribution, 0) * 100).toFixed(0)} bps</td>
-                                <td colSpan={2} />
-                            </tr>
-                        </tfoot>
-                    </table>
+                        </div>
+                        <div className="flex bg-wallstreet-900 p-0.5 rounded-lg">
+                            {(['2025', 'YTD', '3M', '6M', '1Y'] as Period[]).map(p => (
+                                <button
+                                    key={p}
+                                    onClick={() => setSelectedPeriod(p)}
+                                    className={`px-2.5 py-1 text-[11px] font-bold rounded-md transition-all duration-200 ${
+                                        selectedPeriod === p
+                                            ? 'bg-wallstreet-accent text-white shadow-sm'
+                                            : 'text-wallstreet-500 hover:text-wallstreet-text hover:bg-wallstreet-700'
+                                    }`}
+                                >
+                                    {p}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                    {/* Chart body */}
+                    <UnifiedPerformancePanel
+                        chartData={chartData}
+                        chartView={chartView}
+                        periodMetrics={null}
+                        selectedPeriod={selectedPeriod}
+                        benchmark="75/25"
+                        loading={false}
+                        hideKPIs
+                        noWrapper
+                    />
                 </div>
+
+                {/* ── TOP RIGHT: Benchmark Deviation ──────────────────────── */}
+                <SectorDeviationCard
+                    currentHoldings={enrichedCurrentHoldings}
+                    benchmarkData={benchmarkSectors}
+                    benchmarkGeography={benchmarkGeography}
+                    assetGeo={effectiveAssetGeo}
+                />
+                {/* ── TOP RIGHT: Regional Sector Tilt ─────────────────────── */}
+                <SectorGeographyDeviationCard
+                    currentHoldings={enrichedCurrentHoldings}
+                    benchmarkSectors={benchmarkSectors}
+                    benchmarkGeography={benchmarkGeography}
+                    assetGeo={effectiveAssetGeo}
+                />
+                {/* ── BOTTOM RIGHT: Empty panels ───────────────────────────── */}
+                <div className="bg-wallstreet-800 border border-wallstreet-700 rounded-xl shadow-sm" />
+                <div className="bg-wallstreet-800 border border-wallstreet-700 rounded-xl shadow-sm" />
 
             </div>
 
-            {/* ── Monthly Attribution Cards ───────────────────────────────── */}
-            {monthlyCardData.length > 0 && (
-                <div>
-                    <div className="flex items-center justify-between mb-4">
-                        <h2 className="text-xs font-bold font-mono text-wallstreet-text uppercase tracking-wider">
-                            Return Attribution by Month
-                        </h2>
-                        {onViewAttribution && (
-                            <button
-                                onClick={onViewAttribution}
-                                className="text-[11px] font-mono text-wallstreet-accent hover:opacity-80 transition-opacity underline underline-offset-2 print-hide"
-                            >
-                                View Full Analysis →
-                            </button>
-                        )}
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                        {monthlyCardData.map(({ monthDate, items }) => (
-                            <AttributionTable
-                                key={monthDate.toISOString()}
-                                title={monthDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
-                                items={aggregatePeriodData(items)}
-                            />
+            {/* ── Top 10 Holdings ─────────────────────────────────────────── */}
+            <div className="bg-wallstreet-800 border border-wallstreet-700 rounded-xl p-5 shadow-sm mb-8">
+                <h3 className="text-xs font-bold font-mono text-wallstreet-text uppercase tracking-wider mb-3">Top Holdings</h3>
+                <table className="w-full text-xs font-mono">
+                    <thead>
+                        <tr className="text-[10px] text-wallstreet-500 uppercase border-b border-wallstreet-700">
+                            <th className="text-left pb-1.5 font-medium">#</th>
+                            <th className="text-left pb-1.5 font-medium">Ticker</th>
+                            <th className="text-right pb-1.5 font-medium">Wt</th>
+                            <th className="text-right pb-1.5 font-medium">Contrib</th>
+                            <th className="text-right pb-1.5 font-medium">Risk %</th>
+                            <th className="text-left pb-1.5 pl-2 font-medium">Sector</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {enrichedTop10.map((item, i) => (
+                            <tr key={item.ticker} className="border-b border-wallstreet-700 last:border-0">
+                                <td className="py-1.5 text-wallstreet-500 text-[10px]">{i + 1}</td>
+                                <td className="py-1.5 text-wallstreet-text font-bold">{item.ticker}</td>
+                                <td className="py-1.5 text-right text-wallstreet-text">{item.weight.toFixed(2)}%</td>
+                                <td className="py-1.5 text-right text-wallstreet-text">{(item.periodContribution * 100).toFixed(2)} bps</td>
+                                <td className="py-1.5 text-right text-wallstreet-text">{(item.riskPercent * 100).toFixed(2)}%</td>
+                                <td className="py-1.5 pl-2 text-wallstreet-500 truncate max-w-[80px]">{item.sector ?? '—'}</td>
+                            </tr>
                         ))}
-                    </div>
-                </div>
-            )}
+                    </tbody>
+                    <tfoot>
+                        <tr className="border-t-2 border-wallstreet-700">
+                            <td className="pt-2 pb-1 text-[10px] text-wallstreet-500 uppercase font-medium" colSpan={2}>Top 10 Total</td>
+                            <td className="pt-2 pb-1 text-right font-bold text-wallstreet-text">{top10Sum.toFixed(2)}%</td>
+                            <td className="pt-2 pb-1 text-right font-bold text-wallstreet-text">{(periodAttribution.reduce((s, i) => s + i.contribution, 0) * 100).toFixed(0)} bps</td>
+                            <td colSpan={2} />
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>
+
+            {/* ── Monthly Attribution Cards ───────────────────────────────── */}
 
             {/* ── Footer ──────────────────────────────────────────────────── */}
             <div className="mt-5 pt-3 border-t border-wallstreet-700 flex justify-between items-center text-[10px] font-mono text-wallstreet-500">

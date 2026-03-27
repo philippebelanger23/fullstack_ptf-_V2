@@ -318,7 +318,7 @@ export const SectorDeviationCard: React.FC<Props> = ({ currentHoldings, benchmar
                                             <td className={`p-2 font-bold ${group.bgColor}`}>
                                                 <span className={`${group.color} text-sm`}>{sector.name}</span>
                                             </td>
-                                            <td className={`p-2 text-right text-wallstreet-500 text-sm ${group.bgColor}`}>
+                                            <td className={`p-2 text-right font-bold text-wallstreet-500 text-sm ${group.bgColor}`}>
                                                 {sector.benchmark.toFixed(2)}%
                                             </td>
                                             <td className={`p-2 text-right font-bold text-wallstreet-text text-sm ${group.bgColor}`}>
@@ -361,7 +361,7 @@ export const SectorDeviationCard: React.FC<Props> = ({ currentHoldings, benchmar
                                     {geoDeviationData.map(row => (
                                         <tr key={row.region} className="hover:bg-wallstreet-50">
                                             <td className="p-2 font-bold text-wallstreet-text">{row.label}</td>
-                                            <td className="p-2 text-right text-wallstreet-500">{row.benchmark.toFixed(2)}%</td>
+                                            <td className="p-2 text-right font-bold text-wallstreet-500">{row.benchmark.toFixed(2)}%</td>
                                             <td className="p-2 text-right font-bold text-wallstreet-text">{row.actual.toFixed(2)}%</td>
                                             <td className="p-2">
                                                 <DeltaBar val={row.delta} />

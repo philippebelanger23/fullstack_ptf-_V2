@@ -78,9 +78,10 @@ interface RiskTableProps {
     positions: RiskPosition[];
     loading: boolean;
     missingTickers: string[];
+    portfolioBeta?: number;
 }
 
-export const RiskTable: React.FC<RiskTableProps> = ({ positions, loading, missingTickers }) => {
+export const RiskTable: React.FC<RiskTableProps> = ({ positions, loading, missingTickers, portfolioBeta }) => {
     const [sortKey, setSortKey] = useState<SortKey>('pctOfTotalRisk');
     const [sortAsc, setSortAsc] = useState(false);
     const [search, setSearch] = useState('');
@@ -150,7 +151,6 @@ export const RiskTable: React.FC<RiskTableProps> = ({ positions, loading, missin
         return {
             weight:    totalWeight,
             risk:      positions.reduce((s, p) => s + p.pctOfTotalRisk, 0),
-            avgBeta:   positions.reduce((s, p) => s + p.beta * p.weight / 100, 0) / wt,
             avgReturn: positions.reduce((s, p) => s + p.annualizedReturn * p.weight / 100, 0) / wt,
             avgRiskAdj: positions.reduce((s, p) => s + p.riskAdjustedReturn * p.weight / 100, 0) / wt,
         };
@@ -395,7 +395,7 @@ export const RiskTable: React.FC<RiskTableProps> = ({ positions, loading, missin
                                     <td className="px-4 py-3 text-xs text-wallstreet-text uppercase tracking-wider font-bold" colSpan={2}>Portfolio Total</td>
                                     <td className="px-4 py-3 font-mono text-wallstreet-text text-[13px]">{totals.weight.toFixed(1)}%</td>
                                     <td className="px-4 py-3" />
-                                    <td className="px-4 py-3 font-mono text-wallstreet-text text-[13px]">{totals.avgBeta.toFixed(2)}</td>
+                                    <td className="px-4 py-3 font-mono text-wallstreet-text text-[13px]">{portfolioBeta != null ? portfolioBeta.toFixed(2) : '—'}</td>
                                     <td className="px-4 py-3 border-r border-wallstreet-700/30" />
                                     <td className="px-4 py-3 bg-wallstreet-900/20 font-mono text-wallstreet-text font-bold text-[14px]">{totals.risk.toFixed(1)}%</td>
                                     <td className="px-4 py-3 bg-wallstreet-900/20">

@@ -24,6 +24,9 @@ interface PerformanceChartsProps {
     loading: boolean;
     benchmark: string;
     setBenchmark: (v: string) => void;
+    hideBenchmarkSelector?: boolean;
+    hideKPIs?: boolean;
+    noWrapper?: boolean;
 }
 
 export const PerformanceCharts: React.FC<PerformanceChartsProps> = ({
@@ -39,8 +42,11 @@ export const PerformanceCharts: React.FC<PerformanceChartsProps> = ({
     loading,
     benchmark,
     setBenchmark,
+    hideBenchmarkSelector = false,
+    hideKPIs = false,
+    noWrapper = false,
 }) => {
-    return (
+    const inner = (
         <>
             {/* Toolbar */}
             <div className="bg-wallstreet-800 p-6 rounded-2xl border border-wallstreet-700 shadow-sm mb-6">
@@ -62,21 +68,23 @@ export const PerformanceCharts: React.FC<PerformanceChartsProps> = ({
                                 {label}
                             </button>
                         ))}
-                        <div className="w-px h-5 bg-wallstreet-700 mx-1" />
-                        <span className="text-xs text-wallstreet-500 font-mono uppercase tracking-wider">vs.</span>
-                        {BENCHMARKS.map(({ key, label, title }) => (
-                            <button
-                                key={key}
-                                onClick={() => setBenchmark(key)}
-                                title={title}
-                                className={`px-3 py-2 text-xs font-bold rounded-lg transition-all duration-200 ${benchmark === key
-                                    ? 'bg-blue-600 text-white shadow-sm'
-                                    : 'text-wallstreet-500 hover:text-wallstreet-text hover:bg-wallstreet-900'
-                                    }`}
-                            >
-                                {label}
-                            </button>
-                        ))}
+                        {!hideBenchmarkSelector && (<>
+                            <div className="w-px h-5 bg-wallstreet-700 mx-1" />
+                            <span className="text-xs text-wallstreet-500 font-mono uppercase tracking-wider">vs.</span>
+                            {BENCHMARKS.map(({ key, label, title }) => (
+                                <button
+                                    key={key}
+                                    onClick={() => setBenchmark(key)}
+                                    title={title}
+                                    className={`px-3 py-2 text-xs font-bold rounded-lg transition-all duration-200 ${benchmark === key
+                                        ? 'bg-blue-600 text-white shadow-sm'
+                                        : 'text-wallstreet-500 hover:text-wallstreet-text hover:bg-wallstreet-900'
+                                        }`}
+                                >
+                                    {label}
+                                </button>
+                            ))}
+                        </>)}
                     </div>
                     <div className="flex bg-wallstreet-900 p-1 rounded-xl">
                         {(['2025', 'YTD', '3M', '6M', '1Y'] as Period[]).map((period) => (
@@ -105,6 +113,8 @@ export const PerformanceCharts: React.FC<PerformanceChartsProps> = ({
                 selectedPeriod={selectedPeriod}
                 benchmark={benchmark}
                 loading={loading}
+                hideKPIs={hideKPIs}
+                noWrapper={noWrapper}
             />
 
             {/* Missing Tickers Warning */}
@@ -115,4 +125,8 @@ export const PerformanceCharts: React.FC<PerformanceChartsProps> = ({
             )}
         </>
     );
+
+    return noWrapper ? (
+        <div className="flex flex-col h-full">{inner}</div>
+    ) : inner;
 };
