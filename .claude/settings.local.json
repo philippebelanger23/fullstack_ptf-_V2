@@ -42,7 +42,10 @@
       "Bash(python audit_prices.py)",
       "Bash(grep -E \"\\\\.\\(py|ts|tsx\\)$\")",
       "Bash(python -m pytest test_kpi_primitives.py -v)",
-      "Bash(pip install:*)"
+      "Bash(pip install:*)",
+      "Bash(ls \"c:/Users/Phili/Desktop/Local_GitHub/fullstack-ptf-V2/server/data/\"*cache*)",
+      "Bash(python -c \"from services.backcast_service import aggregate_period_weights, build_period_weighted_portfolio_returns; print\\(''OK''\\)\")",
+      "Bash(python -c \"from routes.risk import router; print\\(''OK''\\)\")"
     ]
   }
 }

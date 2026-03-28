@@ -3,7 +3,7 @@
 ## Option B: Individual Stock Beta to Portfolio Benchmark (Future Enhancement)
 
 ### Description
-Calculate each individual holding's beta relative to the portfolio's chosen benchmark (75% ACWI + 25% XIU.TO, or whichever benchmark the user selects), then aggregate them to compute portfolio beta using the Bi × Wi formula.
+Calculate each individual holding's beta relative to the portfolio's chosen benchmark (75% ACWI + 25% XIC.TO, or whichever benchmark the user selects), then aggregate them to compute portfolio beta using the Bi × Wi formula.
 
 **Formula:** Portfolio Beta = Σ(weight_i × beta_i_to_benchmark)
 
@@ -23,7 +23,7 @@ Calculate each individual holding's beta relative to the portfolio's chosen benc
    - Estimated: 20-50ms per portfolio calculation (currently ~100ms for full risk analysis)
 
 2. **Complexity:** Benchmark selection needs to be consistent across all calculations
-   - Currently supports: "75/25" (default), "TSX60", "SP500"
+   - Currently supports: "75/25" (default), "TSX", "SP500"
    - Need to ensure custom benchmarks work with this calculation
 
 3. **UI Complexity:** Would need to display individual betas to benchmark in RiskTable

@@ -21,6 +21,7 @@ interface Props {
     benchmarkSectors: IndexSector[];
     benchmarkGeography: GeoEntry[];
     assetGeo?: Record<string, string>;
+    noWrapper?: boolean;
 }
 
 const SECTOR_ORDER = [
@@ -136,6 +137,7 @@ export const SectorGeographyDeviationCard: React.FC<Props> = ({
     benchmarkSectors,
     benchmarkGeography,
     assetGeo,
+    noWrapper,
 }) => {
     const { isDark } = useThemeColors();
     const [viewMode, setViewMode] = useState<'RELATIVE' | 'ABSOLUTE'>('RELATIVE');
@@ -250,9 +252,9 @@ export const SectorGeographyDeviationCard: React.FC<Props> = ({
         };
 
         return (
-            <td className={`p-0 align-middle ${bgColor || ''} relative`} style={{ height: '42px' }}>
+            <td className={`p-0 align-middle ${bgColor || ''} relative`}>
                 <div
-                    className={`w-full h-full flex items-center justify-center p-2 text-center text-sm relative cursor-default ${isBold ? 'font-black' : 'font-bold'}`}
+                    className={`w-full h-full flex items-center justify-center p-1 text-center text-sm relative cursor-default ${isBold ? 'font-black' : 'font-bold'}`}
                     style={{
                         backgroundColor: cellBgColor === 'transparent' ? undefined : cellBgColor,
                         color: textColor,
@@ -271,7 +273,7 @@ export const SectorGeographyDeviationCard: React.FC<Props> = ({
     ];
 
     return (
-        <div className="lg:col-span-1 bg-wallstreet-800 p-6 rounded-xl border border-wallstreet-700 shadow-sm flex flex-col h-full">
+        <div className={noWrapper ? "flex flex-col h-full" : "lg:col-span-1 bg-wallstreet-800 p-6 rounded-xl border border-wallstreet-700 shadow-sm flex flex-col h-full"}>
             <div className="flex items-center justify-between mb-4">
                 <h3 className="font-mono font-bold text-wallstreet-text uppercase tracking-wider text-sm">
                     Regional Sector Tilt
@@ -300,28 +302,28 @@ export const SectorGeographyDeviationCard: React.FC<Props> = ({
                 </div>
             </div>
 
-            <div className="flex-1 w-full overflow-auto">
-                <table className="w-full text-sm font-mono border-collapse h-full">
+            <div className="flex-1 w-full overflow-hidden">
+                <table className="w-full text-sm font-mono border-collapse h-full table-fixed">
                     <thead className="bg-wallstreet-50 text-wallstreet-500 text-xs uppercase sticky top-0">
                         <tr>
-                            <th className="w-8 p-2"></th>
-                            <th className="p-2 text-left">Sector</th>
-                            <th className="p-2 text-center text-wallstreet-500">CA</th>
-                            <th className="p-2 text-center text-wallstreet-500">US</th>
-                            <th className="p-2 text-center text-wallstreet-500">INTL</th>
+                            <th className="w-8 p-1"></th>
+                            <th className="p-1 text-left">Sector</th>
+                            <th className="p-1 text-center text-wallstreet-500" style={{ width: '120px', minWidth: '120px' }}>CA</th>
+                            <th className="p-1 text-center text-wallstreet-500" style={{ width: '120px', minWidth: '120px' }}>US</th>
+                            <th className="p-1 text-center text-wallstreet-500" style={{ width: '120px', minWidth: '120px' }}>INTL</th>
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-wallstreet-100">
                         {GROUPS.map((group, gIdx) => (
                             <React.Fragment key={group.name}>
                                 {group.sectors.map((sector, sIdx) => (
-                                    <tr key={sector} style={{ height: '42px' }}>
+                                    <tr key={sector}>
                                         {sIdx === 0 && (
                                             <td
                                                 rowSpan={group.sectors.length}
                                                 className={`p-0 text-center border-r-2 ${group.borderColor} ${group.bgColor} align-middle relative`}
                                             >
-                                                <div className="h-full w-full flex items-center justify-center py-4">
+                                                <div className="h-full w-full flex items-center justify-center py-1">
                                                     <span
                                                         className={`text-[11px] uppercase whitespace-nowrap font-black tracking-widest ${group.color}`}
                                                         style={{ writingMode: 'vertical-rl', textOrientation: 'mixed', transform: 'rotate(180deg)' }}
@@ -331,7 +333,7 @@ export const SectorGeographyDeviationCard: React.FC<Props> = ({
                                                 </div>
                                             </td>
                                         )}
-                                        <td className={`p-2 font-bold ${group.bgColor}`}>
+                                        <td className={`p-1 font-bold ${group.bgColor}`}>
                                             <span className={`text-sm ${group.color}`}>
                                                 {SECTOR_DISPLAY[sector]}
                                             </span>
@@ -350,9 +352,9 @@ export const SectorGeographyDeviationCard: React.FC<Props> = ({
                         ))}
                     </tbody>
                     <tfoot className="bg-wallstreet-100 border-t-2 border-wallstreet-300">
-                        <tr style={{ height: '42px' }}>
+                        <tr>
                             <td></td>
-                            <td className="p-2 font-bold text-right text-xs uppercase text-wallstreet-500">Total</td>
+                            <td className="p-1 font-bold text-right text-xs uppercase text-wallstreet-500">Total</td>
                             {GEOS.map(geo => (
                                 <DataCell
                                     key={geo}

@@ -371,7 +371,7 @@ export const UnifiedPerformancePanel: React.FC<UnifiedPerformancePanelProps> = (
                     </div>
                 </div>
                 <div className="text-xs text-wallstreet-500 px-4 mt-3 pt-3 border-t border-wallstreet-700/30">
-                    <p>Benchmark: {benchmark === '75/25' ? 'Custom (75% ACWI + 25% TSX60)' : benchmark === 'TSX60' ? 'TSX 60 (XIU.TO)' : 'S&P 500 CAD (XUS.TO)'}</p>
+                    <p>Benchmark: {benchmark === '75/25' ? 'Custom (75% ACWI + 25% TSX)' : benchmark === 'TSX' ? 'TSX Composite (XIC.TO)' : 'S&P 500 CAD (XUS.TO)'}</p>
                 </div>
             </div>}
         </div>

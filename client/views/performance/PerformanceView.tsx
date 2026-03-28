@@ -5,8 +5,6 @@ import { BackcastResponse, BackcastSeriesPoint, PortfolioItem } from '../../type
 import { FreshnessBadge } from '../../components/ui/FreshnessBadge';
 import type { Period, PeriodMetrics } from './PerformanceKPIs';
 import { PerformanceCharts, ChartView } from './PerformanceCharts';
-import { SectorDeviationCard } from '../../components/SectorDeviationCard';
-import { SectorGeographyDeviationCard } from '../../components/SectorGeographyDeviationCard';
 
 const computeMetricsFromSeries = (filtered: BackcastSeriesPoint[]): PeriodMetrics | null => {
     if (filtered.length < 5) return null;
@@ -92,7 +90,10 @@ const getDateRangeForPeriod = (period: Period): { start: Date; end?: Date } => {
         case '2025':
             return { start: new Date(2025, 0, 1), end: new Date(2025, 11, 31) };
         case 'YTD':
-            return { start: new Date(now.getFullYear(), 0, 1) };
+            // Start from Dec 31 of the prior year so the base aligns with the attribution's
+            // period-start convention (rebalance periods begin at the Dec 31 close).
+            // This is also standard financial reporting: YTD = since Dec 31 prior-year close.
+            return { start: new Date(now.getFullYear() - 1, 11, 31) };
         case '3M':
             return { start: new Date(new Date().setMonth(now.getMonth() - 3)) };
         case '6M':
@@ -104,7 +105,11 @@ const getDateRangeForPeriod = (period: Period): { start: Date; end?: Date } => {
     }
 };
 
-export const PerformanceView: React.FC = () => {
+export const PerformanceView: React.FC<{
+    isActive?: boolean;
+    sharedBackcast?: BackcastResponse | null;
+    sharedBackcastLoading?: boolean;
+}> = ({ isActive, sharedBackcast, sharedBackcastLoading }) => {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [data, setData] = useState<BackcastResponse | null>(null);
@@ -127,7 +132,20 @@ export const PerformanceView: React.FC = () => {
         }
     }, [isFullscreen]);
 
+    // When shared backcast updates (e.g. portfolio reloaded) and we're on default benchmark, sync it in
     useEffect(() => {
+        if (benchmark === '75/25' && sharedBackcast != null) {
+            setData(sharedBackcast);
+            setLoading(false);
+        } else if (benchmark === '75/25' && sharedBackcastLoading) {
+            setLoading(true);
+        }
+    }, [sharedBackcast, sharedBackcastLoading, benchmark]);
+
+    useEffect(() => {
+        // Skip the fetch when the tab is not active (isActive=false).
+        // On first mount isActive is undefined (no prop passed) — fetch anyway.
+        if (isActive === false) return;
         const fetchData = async () => {
             setLoading(true);
             setError(null);
@@ -148,7 +166,9 @@ export const PerformanceView: React.FC = () => {
                 const currentHoldings = items.filter(item => item.date === latestDate);
 
                 const [result, exposure, geo] = await Promise.all([
-                    fetchPortfolioBackcast(items, benchmark),
+                    (benchmark === '75/25' && sharedBackcast != null)
+                        ? Promise.resolve(sharedBackcast)
+                        : fetchPortfolioBackcast(items, benchmark),
                     fetchIndexExposure(),
                     loadAssetGeo(),
                 ]);
@@ -183,7 +203,7 @@ export const PerformanceView: React.FC = () => {
             }
         };
         fetchData();
-    }, [benchmark]);
+    }, [benchmark, isActive]);
 
     const chartData = useMemo(() => {
         if (!data?.series || data.series.length === 0) return [];
@@ -295,63 +315,32 @@ export const PerformanceView: React.FC = () => {
     }
 
     return (
-        <div className="p-8 space-y-6 animate-in fade-in duration-500">
-            <div className="flex justify-between items-end">
+        <div className="flex flex-col h-screen overflow-hidden p-8 gap-6 animate-in fade-in duration-500">
+            <div className="flex justify-between items-end shrink-0">
                 <div>
                     <div className="flex items-center gap-3">
                         <h1 className="text-3xl font-bold text-wallstreet-text tracking-tight">Performance Deep Dive</h1>
                         <FreshnessBadge fetchedAt={data?.fetchedAt ?? null} />
                     </div>
-                    <p className="text-wallstreet-500 mt-1">Portfolio backcast based on current holdings vs. {benchmark === '75/25' ? 'Custom Benchmark (75% ACWI in CAD + 25% XIU.TO)' : benchmark === 'TSX60' ? 'TSX 60 (XIU.TO)' : 'S&P 500 CAD (XUS.TO)'}.</p>
+                    <p className="text-wallstreet-500 mt-1">Portfolio backcast based on current holdings vs. {benchmark === '75/25' ? 'Custom Benchmark (75% ACWI in CAD + 25% XIC.TO)' : benchmark === 'TSX' ? 'TSX Composite (XIC.TO)' : 'S&P 500 CAD (XUS.TO)'}.</p>
                 </div>
             </div>
-            <div
-                className="grid gap-6"
-                style={{
-                    gridTemplateColumns: '5fr 3fr 3fr',
-                    gridTemplateRows: '1fr 1fr',
-                    height: 'calc(100vh - 300px)',
-                    minHeight: '640px',
-                }}
-            >
-                {/* Left column: Performance Charts spanning both rows */}
-                <div style={{ gridRow: '1 / 3' }} className="flex flex-col h-full">
-                    <PerformanceCharts
-                        noWrapper
-                        data={data}
-                        chartData={chartData}
-                        chartView={chartView}
-                        setChartView={setChartView}
-                        isFullscreen={isFullscreen}
-                        setIsFullscreen={setIsFullscreen}
-                        selectedPeriod={selectedPeriod}
-                        setSelectedPeriod={setSelectedPeriod}
-                        periodMetrics={periodMetrics}
-                        loading={loading}
-                        benchmark={benchmark}
-                        setBenchmark={setBenchmark}
-                    />
-                </div>
-
-                {/* Top right: Benchmark Deviation */}
-                <SectorDeviationCard
-                    currentHoldings={portfolioHoldings}
-                    benchmarkData={benchmarkSectors}
-                    benchmarkGeography={benchmarkGeography}
-                    assetGeo={assetGeo}
+            <div className="flex-1 min-h-0">
+                <PerformanceCharts
+                    noWrapper
+                    data={data}
+                    chartData={chartData}
+                    chartView={chartView}
+                    setChartView={setChartView}
+                    isFullscreen={isFullscreen}
+                    setIsFullscreen={setIsFullscreen}
+                    selectedPeriod={selectedPeriod}
+                    setSelectedPeriod={setSelectedPeriod}
+                    periodMetrics={periodMetrics}
+                    loading={loading}
+                    benchmark={benchmark}
+                    setBenchmark={setBenchmark}
                 />
-
-                {/* Top right: Regional Sector Tilt */}
-                <SectorGeographyDeviationCard
-                    currentHoldings={portfolioHoldings}
-                    benchmarkSectors={benchmarkSectors}
-                    benchmarkGeography={benchmarkGeography}
-                    assetGeo={assetGeo}
-                />
-
-                {/* Bottom right: Empty panels */}
-                <div className="bg-wallstreet-800 rounded-2xl border border-wallstreet-700 shadow-sm" />
-                <div className="bg-wallstreet-800 rounded-2xl border border-wallstreet-700 shadow-sm" />
             </div>
         </div>
     );

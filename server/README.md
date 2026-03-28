@@ -84,7 +84,7 @@ server/
    - `Return = (P_end / P_start) - 1`
    - `Contribution = Weight × Return`
    - Non-CAD assets get FX-adjusted: `(1 + R_asset) × (1 + R_USD/CAD) - 1`
-4. **Benchmarks** — S&P 500, Dow Jones, Nasdaq, ACWI, TSX60, USD/CAD are appended automatically
+4. **Benchmarks** — S&P 500, Dow Jones, Nasdaq, ACWI, TSX, USD/CAD are appended automatically
 5. **Cache** — fetched prices are cached locally to speed up repeat requests
 
 **Special cases:**

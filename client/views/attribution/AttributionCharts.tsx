@@ -99,8 +99,8 @@ interface SectorAttributionChartsProps {
     };
     regionFilter: 'ALL' | 'US' | 'CA';
     setRegionFilter: (region: 'ALL' | 'US' | 'CA') => void;
-    benchmarkMode: 'SECTOR' | 'SP500' | 'TSX60';
-    setBenchmarkMode: (mode: 'SECTOR' | 'SP500' | 'TSX60') => void;
+    benchmarkMode: 'SECTOR' | 'SP500' | 'TSX';
+    setBenchmarkMode: (mode: 'SECTOR' | 'SP500' | 'TSX') => void;
     isAttributionLoading: boolean;
 }
 
@@ -190,7 +190,7 @@ export const SectorAttributionCharts: React.FC<SectorAttributionChartsProps> = (
             </h3>
             <div className="flex items-center gap-2">
                 <div className="flex p-0.5 bg-wallstreet-900 rounded-lg">
-                    {(['SECTOR', 'SP500', 'TSX60'] as const).map(mode => (
+                    {(['SECTOR', 'SP500', 'TSX'] as const).map(mode => (
                         <button
                             key={mode}
                             onClick={() => setBenchmarkMode(mode)}

@@ -1,168 +1,142 @@
-# Plan: Portfolio One-Pager / Report View (Feature #9)
+# Plan: Portfolio Report View (Feature #9) — Revised
 
-## Context
+## Current State
 
-The "Portfolio Deep Dive" tab (`ViewState.ANALYSIS`) is currently disabled in the sidebar. It renders an AI-generated investment memo via Gemini API (`AnalysisView.tsx`). We want to **replace it** with a data-driven, printable one-pager that assembles the best metrics and charts from all other tabs into a professional portfolio fact sheet — viewable in-app and printable to PDF via `window.print()`.
-
-**Why this approach:** All data already exists across the app's API endpoints. No new backend work needed. The existing print CSS infrastructure (landscape layout, `print-hide` class, color preservation) provides a foundation to build on.
+`ReportView.tsx` exists and renders:
+- **Header** — "PORTFOLIO REPORT" + date + Print button
+- **KPI Strip** — 8 metrics (Total Return, Alpha, Sharpe, Sortino, Vol, Beta, Max DD, VaR 95%)
+- **Bento Grid (3-col, 2-row)**:
+  - LEFT (spans 2 rows): Performance chart (`UnifiedPerformancePanel`) with Absolute / Relative / Drawdowns toggle + period selector
+  - TOP RIGHT: Benchmark Sector Deviation (`SectorDeviationCard`)
+  - TOP RIGHT: Regional Sector Tilt (`SectorGeographyDeviationCard`)
+  - BOTTOM RIGHT: **Empty panel** ← slot 1
+  - BOTTOM RIGHT: **Empty panel** ← slot 2
+- **Footer** — generated date + freshness badge + disclaimer
 
 ---
 
-## Layout: "Wall Street Fact Sheet" (dense, institutional)
+## Hero Features by Tab (Candidates for the Report)
 
-The existing design language (wallstreet-* theme, font-mono, uppercase tracking) is already institutional. A dense fact sheet fits naturally.
+### Tab: Overview (`DashboardView`)
+| Feature | Component | Value |
+|---------|-----------|-------|
+| Portfolio composition KPIs | `KPICard` | Capital allocation, currency exposure, div yield, portfolio beta |
+| Weight-over-time area chart | `PortfolioEvolutionChart` | Stacked area showing allocation drift across rebalance dates |
+| Sector deviation vs benchmark | `SectorDeviationCard` | Horizontal bar: portfolio vs ACWI+TSX sector weights |
+| Full holdings table | `PortfolioTable` | All positions, weight, sector, beta, div yield |
+| Concentration pie | `ConcentrationPieChart` | Top-N holdings visual |
 
-### Structure (single landscape page when printed)
+### Tab: Performance (`PerformanceView`)
+| Feature | Component | Value |
+|---------|-----------|-------|
+| Backtest KPIs | `PerformanceKPIs` | Sharpe, Sortino, Alpha, Calmar, Max DD, Volatility |
+| Portfolio vs benchmark chart | `UnifiedPerformancePanel` | Absolute / Relative / Drawdown modes |
+| Relative performance panel | `RelativePerformancePanel` | Rolling excess return, alpha chart |
+
+### Tab: Attribution (`AttributionView`)
+| Feature | Component | Value |
+|---------|-----------|-------|
+| Monthly/quarterly attribution tables | `AttributionTable` | Per-position contribution ranked by impact |
+| Sector attribution charts | `SectorAttributionCharts` | Bar chart: allocation vs selection effect |
+| Period aggregation | `aggregatePeriodData()` | YTD / custom period rollup |
+
+### Tab: Risk (`RiskContributionView`)
+| Feature | Component | Value |
+|---------|-----------|-------|
+| Risk KPIs | `RiskKPIs` | Portfolio Vol, Beta, Diversification Ratio, Effective Bets, VaR 95%, CVaR 95% |
+| Risk contribution bar chart | `RiskBarChart` | Per-position % of total risk |
+| Return vs Risk scatter | `ReturnRiskScatter` | Positions plotted by return vs vol — quadrant view |
+| Risk treemap | `RiskTreemap` | Risk weight by position/sector, area-encoded |
+
+### Tab: Correlation (`CorrelationView`)
+| Feature | Component | Value |
+|---------|-----------|-------|
+| Correlation heatmap | `CorrelationHeatmap` | N×N matrix with diverging color scale |
+| Diversification analysis | inline | Avg correlation, effective N, diversification score |
+
+### Tab: Index Exposure (`IndexView`)
+| Feature | Component | Value |
+|---------|-----------|-------|
+| Sector weights (Sunburst) | `SunburstChart` | Portfolio sector breakdown, reusable at any size |
+| Geography vs benchmark | `SectorGeographyDeviationCard` | Regional tilt heatmap |
+
+---
+
+## Revised Layout Plan
+
+The two empty bottom-right slots should be filled with the two most impactful missing pieces: **Risk Contribution breakdown** and **Top Holdings table**. This makes the report a true self-contained one-pager.
+
+### Target Grid (3-col, 2-row bento)
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
-│  HEADER: "PORTFOLIO REPORT" + date + benchmark + [Print] button  │
+│  HEADER: "PORTFOLIO REPORT" + date + benchmark + [Print]         │
 ├──────────────────────────────────────────────────────────────────┤
-│  KPI STRIP: 8 compact metrics in a row                           │
-│  Return | Alpha | Sharpe | Sortino | Vol | Beta | MaxDD | VaR95  │
-├────────────────────────────┬─────────────────────────────────────┤
-│  PERFORMANCE CHART         │  SECTOR ALLOCATION                  │
-│  Portfolio vs Benchmark    │  SunburstChart (compact)             │
-│  (LineChart, ~200px)       │  (~180px)                            │
-├────────────────────────────┼─────────────────────────────────────┤
-│  TOP 10 HOLDINGS TABLE     │  RISK SUMMARY                       │
-│  Ticker|Name|Weight|Sector │  Top 5 risk contributors             │
-│  (compact 10-row table)    │  + portfolio VaR/CVaR                │
-├────────────────────────────┴─────────────────────────────────────┤
-│  FOOTER: Generated date | Data freshness | Disclaimer            │
+│  KPI STRIP: Return | Alpha | Sharpe | Sortino | Vol | Beta | MaxDD | VaR  │
+├──────────────────────┬───────────────────┬───────────────────────┤
+│  PERFORMANCE CHART   │ SECTOR DEVIATION  │ REGIONAL TILT         │
+│  (spans 2 rows)      │ Portfolio vs BMK  │ Geo + Sector heat     │
+│  Absolute/Rel/DD     ├───────────────────┼───────────────────────┤
+│  + period selector   │ RISK CONTRIBUTION │ TOP 10 HOLDINGS       │
+│                      │ Bar chart: top 8  │ Compact table         │
+│                      │ pos by % risk     │ Ticker|Wt|Sector|Cntrb│
+├──────────────────────┴───────────────────┴───────────────────────┤
+│  FOOTER: date · freshness · disclaimer                           │
 └──────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## File Changes
+## File Changes Required
 
-### 1. NEW: `client/views/ReportView.tsx` (~300 lines)
+### 1. FILL: `client/views/ReportView.tsx` — Replace 2 empty panels
 
-The main component. Contains:
+**Bottom-right slot 1 → Mini Risk Contribution Bar Chart**
+- Reuse `RiskBarChart` or inline a compact Recharts `BarChart`
+- Data: `riskData.positions` sorted by `riskContribution` desc, top 8
+- Show ticker + % of total risk
+- No tabs/toggles (just position view)
 
-- **Data fetching** — parallel `Promise.all` of `fetchPortfolioBackcast` + `fetchRiskContribution` (same pattern as PerformanceView/RiskContributionView which use `loadPortfolioConfig` + `convertConfigToItems`)
-- **CompactMetric** — tiny inline component (label + value + color), replaces MetricCard for density
-- **MiniHoldingsTable** — plain `<table>`, top 10 by weight from `data` prop, no sorting/pagination
-- **MiniRiskTable** — plain `<table>`, top 5 by `pctOfTotalRisk` from risk response
-- **Performance LineChart** — simple Recharts `LineChart` (portfolio vs benchmark), no toolbar/selectors
-- **SunburstChart** — reused directly at compact size (it accepts width/height)
-- **Print button** — calls `window.print()`, hidden in print via `print-hide` class
-- **Loading state** — skeleton/spinner while fetching
+**Bottom-right slot 2 → Top 10 Holdings Table**
+- Inline `<table>` (no PortfolioTable — too heavy)
+- Columns: Ticker | Weight | Sector | Period Contribution | Risk %
+- Already computed: `enrichedTop10` (has `periodContribution` + `riskPercent`)
+- Compact: 10px font, tight row padding
 
-**Props interface:**
-```ts
-interface ReportViewProps {
-  data: PortfolioItem[];
-  customSectors?: Record<string, Record<string, number>>;
-  assetGeo?: Record<string, string>;
-}
-```
+### 2. OPTIONAL FUTURE SLOTS (if layout allows)
 
-### 2. MODIFY: `client/components/Sidebar.tsx` (line 88-91)
-
-Re-enable the ANALYSIS tab:
-```tsx
-// FROM:
-<div className={navItemClass(ViewState.ANALYSIS, true)} title="Module currently disabled">
-  <FileText size={20} />
-  <span className="font-medium">Portfolio Deep Dive</span>
-</div>
-
-// TO:
-<div onClick={() => hasData && !isLocked && setView(ViewState.ANALYSIS)} className={navItemClass(ViewState.ANALYSIS, !hasData || isLocked)}>
-  <FileText size={20} />
-  <span className="font-medium">Portfolio Report</span>
-</div>
-```
-
-Move it to a better position — after Relative Performance, before the disabled Correlation Matrix.
-
-### 3. MODIFY: `client/App.tsx` (lines 5, 255-257)
-
-- Replace import: `AnalysisView` → `ReportView`
-- Update render:
-```tsx
-{visited.has(ViewState.ANALYSIS) && viewPane(ViewState.ANALYSIS,
-  <ReportView data={portfolioData} customSectors={customSectors} assetGeo={assetGeo} />
-)}
-```
-
-### 4. MODIFY: `client/index.css` (after line 198)
-
-Add report-specific print overrides:
-- `.report-view` → white background, dark text (overrides dark theme for print)
-- `.report-kpi-strip` → forced 8-column grid
-- `.report-chart-container` → fixed height so Recharts SVG doesn't collapse
-- `.report-print-btn` → hidden in print
-- Card backgrounds → white with light border (override wallstreet-800)
-
-### 5. DELETE (optional): `client/views/AnalysisView.tsx` + `client/services/geminiService.ts`
-
-Dead code after replacement. Can clean up or leave.
-
----
-
-## Components: Reuse vs New
-
-| Component | Decision | Reason |
-|-----------|----------|--------|
-| `SunburstChart` | **Reuse directly** | Accepts width/height props, renders at any size |
-| Recharts `LineChart` | **Use directly** | Simple chart, no wrapper needed |
-| `formatPct`, `formatPercent`, `formatNum` | **Reuse** | From `client/utils/formatters.ts` |
-| `useThemeColors` | **Reuse** | For chart colors in dark/light mode |
-| `PortfolioTable` | **Skip** | Too heavy (sorting, pagination, column toggles) |
-| `MetricCard` / `KPICard` | **Skip** | Too tall (icons, tooltips, sparklines waste space) |
-| `RiskBarChart` | **Skip** | Interactive with tabs/toggles |
-
----
-
-## Data Flow
-
-```
-App.tsx
-  ├── portfolioData (PortfolioItem[]) ──→ ReportView.data
-  ├── customSectors ──→ ReportView.customSectors
-  └── assetGeo ──→ ReportView.assetGeo
-
-ReportView (internal useEffect):
-  ├── loadPortfolioConfig() + convertConfigToItems()
-  ├── fetchPortfolioBackcast(items) ──→ backcastData (metrics + series)
-  └── fetchRiskContribution(latestItems) ──→ riskData (positions, sectorRisk, VaR)
-```
+These are candidates if we ever expand to a 2-page report or scrollable in-app view:
+- `ReturnRiskScatter` — positions in return/risk quadrant (very visual, high value)
+- `SunburstChart` — sector sunburst at compact size (already available)
+- Rolling alpha line from `RelativePerformancePanel`
+- YTD attribution waterfall from `AttributionTable`
 
 ---
 
 ## Implementation Steps
 
-1. **Create `ReportView.tsx`** — scaffold with loading state, data fetching, header + KPI strip
-2. **Wire into `App.tsx`** — replace AnalysisView import and render
-3. **Re-enable in `Sidebar.tsx`** — enable tab, rename to "Portfolio Report", reposition
-4. **Add performance chart** — LineChart with portfolio vs benchmark from backcast series
-5. **Add sector sunburst** — reuse SunburstChart at compact size with data from portfolioData
-6. **Add holdings + risk tables** — compact tables from portfolioData and riskData
-7. **Add print CSS** — report-specific overrides in index.css
-8. **Test print output** — verify landscape single-page fit, adjust font sizes/heights
-9. **Clean up** — remove AnalysisView.tsx and geminiService.ts
+1. **Fill bottom-left slot** — Add compact `RiskBarChart` (top 8 positions by risk %) into empty panel 1
+2. **Fill bottom-right slot** — Add `enrichedTop10` inline table into empty panel 2
+3. **Style pass** — Ensure all 4 right-column cards have consistent header/padding/font
+4. **Print CSS** — Verify bento grid holds at landscape; fix any Recharts SVG collapse
+5. **Test** — Load real portfolio → verify all 6 panels render → print preview → PDF
 
 ---
 
-## Key Considerations
+## What's Already Working (Don't Break)
 
-- **Recharts in print**: SVG prints well, but `ResponsiveContainer` needs explicit parent height or collapses to 0. Use fixed-height wrappers with `!important` in print CSS.
-- **Dark→light print**: wallstreet-800/900 backgrounds become white in print. Scoped to `.report-view` to avoid affecting other print styles.
-- **Single-page fit**: Landscape 11x8.5" with 0.25" margins = ~10.5x8" usable. KPI strip + header ~1.5", two-column content ~5.5", footer ~0.5". Tight but achievable with 9-10px table fonts and 180-200px chart heights.
-- **No new backend**: All data from existing endpoints (`/portfolio-backcast`, `/risk-contribution`).
+- KPI strip with 8 metrics
+- `UnifiedPerformancePanel` with view/period toggles
+- `SectorDeviationCard` + `SectorGeographyDeviationCard`
+- Print button + footer
+- `enrichedTop10` derivation (already has risk % + period contribution)
+- Data fetching: `fetchPortfolioBackcast` + `fetchRiskContribution` + `fetchIndexExposure` + `fetchSectors`
 
 ---
 
-## Verification
+## Key Constraints
 
-1. Start backend: `cd server && python main.py`
-2. Start frontend: `cd client && npm run dev`
-3. Load portfolio from Upload view
-4. Navigate to "Portfolio Report" tab — verify all sections render with real data
-5. Toggle dark/light mode — verify both look correct
-6. Click Print button → browser print preview → verify single landscape page
-7. Save as PDF → verify output quality
-8. Check console for errors
+- **No new API calls** — all data already fetched (`riskData.positions` for risk bars, `enrichedTop10` for holdings)
+- **Recharts in print**: Use fixed-height wrapper div with explicit `px` height, not `%`
+- **RiskBarChart** accepts `data`, `loading`, `activeTab` props — set `activeTab='position'` and wrap in fixed container
+- **Single page print target**: Keep bottom row cards under ~200px to fit landscape A4/Letter

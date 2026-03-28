@@ -254,22 +254,22 @@ export const PortfolioTable: React.FC<PortfolioTableProps> = ({ currentHoldings:
         <table className="w-full text-left text-sm text-wallstreet-500 font-mono">
           <thead className="bg-wallstreet-100 text-xs uppercase font-bold text-wallstreet-500 border-b border-wallstreet-200">
             <tr>
-              <th className="px-3 py-3 w-12 text-center sticky left-0 bg-wallstreet-100 z-10">#</th>
-              <th className="px-3 py-3 min-w-[140px] sticky left-12 bg-wallstreet-100 z-10">Ticker</th>
+              <th className="px-3 py-1.5 w-12 text-center sticky left-0 bg-wallstreet-100 z-10">#</th>
+              <th className="px-3 py-1.5 min-w-[140px] sticky left-12 bg-wallstreet-100 z-10">Ticker</th>
               {/* Gap 1 - Equal spacing */}
               <th className="min-w-[60px]"></th>
-              <th className="px-3 py-3 text-right min-w-[80px]">Weight</th>
-              <th className="px-3 py-3 text-center min-w-[60px]">Loc</th>
-              <th className="px-3 py-3 text-center min-w-[50px]">Beta</th>
-              <th className="px-3 py-3 text-center min-w-[60px]">Div %</th>
+              <th className="px-3 py-1.5 text-right min-w-[80px]">Weight</th>
+              <th className="px-3 py-1.5 text-center min-w-[60px]">Loc</th>
+              <th className="px-3 py-1.5 text-center min-w-[50px]">Beta</th>
+              <th className="px-3 py-1.5 text-center min-w-[60px]">Div %</th>
               {/* Gap 2 - Equal spacing */}
               <th className="min-w-[60px]"></th>
               {GICS_SECTORS.map(sector => (
-                <th key={sector} className="px-2 py-3 text-center min-w-[70px] text-[10px]">
+                <th key={sector} className="px-2 py-2 text-center min-w-[70px] text-[10px]">
                   {sector === 'Consumer Discretionary' ? 'Discretionary' : sector === 'Consumer Staples' ? 'Staples' : sector === 'Communication Services' ? 'Communications' : sector}
                 </th>
               ))}
-              <th className="px-3 py-3 text-center min-w-[60px] bg-wallstreet-200">Total</th>
+              <th className="px-3 py-1.5 text-center min-w-[60px] bg-wallstreet-200">Total</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-wallstreet-700">
@@ -289,20 +289,20 @@ export const PortfolioTable: React.FC<PortfolioTableProps> = ({ currentHoldings:
                       className={`cursor-pointer hover:opacity-80 transition-opacity border-t-2 border-wallstreet-300 ${color}`}
                       onClick={() => toggleCollapse(geo)}
                     >
-                      <td className={`px-3 py-2 text-center sticky left-0 z-10 ${color}`}>
+                      <td className={`px-3 py-1.5 text-center sticky left-0 z-10 ${color}`}>
                         <span className="text-lg">{isCollapsed ? '▶' : '▼'}</span>
                       </td>
-                      <td className={`px-3 py-2 font-bold sticky left-12 z-10 ${color}`} colSpan={1}>
+                      <td className={`px-3 py-1.5 font-bold sticky left-12 z-10 ${color}`} colSpan={1}>
                         {label} ({items.length})
                       </td>
                       {/* Gap 1 */}
                       <td className={`min-w-[60px] ${bg}`}></td>
                       {/* Weight */}
-                      <td className={`px-3 py-2 text-right font-bold ${bg}`}>
+                      <td className={`px-3 py-1.5 text-right font-bold ${bg}`}>
                         {geoTotal.toFixed(2)}%
                       </td>
                       {/* Stats + Gap 2 + Sectors + Total */}
-                      <td colSpan={3 + 1 + GICS_SECTORS.length + 1} className={`px-3 py-2 ${bg}`}></td>
+                      <td colSpan={3 + 1 + GICS_SECTORS.length + 1} className={`px-3 py-1.5 ${bg}`}></td>
                     </tr>
                   )}
 
@@ -319,12 +319,12 @@ export const PortfolioTable: React.FC<PortfolioTableProps> = ({ currentHoldings:
 
                     return (
                       <tr key={item.ticker} className="hover:bg-wallstreet-700/30 transition-colors group">
-                        <td className="px-3 py-3 text-center text-wallstreet-400 font-medium sticky left-0 bg-wallstreet-800 group-hover:bg-wallstreet-700/30 z-10">
+                        <td className="px-3 py-1.5 text-center text-wallstreet-400 font-medium sticky left-0 bg-wallstreet-800 group-hover:bg-wallstreet-700/30 z-10">
                           {globalIndex}
                         </td>
-                        <td className="px-3 py-3 font-bold text-wallstreet-text sticky left-12 bg-wallstreet-800 group-hover:bg-wallstreet-700/30 z-10">
+                        <td className="px-3 py-1.5 font-bold text-wallstreet-text sticky left-12 bg-wallstreet-800 group-hover:bg-wallstreet-700/30 z-10">
                           <div className="flex items-center gap-2">
-                            <div className="w-7 h-7 rounded bg-wallstreet-100 text-wallstreet-600 flex items-center justify-center text-[9px] font-bold shadow-sm border border-wallstreet-200">
+                            <div className="w-5 h-5 rounded bg-wallstreet-100 text-wallstreet-600 flex items-center justify-center text-[9px] font-bold shadow-sm border border-wallstreet-200">
                               {item.ticker.substring(0, 2)}
                             </div>
                             <span className="truncate max-w-[100px]">{item.ticker}</span>
@@ -332,10 +332,10 @@ export const PortfolioTable: React.FC<PortfolioTableProps> = ({ currentHoldings:
                         </td>
                         {/* Gap 1 */}
                         <td className="min-w-[60px]"></td>
-                        <td className="px-3 py-3 text-right text-wallstreet-text font-bold">
+                        <td className="px-3 py-1.5 text-right text-wallstreet-text font-bold">
                           {item.weight.toFixed(2)}%
                         </td>
-                        <td className="px-3 py-3 text-center">
+                        <td className="px-3 py-1.5 text-center">
                           {region !== 'CASH' && (
                             <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold border ${getRegionColor(region)}`}>
                               {region}
@@ -343,14 +343,14 @@ export const PortfolioTable: React.FC<PortfolioTableProps> = ({ currentHoldings:
                           )}
                         </td>
                         <td
-                          className="px-3 py-3 text-center font-mono text-wallstreet-text"
+                          className="px-3 py-1.5 text-center font-mono text-wallstreet-text"
                           title="Beta to S&P 500 (market beta). See Risk Contribution view for portfolio-level beta analysis."
                         >
                           <span className={`font-bold text-xs ${isCash(item) ? 'text-wallstreet-500' : 'text-wallstreet-text'}`}>
                             {isCash(item) ? '-' : beta.toFixed(2)}
                           </span>
                         </td>
-                        <td className="px-3 py-3 text-center font-mono text-wallstreet-text">
+                        <td className="px-3 py-1.5 text-center font-mono text-wallstreet-text">
                           {(() => {
                             const divYield = divYieldMap && divYieldMap[item.ticker] !== undefined ? divYieldMap[item.ticker] : 0;
                             return (
@@ -365,7 +365,7 @@ export const PortfolioTable: React.FC<PortfolioTableProps> = ({ currentHoldings:
                         {GICS_SECTORS.map(sector => {
                           const val = sectorExposure[sector];
                           return (
-                            <td key={sector} className="px-2 py-3 text-center text-xs">
+                            <td key={sector} className="px-2 py-1.5 text-center text-xs">
                               {val === 'N/A' ? (
                                 <span className="text-wallstreet-500 italic text-[10px]">N/A</span>
                               ) : val !== '' ? (
@@ -374,7 +374,7 @@ export const PortfolioTable: React.FC<PortfolioTableProps> = ({ currentHoldings:
                             </td>
                           );
                         })}
-                        <td className="px-3 py-3 text-center font-bold text-xs bg-wallstreet-50">
+                        <td className="px-3 py-1.5 text-center font-bold text-xs bg-wallstreet-50">
                           {rowTotal !== null && rowTotal !== '' ? (
                             <span className="text-wallstreet-text">{typeof rowTotal === 'number' ? rowTotal.toFixed(2) : rowTotal}%</span>
                           ) : null}
@@ -387,26 +387,26 @@ export const PortfolioTable: React.FC<PortfolioTableProps> = ({ currentHoldings:
             })}
             {/* Total Row */}
             <tr className="bg-wallstreet-200 border-t-2 border-wallstreet-400 font-bold">
-              <td className="px-3 py-3 text-center sticky left-0 bg-wallstreet-200 z-10"></td>
-              <td className="px-3 py-3 text-wallstreet-text sticky left-12 bg-wallstreet-200 z-10">TOTAL</td>
+              <td className="px-3 py-1.5 text-center sticky left-0 bg-wallstreet-200 z-10"></td>
+              <td className="px-3 py-1.5 text-wallstreet-text sticky left-12 bg-wallstreet-200 z-10">TOTAL</td>
               {/* Gap 1 */}
               <td className="min-w-[60px]"></td>
-              <td className="px-3 py-3 text-right text-wallstreet-text">
+              <td className="px-3 py-1.5 text-right text-wallstreet-text">
                 {currentHoldings.reduce((sum, item) => sum + item.weight, 0).toFixed(2)}%
               </td>
-              <td className="px-3 py-3"></td>
-              <td className="px-3 py-3"></td>
-              <td className="px-3 py-3"></td>
+              <td className="px-3 py-1.5"></td>
+              <td className="px-3 py-1.5"></td>
+              <td className="px-3 py-1.5"></td>
               {/* Gap 2 */}
               <td className="min-w-[60px]"></td>
               {GICS_SECTORS.map(sector => (
-                <td key={sector} className="px-2 py-3 text-center text-xs">
+                <td key={sector} className="px-2 py-1.5 text-center text-xs">
                   {sectorTotals[sector] > 0 ? (
                     <span className="text-wallstreet-text">{sectorTotals[sector].toFixed(2)}%</span>
                   ) : null}
                 </td>
               ))}
-              <td className="px-3 py-3 text-center text-xs bg-wallstreet-300">
+              <td className="px-3 py-1.5 text-center text-xs bg-wallstreet-300">
                 <span className="text-wallstreet-text">
                   {Object.values(sectorTotals).reduce((sum, v) => sum + v, 0).toFixed(2)}%
                 </span>

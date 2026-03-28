@@ -1,7 +1,7 @@
 # Plan: Feature #8 — Peer Comparison (Model Portfolios)
 
 ## Context
-Add dashed line overlays to the Performance tab allowing comparison against 5 model portfolios (60/40 Global, Canadian Couch Potato, All-World, S&P 500, TSX 60). Toggling a model is instant (no re-fetch) because all model series are always computed on the backend and stored in `BackcastResponse.modelSeries`.
+Add dashed line overlays to the Performance tab allowing comparison against 5 model portfolios (60/40 Global, Canadian Couch Potato, All-World, S&P 500, TSX). Toggling a model is instant (no re-fetch) because all model series are always computed on the backend and stored in `BackcastResponse.modelSeries`.
 
 ---
 
@@ -20,7 +20,7 @@ MODEL_PORTFOLIOS: dict[str, dict[str, float]] = {
     "Couch Potato":  {"VCN.TO": 0.33, "XAW.TO": 0.33, "ZAG.TO": 0.34},
     "All-World":     {"ACWI": 1.0},
     "S&P 500":       {"XUS.TO": 1.0},
-    "TSX 60":        {"XIU.TO": 1.0},
+    "TSX Composite": {"XIC.TO": 1.0},
 }
 # Extra tickers not in BENCHMARK_BLEND_TICKERS
 MODEL_EXTRA_TICKERS: list[str] = ["AGG", "VCN.TO", "XAW.TO", "ZAG.TO"]
@@ -184,7 +184,7 @@ const MODEL_COLORS: Record<string, string> = {
     'Couch Potato':  '#a78bfa',  // violet
     'All-World':     '#06b6d4',  // cyan
     'S&P 500':       '#f97316',  // orange
-    'TSX 60':        '#84cc16',  // lime
+    'TSX':        '#84cc16',  // lime
 };
 ```
 

@@ -17,7 +17,7 @@ interface WorldChoroplethMapProps {
     data: GeoEntry[];
 }
 
-type ViewMode = 'Composite' | 'ACWI' | 'XIU.TO';
+type ViewMode = 'Index' | 'ACWI' | 'TSX';
 
 const MARKET_LABELS: Record<string, string> = {
     US: 'United States',
@@ -49,7 +49,7 @@ const HOVER_STROKE = '#1e3a5a';
 
 export const WorldChoroplethMap: React.FC<WorldChoroplethMapProps> = ({ data }) => {
     const [displayMode, setDisplayMode] = useState<'map' | 'table'>('map');
-    const [view, setView] = useState<ViewMode>('Composite');
+    const [view, setView] = useState<ViewMode>('Index');
     const [hoveredGeo, setHoveredGeo] = useState<string | null>(null);
     const [tooltipPos, setTooltipPos] = useState({ x: 0, y: 0 });
     const [tooltipData, setTooltipData] = useState<GeoEntry | null>(null);
@@ -69,8 +69,8 @@ export const WorldChoroplethMap: React.FC<WorldChoroplethMapProps> = ({ data }) 
     const getWeight = useCallback((entry: GeoEntry | undefined): number => {
         if (!entry) return 0;
         if (view === 'ACWI') return entry.ACWI;
-        if (view === 'XIU.TO') return entry.TSX;
-        return entry.weight;
+        if (view === 'TSX') return entry.TSX;
+        return entry.weight; // 'Index'
     }, [view]);
 
     // Color scale — log scale so US/Canada saturate at full dark while
@@ -91,13 +91,13 @@ export const WorldChoroplethMap: React.FC<WorldChoroplethMapProps> = ({ data }) 
         return (weight: number) => {
             if (weight <= 0) return NO_DATA_COLOR;
             const t = scale(Math.max(weight, LOG_MIN)) as unknown as number;
-            return view === 'XIU.TO' ? interpolateRed(t) : interpolateBlue(t);
+            return view === 'TSX' ? interpolateRed(t) : interpolateBlue(t);
         };
     }, [data, view, getWeight]);
 
     // Legend gradient stops
     const legendColors = useMemo(() => {
-        const interp = view === 'XIU.TO' ? interpolateRed : interpolateBlue;
+        const interp = view === 'TSX' ? interpolateRed : interpolateBlue;
         return Array.from({ length: 10 }, (_, i) => interp(i / 9));
     }, [view]);
 
@@ -132,7 +132,7 @@ export const WorldChoroplethMap: React.FC<WorldChoroplethMapProps> = ({ data }) 
         setTooltipMapName('');
     }, []);
 
-    const views: ViewMode[] = ['Composite', 'ACWI', 'XIU.TO'];
+    const views: ViewMode[] = ['Index', 'ACWI', 'TSX'];
 
     // Table data: all countries sorted by composite weight
     const tableRows = useMemo(() => {
@@ -204,7 +204,7 @@ export const WorldChoroplethMap: React.FC<WorldChoroplethMapProps> = ({ data }) 
                                 <th className="p-2 text-left w-[16%]">Type</th>
                                 <th className="p-2 text-right w-[12%]">75/25</th>
                                 <th className="p-2 text-right w-[13%]">ACWI</th>
-                                <th className="p-2 text-right w-[13%]">XIU.TO</th>
+                                <th className="p-2 text-right w-[13%]">XIC.TO</th>
                                 <th className="p-2 text-right w-[12%]">Cumul.</th>
                             </tr>
                         </thead>
@@ -219,13 +219,13 @@ export const WorldChoroplethMap: React.FC<WorldChoroplethMapProps> = ({ data }) 
                                             <td className="py-1.5 px-2 text-wallstreet-text font-medium truncate text-sm">{row.region}</td>
                                             <td className="py-1.5 px-2">
                                                 <span className={`text-sm px-1.5 py-0.5 rounded font-mono ${MARKET_BADGE[marketType]}`}>
-                                                    {marketType === 'US' ? 'US' : marketType === 'Canada' ? 'CAN' : marketType}
+                                                    {marketType === 'US' ? 'US' : marketType === 'Canada' ? 'CA' : marketType}
                                                 </span>
                                             </td>
-                                            <td className="py-1.5 px-2 text-right font-bold text-wallstreet-text text-sm">{row.weight.toFixed(2)}%</td>
-                                            <td className="py-1.5 px-2 text-right text-wallstreet-500 text-sm">{row.ACWI > 0 ? `${row.ACWI.toFixed(2)}%` : '—'}</td>
-                                            <td className="py-1.5 px-2 text-right text-wallstreet-500 text-sm">{row.TSX > 0 ? `${row.TSX.toFixed(2)}%` : '—'}</td>
-                                            <td className="py-1.5 px-2 text-right text-wallstreet-400 text-sm">{cumul.toFixed(2)}%</td>
+                                            <td className="py-1.5 px-2 text-right font-bold text-wallstreet-text text-sm">{row.weight.toFixed(1)}%</td>
+                                            <td className="py-1.5 px-2 text-right text-wallstreet-500 text-sm">{row.ACWI > 0 ? `${row.ACWI.toFixed(1)}%` : '—'}</td>
+                                            <td className="py-1.5 px-2 text-right text-wallstreet-500 text-sm">{row.TSX > 0 ? `${row.TSX.toFixed(1)}%` : '—'}</td>
+                                            <td className="py-1.5 px-2 text-right text-wallstreet-400 text-sm">{cumul.toFixed(1)}%</td>
                                         </tr>
                                     );
                                 });
@@ -303,7 +303,7 @@ export const WorldChoroplethMap: React.FC<WorldChoroplethMapProps> = ({ data }) 
                             <>
                                 <div className="border-t border-wallstreet-700 pt-1.5 space-y-0.5">
                                     <div className="flex justify-between gap-4">
-                                        <span className="text-wallstreet-500 text-xs">Composite</span>
+                                        <span className="text-wallstreet-500 text-xs">Index</span>
                                         <span className="font-bold text-blue-700">{tooltipData.weight.toFixed(2)}%</span>
                                     </div>
                                     <div className="flex justify-between gap-4">
@@ -311,7 +311,7 @@ export const WorldChoroplethMap: React.FC<WorldChoroplethMapProps> = ({ data }) 
                                         <span className="text-wallstreet-text">{tooltipData.ACWI.toFixed(2)}%</span>
                                     </div>
                                     <div className="flex justify-between gap-4">
-                                        <span className="text-wallstreet-500 text-xs">XIU.TO (25%)</span>
+                                        <span className="text-wallstreet-500 text-xs">XIC.TO (25%)</span>
                                         <span className="text-wallstreet-text">{tooltipData.TSX.toFixed(2)}%</span>
                                     </div>
                                 </div>
@@ -328,26 +328,21 @@ export const WorldChoroplethMap: React.FC<WorldChoroplethMapProps> = ({ data }) 
                 )}
             </div>
 
-            {/* Legend */}
-            <div className={`flex items-center gap-3 mt-2 px-1 ${displayMode === 'table' ? 'hidden' : ''}`}>
-                <span className="text-xs font-mono text-wallstreet-400">0%</span>
-                <div className="flex-1 h-2 rounded-full overflow-hidden flex">
-                    {legendColors.map((c, i) => (
-                        <div key={i} className="flex-1" style={{ backgroundColor: c }} />
-                    ))}
+            {/* Legend — hidden in table mode or when XIC.TO is selected */}
+            {displayMode === 'map' && view !== 'TSX' && (
+                <div className="flex items-center gap-3 mt-2 px-1">
+                    <span className="text-xs font-mono text-wallstreet-400">0%</span>
+                    <div className="flex-1 h-2 rounded-full overflow-hidden flex">
+                        {legendColors.map((c, i) => (
+                            <div key={i} className="flex-1" style={{ backgroundColor: c }} />
+                        ))}
+                    </div>
+                    <span className="text-xs font-mono text-wallstreet-400">{capWeight.toFixed(0)}%+</span>
+                    <div className="flex items-center gap-1 ml-2">
+                        <div className="w-3 h-2 rounded-sm" style={{ backgroundColor: NO_DATA_COLOR }} />
+                        <span className="text-xs text-wallstreet-400">No data</span>
+                    </div>
                 </div>
-                <span className="text-xs font-mono text-wallstreet-400">{capWeight.toFixed(0)}%+</span>
-                <div className="flex items-center gap-1 ml-2">
-                    <div className="w-3 h-2 rounded-sm" style={{ backgroundColor: NO_DATA_COLOR }} />
-                    <span className="text-xs text-wallstreet-400">No data</span>
-                </div>
-            </div>
-
-            {/* XIU.TO annotation */}
-            {displayMode === 'map' && view === 'XIU.TO' && (
-                <p className="text-xs text-wallstreet-400 mt-1 text-center italic">
-                    XIU.TO tracks the S&P/TSX 60 — 100% Canadian equities
-                </p>
             )}
         </div>
     );

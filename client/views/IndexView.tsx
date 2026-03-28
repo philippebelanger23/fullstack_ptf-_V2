@@ -51,6 +51,27 @@ const COUNTRY_CURRENCY_MAP: Record<string, string> = {
     'India': 'INR',
 };
 
+const COUNTRY_MARKET_CLASS: Record<string, 'NA' | 'DM' | 'EM'> = {
+    'United States': 'NA', 'Canada': 'NA',
+    'Japan': 'DM', 'United Kingdom': 'DM', 'France': 'DM', 'Switzerland': 'DM',
+    'Germany': 'DM', 'Australia': 'DM', 'Netherlands': 'DM', 'Sweden': 'DM',
+    'Spain': 'DM', 'Italy': 'DM', 'Hong Kong': 'DM', 'Singapore': 'DM',
+    'Denmark': 'DM', 'Finland': 'DM', 'Belgium': 'DM', 'Norway': 'DM',
+    'Israel': 'DM', 'New Zealand': 'DM', 'Austria': 'DM', 'Ireland': 'DM', 'Portugal': 'DM',
+    'China': 'EM', 'Taiwan': 'EM', 'Korea (South)': 'EM', 'India': 'EM',
+    'Brazil': 'EM', 'South Africa': 'EM', 'Saudi Arabia': 'EM', 'Mexico': 'EM',
+    'Malaysia': 'EM', 'Thailand': 'EM', 'United Arab Emirates': 'EM', 'Indonesia': 'EM',
+    'Philippines': 'EM', 'Turkey': 'EM', 'Poland': 'EM', 'Egypt': 'EM',
+    'Peru': 'EM', 'Colombia': 'EM', 'Kuwait': 'EM', 'Qatar': 'EM',
+    'Hungary': 'EM', 'Czech Republic': 'EM', 'Greece': 'EM',
+};
+
+const MARKET_COLORS: Record<'NA' | 'DM' | 'EM', { inner: string; label: string; shades: string[] }> = {
+    NA: { inner: '#1e3a8a', label: 'North America',    shades: ['#1e3a8a', '#1e40af', '#2563eb', '#3b82f6', '#60a5fa', '#93c5fd'] },
+    DM: { inner: '#9d174d', label: 'Developed Mkts',   shades: ['#9d174d', '#be185d', '#db2777', '#ec4899', '#f472b6', '#fbcfe8'] },
+    EM: { inner: '#064e3b', label: 'Emerging Mkts',    shades: ['#064e3b', '#065f46', '#047857', '#059669', '#10b981', '#34d399', '#6ee7b7'] },
+};
+
 const CURRENCY_CODE_TO_TICKER: Record<string, string> = {
     'USD': 'USDCAD=X',
     'JPY': 'JPYCAD=X',
@@ -163,6 +184,29 @@ export const IndexView: React.FC = () => {
         return rows;
     }, [currencyExposure]);
 
+    // Sunburst: grouped segments (NA / DM / EM) with country children
+    const sunburstSegments = useMemo(() => {
+        if (exposure.geography.length === 0) return [];
+
+        const groups: Record<'NA' | 'DM' | 'EM', { region: string; weight: number }[]> = { NA: [], DM: [], EM: [] };
+        exposure.geography.forEach(g => {
+            const cls = COUNTRY_MARKET_CLASS[g.region] ?? 'EM';
+            groups[cls].push({ region: g.region, weight: g.weight });
+        });
+        (['NA', 'DM', 'EM'] as const).forEach(cls => groups[cls].sort((a, b) => b.weight - a.weight));
+
+        return (['NA', 'DM', 'EM'] as const).map(cls => {
+            const { inner, label, shades } = MARKET_COLORS[cls];
+            const children = groups[cls].map((c, i) => ({
+                name: c.region,
+                value: c.weight,
+                color: shades[Math.min(i, shades.length - 1)],
+            }));
+            const value = parseFloat(children.reduce((s, c) => s + c.value, 0).toFixed(2));
+            return { name: label, value, color: inner, children };
+        }).filter(s => s.value > 0);
+    }, [exposure.geography]);
+
     // Geography data for choropleth map (no bucketing needed — map shows all countries)
     const geoMapData = exposure.geography;
 
@@ -170,7 +214,7 @@ export const IndexView: React.FC = () => {
         const steps = [
             { key: 'exposure', label: 'Index Composition', sub: 'Sectors & geography from iShares' },
             { key: 'currency', label: 'Currency Rates', sub: 'FX performance vs CAD' },
-            { key: 'history', label: 'Price History', sub: 'ACWI, XIU.TO & composite index' },
+            { key: 'history', label: 'Price History', sub: 'ACWI, XIC.TO & composite index' },
         ];
         const doneCount = Object.values(loadProgress).filter(s => s === 'done').length;
 
@@ -246,13 +290,13 @@ export const IndexView: React.FC = () => {
     }
 
     return (
-        <div className="w-full max-w-[100vw] mx-auto p-6 space-y-8 animate-in fade-in duration-500 pb-20 overflow-x-hidden">
+        <div className="w-full max-w-[100vw] mx-auto p-6 space-y-8 animate-in fade-in duration-500 overflow-x-hidden">
 
             <div className="border-b border-wallstreet-700 pb-6">
                 <div className="flex justify-between items-start">
                     <div>
                         <h2 className="text-3xl font-bold font-mono text-wallstreet-text flex items-center gap-3"><Globe className="text-wallstreet-accent" /> Global 75/25 Index</h2>
-                        <p className="text-wallstreet-500 mt-2 max-w-2xl">A custom synthetic benchmark. <span className="font-bold text-wallstreet-text ml-2">75% ACWI (USD) + 25% XIU.TO (CAD)</span></p>
+                        <p className="text-wallstreet-500 mt-2 max-w-2xl">A custom synthetic benchmark. <span className="font-bold text-wallstreet-text ml-2">75% ACWI (USD) + 25% XIC.TO (CAD)</span></p>
                     </div>
                     <FreshnessBadge fetchedAt={fetchedAt} />
                 </div>
@@ -346,12 +390,13 @@ export const IndexView: React.FC = () => {
 
                 {/* Bottom Right: Geographic Breakdown */}
                 <div className="bg-wallstreet-800 p-6 rounded-xl border border-wallstreet-700 shadow-sm flex flex-col h-full min-h-[600px]">
-                    <div className="flex justify-between items-center mb-6">
+                    <div className="flex justify-between items-center mb-4">
                         <h3 className="text-lg font-bold font-mono text-wallstreet-text flex items-center gap-2">
                             <Globe size={20} className="text-wallstreet-accent" />
                             Geographic Breakdown
                         </h3>
                     </div>
+
                     <div className="flex-1 w-full relative min-h-0">
                         <WorldChoroplethMap data={geoMapData} />
                     </div>

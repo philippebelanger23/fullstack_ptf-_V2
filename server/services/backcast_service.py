@@ -76,13 +76,23 @@ def compute_sortino(daily_rets: np.ndarray) -> float:
 # Data helpers
 # =============================================================================
 
+CASH_TICKER_NAMES: set[str] = {"CASH", "*CASH*"}
+
+
+def is_cash_ticker(ticker: str) -> bool:
+    return ticker.upper().strip() in CASH_TICKER_NAMES
+
+
 def aggregate_weights(items) -> tuple[dict, set]:
     """
     Collapse a list of PortfolioItem objects into
     (weights_by_ticker, mutual_fund_tickers).
 
     Weights are normalised to decimals (0-1 range).
-    Cash / placeholder rows are skipped.
+    Placeholder rows ("TICKER") are skipped.
+    Cash tickers (CASH, *CASH*) are KEPT with their weight so they correctly
+    model cash drag: the cash allocation earns 0% return and is not renormalized
+    away, keeping portfolio returns consistent with the Attribution view.
     Duplicate tickers keep the maximum weight.
     """
     weights_by_ticker: dict[str, float] = {}
@@ -90,7 +100,7 @@ def aggregate_weights(items) -> tuple[dict, set]:
 
     for item in items:
         ticker = item.ticker.upper().strip()
-        if not ticker or "TICKER" in ticker or "CASH" in ticker.upper():
+        if not ticker or "TICKER" in ticker:
             continue
         # Frontend sends weights as percentages (e.g. 10.0 = 10%, 0.5 = 0.5%).
         # Always divide by 100 to convert to decimal.
@@ -103,12 +113,117 @@ def aggregate_weights(items) -> tuple[dict, set]:
         if getattr(item, "isMutualFund", False):
             mutual_fund_tickers.add(ticker)
 
-    # Normalise to sum to 1
+    # Normalise to sum to 1 (cash tickers are included so their weight dilutes
+    # equity exposure rather than being inflated away).
     total_weight = sum(weights_by_ticker.values())
     if total_weight > 0:
         weights_by_ticker = {k: v / total_weight for k, v in weights_by_ticker.items()}
 
     return weights_by_ticker, mutual_fund_tickers
+
+
+def aggregate_period_weights(items) -> list[tuple[str, dict[str, float], set[str]]]:
+    """
+    Group portfolio items by date and compute normalized weights per period.
+
+    Returns a **sorted** list of (date_str, weights_by_ticker, mutual_fund_tickers)
+    tuples — one entry per rebalance date found in *items*.
+
+    Used by /portfolio-backcast so the daily return series reflects actual
+    rebalancing decisions instead of static max-weights.
+    """
+    from collections import defaultdict
+
+    periods: dict[str, list] = defaultdict(list)
+    for item in items:
+        d = getattr(item, "date", None)
+        if not d:
+            continue
+        periods[str(d)].append(item)
+
+    result: list[tuple[str, dict[str, float], set[str]]] = []
+    for date_str in sorted(periods.keys()):
+        period_items = periods[date_str]
+        weights_by_ticker: dict[str, float] = {}
+        mutual_fund_tickers: set[str] = set()
+
+        for item in period_items:
+            ticker = item.ticker.upper().strip()
+            if not ticker or "TICKER" in ticker:
+                continue
+            w = item.weight / 100.0
+            weights_by_ticker[ticker] = w
+            if getattr(item, "isMutualFund", False):
+                mutual_fund_tickers.add(ticker)
+
+        total_weight = sum(weights_by_ticker.values())
+        if total_weight > 0:
+            weights_by_ticker = {k: v / total_weight for k, v in weights_by_ticker.items()}
+
+        if weights_by_ticker:
+            result.append((date_str, weights_by_ticker, mutual_fund_tickers))
+
+    return result
+
+
+def build_period_weighted_portfolio_returns(
+    returns_df: pd.DataFrame,
+    period_weights: list[tuple[str, dict[str, float], set[str]]],
+) -> tuple[pd.Series, list[str]]:
+    """
+    Compute daily portfolio returns using period-specific weights.
+
+    PortfolioItem.date is the period END date (set by run_portfolio_analysis).
+    The weights in each entry apply from the *previous* period's end date (exclusive)
+    up to and including this period's end date.
+
+    For the first period: covers all dates up to its end date (including backcast lookback).
+    For the last period: covers all dates after the previous period's end date.
+    """
+    portfolio_returns = pd.Series(0.0, index=returns_df.index)
+    all_missing: set[str] = set()
+
+    n = len(period_weights)
+    for i, (date_str, weights, mf_tickers) in enumerate(period_weights):
+        period_end = pd.Timestamp(date_str)
+
+        if n == 1:
+            # Only one period — covers all available data
+            mask = pd.Series(True, index=returns_df.index)
+        elif i == 0:
+            # First period: all dates up to and including this period's end
+            mask = returns_df.index <= period_end
+        elif i == n - 1:
+            # Last period: all dates strictly after the previous period's end
+            prev_end = pd.Timestamp(period_weights[i - 1][0])
+            mask = returns_df.index > prev_end
+        else:
+            # Middle periods: between previous end (exclusive) and this end (inclusive)
+            prev_end = pd.Timestamp(period_weights[i - 1][0])
+            mask = (returns_df.index > prev_end) & (returns_df.index <= period_end)
+
+        slice_df = returns_df.loc[mask]
+        if slice_df.empty:
+            continue
+
+        slice_return = pd.Series(0.0, index=slice_df.index)
+        for ticker, weight in weights.items():
+            if is_cash_ticker(ticker):
+                continue  # 0% return — weight dilutes other positions
+            if ticker in returns_df.columns:
+                is_mf = ticker in mf_tickers
+                if needs_fx_adjustment(ticker, is_mutual_fund=is_mf) and "USDCAD=X" in returns_df.columns:
+                    fx_ret = slice_df["USDCAD=X"]
+                    ticker_ret = (1 + slice_df[ticker]) * (1 + fx_ret) - 1
+                else:
+                    ticker_ret = slice_df[ticker]
+                slice_return = slice_return + weight * ticker_ret
+            else:
+                all_missing.add(ticker)
+
+        portfolio_returns.loc[mask] = slice_return
+
+    return portfolio_returns, list(all_missing)
 
 
 def fetch_returns_df(
@@ -167,26 +282,26 @@ def build_benchmark_returns(
     """Build benchmark daily returns.
 
     benchmark:
-      "75/25" → 75% ACWI (USD→CAD) + 25% XIU.TO  (default composite)
-      "TSX60" → 100% XIU.TO  (S&P/TSX 60, CAD proxy)
+      "75/25" → 75% ACWI (USD→CAD) + 25% XIC.TO  (default composite)
+      "TSX" → 100% XIC.TO  (S&P/TSX Composite, CAD proxy)
       "SP500" → 100% XUS.TO  (S&P 500 CAD-hedged ETF, no FX needed)
     """
     benchmark_returns = pd.Series(0.0, index=returns_df.index)
 
-    if benchmark == "TSX60":
-        if "XIU.TO" in returns_df.columns:
-            benchmark_returns = returns_df["XIU.TO"]
+    if benchmark == "TSX":
+        if "XIC.TO" in returns_df.columns:
+            benchmark_returns = returns_df["XIC.TO"]
     elif benchmark == "SP500":
         if "XUS.TO" in returns_df.columns:
             benchmark_returns = returns_df["XUS.TO"]
     else:  # default "75/25"
         if (
             "ACWI" in returns_df.columns
-            and "XIU.TO" in returns_df.columns
+            and "XIC.TO" in returns_df.columns
             and "USDCAD=X" in returns_df.columns
         ):
             acwi_cad_ret = (1 + returns_df["ACWI"]) * (1 + returns_df["USDCAD=X"]) - 1
-            benchmark_returns = 0.75 * acwi_cad_ret + 0.25 * returns_df["XIU.TO"]
+            benchmark_returns = 0.75 * acwi_cad_ret + 0.25 * returns_df["XIC.TO"]
 
     return benchmark_returns
 

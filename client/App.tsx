@@ -8,8 +8,8 @@ import { AttributionView } from './views/attribution/AttributionView';
 import { IndexView } from './views/IndexView';
 import { PerformanceView } from './views/PerformanceView';
 import { RiskContributionView } from './views/RiskContributionView';
-import { PortfolioItem, ViewState } from './types';
-import { loadPortfolioConfig, analyzeManualPortfolio, convertConfigToItems, loadSectorWeights, loadAssetGeo, checkNavLag } from './services/api';
+import { PortfolioItem, ViewState, BackcastResponse } from './types';
+import { loadPortfolioConfig, analyzeManualPortfolio, convertConfigToItems, loadSectorWeights, loadAssetGeo, checkNavLag, fetchPortfolioBackcast } from './services/api';
 
 class GlobalErrorBoundary extends Component<{ children: React.ReactNode }, { hasError: boolean, error: Error | null, errorInfo: ErrorInfo | null }> {
   constructor(props: any) {
@@ -81,6 +81,27 @@ function App() {
 
   // Deep-link state: incremented to trigger Attribution view to switch to TABLES mode
   const [attributionTablesRequest, setAttributionTablesRequest] = useState(0);
+
+  // Single canonical backcast — fetched once whenever portfolioData changes, shared to all views
+  const [backcastData, setBackcastData] = useState<BackcastResponse | null>(null);
+  const [backcastLoading, setBackcastLoading] = useState(false);
+
+  useEffect(() => {
+    if (portfolioData.length === 0) {
+      setBackcastData(null);
+      return;
+    }
+    let cancelled = false;
+    setBackcastLoading(true);
+    fetchPortfolioBackcast(portfolioData)
+      .then(res => {
+        if (cancelled) return;
+        if (!res.error) setBackcastData(res);
+      })
+      .catch(e => console.error('Backcast prefetch failed:', e))
+      .finally(() => { if (!cancelled) setBackcastLoading(false); });
+    return () => { cancelled = true; };
+  }, [portfolioData]);
 
   // Logic to determine if all active ETFs/MFs have sector data and no lags
   const getIsAssetSpecsComplete = () => {
@@ -193,7 +214,7 @@ function App() {
     <div
       key={view}
       className={`transition-opacity duration-300 ease-in-out ${
-        currentView === view ? 'opacity-100' : 'opacity-0 pointer-events-none absolute inset-0'
+        currentView === view ? 'opacity-100' : 'opacity-0 pointer-events-none absolute inset-0 overflow-hidden'
       }`}
     >
       {children}
@@ -241,7 +262,7 @@ function App() {
             <AttributionView data={portfolioData} selectedYear={selectedYear} setSelectedYear={setSelectedYear} customSectors={customSectors} tablesRequest={attributionTablesRequest} />
           )}
           {visited.has(ViewState.PERFORMANCE) && viewPane(ViewState.PERFORMANCE,
-            <PerformanceView />
+            <PerformanceView isActive={currentView === ViewState.PERFORMANCE} sharedBackcast={backcastData} sharedBackcastLoading={backcastLoading} />
           )}
           {visited.has(ViewState.RISK_CONTRIBUTION) && viewPane(ViewState.RISK_CONTRIBUTION,
             <RiskContributionView />
@@ -260,6 +281,9 @@ function App() {
               data={portfolioData}
               customSectors={customSectors}
               assetGeo={assetGeo}
+              isActive={currentView === ViewState.ANALYSIS}
+              sharedBackcast={backcastData}
+              sharedBackcastLoading={backcastLoading}
               onViewAttribution={() => {
                 setAttributionTablesRequest(r => r + 1);
                 setCurrentView(ViewState.ATTRIBUTION);

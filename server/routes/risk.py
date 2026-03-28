@@ -13,14 +13,17 @@ from fastapi import APIRouter
 from market_data import needs_fx_adjustment
 from models import BackcastRequest
 from services.backcast_service import (
+    aggregate_period_weights,
     aggregate_weights,
     build_benchmark_returns,
+    build_period_weighted_portfolio_returns,
     build_portfolio_returns,
     compute_backcast_metrics,
     compute_beta,
     compute_annualized_vol,
     compute_rolling_metrics,
     fetch_returns_df,
+    is_cash_ticker,
 )
 
 router = APIRouter()
@@ -30,8 +33,11 @@ logger = logging.getLogger(__name__)
 @router.post("/portfolio-backcast")
 async def portfolio_backcast(request: BackcastRequest):
     """
-    Backcast the portfolio: given current weights, calculate daily returns over the past year.
-    Compare to a benchmark (75% ACWI / 25% XIU.TO blend).
+    Backcast the portfolio using **period-aware weights**: each rebalance date's
+    weights apply until the next rebalance, so the return reflects actual
+    allocation decisions — consistent with the Attribution view.
+
+    Compare to a benchmark (75% ACWI / 25% XIC.TO blend by default).
     Returns:
       - Daily cumulative performance series for Portfolio & Benchmark
       - Risk metrics: Sharpe, Volatility, Beta, Max Drawdown, Alpha, Total Return
@@ -40,15 +46,15 @@ async def portfolio_backcast(request: BackcastRequest):
     if not items:
         return {"error": "No portfolio items provided"}
 
-    # 1. Aggregate weights
-    weights_by_ticker, mutual_fund_tickers = aggregate_weights(items)
-
-    if not weights_by_ticker:
+    # 1. Aggregate period-specific weights (one set per rebalance date)
+    period_weights = aggregate_period_weights(items)
+    if not period_weights:
         return {"error": "No valid tickers found"}
 
-    # 2. Fetch price data
+    # 2. Fetch price data — all unique tradeable tickers across every period
+    all_tickers = list({t for _, w, _ in period_weights for t in w if not is_cash_ticker(t)})
     try:
-        returns_df, _, missing_tickers = fetch_returns_df(list(weights_by_ticker.keys()))
+        returns_df, _, missing_tickers = fetch_returns_df(all_tickers)
     except ValueError as e:
         return {"error": str(e)}
     except Exception as e:
@@ -56,10 +62,11 @@ async def portfolio_backcast(request: BackcastRequest):
         return {"error": str(e)}
 
     # 3. Build portfolio and benchmark daily returns
-    portfolio_returns, extra_missing = build_portfolio_returns(
-        returns_df, weights_by_ticker, mutual_fund_tickers
+    portfolio_returns, extra_missing = build_period_weighted_portfolio_returns(
+        returns_df, period_weights
     )
-    missing_tickers = list(set(missing_tickers + extra_missing))
+    # Cash tickers are intentionally absent from price data — don't surface as missing
+    missing_tickers = [t for t in set(missing_tickers + extra_missing) if not is_cash_ticker(t)]
 
     benchmark_returns = build_benchmark_returns(returns_df, benchmark=request.benchmark)
 
@@ -88,9 +95,10 @@ async def risk_contribution(request: BackcastRequest):
     if not weights_by_ticker:
         return {"error": "No valid tickers found"}
 
-    # 2. Fetch price data
+    # 2. Fetch price data — exclude cash tickers (they earn 0% and have no price series)
+    tradeable_tickers = [t for t in weights_by_ticker if not is_cash_ticker(t)]
     try:
-        returns_df, raw_returns_df, _ = fetch_returns_df(list(weights_by_ticker.keys()))
+        returns_df, raw_returns_df, _ = fetch_returns_df(tradeable_tickers)
     except ValueError as e:
         return {"error": str(e)}
     except Exception as e:
@@ -342,24 +350,26 @@ async def rolling_metrics_endpoint(request: BackcastRequest):
     """
     Compute rolling Sharpe, volatility, and beta for portfolio and benchmark.
     Windows: 21 (1M), 63 (3M), 126 (6M) trading days.
+    Uses period-aware weights for consistency with /portfolio-backcast.
     """
     items = request.items
     if not items:
         return {"error": "No portfolio items provided"}
 
-    weights_by_ticker, mutual_fund_tickers = aggregate_weights(items)
-    if not weights_by_ticker:
+    period_weights = aggregate_period_weights(items)
+    if not period_weights:
         return {"error": "No valid tickers found"}
 
+    all_tickers = list({t for _, w, _ in period_weights for t in w if not is_cash_ticker(t)})
     try:
-        returns_df, _, _ = fetch_returns_df(list(weights_by_ticker.keys()))
+        returns_df, _, _ = fetch_returns_df(all_tickers)
     except ValueError as e:
         return {"error": str(e)}
     except Exception as e:
         logger.error(f"Rolling metrics - error downloading prices: {e}")
         return {"error": str(e)}
 
-    portfolio_returns, _ = build_portfolio_returns(returns_df, weights_by_ticker, mutual_fund_tickers)
+    portfolio_returns, _ = build_period_weighted_portfolio_returns(returns_df, period_weights)
     benchmark_returns = build_benchmark_returns(returns_df, benchmark=request.benchmark)
 
     return compute_rolling_metrics(portfolio_returns, benchmark_returns)

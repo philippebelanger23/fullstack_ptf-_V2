@@ -6,8 +6,8 @@ import { UnifiedPerformancePanel } from './UnifiedPerformancePanel';
 export type ChartView = 'absolute' | 'relative' | 'drawdowns';
 
 const BENCHMARKS = [
-    { key: '75/25', label: 'Custom', title: '75% ACWI + 25% TSX60 (CAD)' },
-    { key: 'TSX60', label: 'TSX60', title: 'S&P/TSX 60 — XIU.TO' },
+    { key: '75/25', label: 'Custom', title: '75% ACWI + 25% TSX (CAD)' },
+    { key: 'TSX', label: 'TSX', title: 'S&P/TSX Composite — XIC.TO' },
     { key: 'SP500', label: 'S&P 500', title: 'S&P 500 CAD — XUS.TO' },
 ] as const;
 
@@ -49,9 +49,8 @@ export const PerformanceCharts: React.FC<PerformanceChartsProps> = ({
     const inner = (
         <>
             {/* Toolbar */}
-            <div className="bg-wallstreet-800 p-6 rounded-2xl border border-wallstreet-700 shadow-sm mb-6">
-                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-                    <div className="flex items-center gap-2 flex-wrap">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-5 mb-5 border-b border-wallstreet-700">
+                <div className="flex items-center gap-2 flex-wrap">
                         {([
                             { key: 'absolute', label: 'Absolute' },
                             { key: 'relative', label: 'Relative' },
@@ -85,8 +84,8 @@ export const PerformanceCharts: React.FC<PerformanceChartsProps> = ({
                                 </button>
                             ))}
                         </>)}
-                    </div>
-                    <div className="flex bg-wallstreet-900 p-1 rounded-xl">
+                </div>
+                <div className="flex bg-wallstreet-900 p-1 rounded-xl">
                         {(['2025', 'YTD', '3M', '6M', '1Y'] as Period[]).map((period) => (
                             <React.Fragment key={period}>
                                 <button
@@ -101,7 +100,6 @@ export const PerformanceCharts: React.FC<PerformanceChartsProps> = ({
                                 {period === '2025' && <div className="mx-1 h-4 w-px bg-wallstreet-600" />}
                             </React.Fragment>
                         ))}
-                    </div>
                 </div>
             </div>
 
@@ -127,6 +125,6 @@ export const PerformanceCharts: React.FC<PerformanceChartsProps> = ({
     );
 
     return noWrapper ? (
-        <div className="flex flex-col h-full">{inner}</div>
+        <div className="flex flex-col h-full bg-wallstreet-800 p-6 rounded-2xl border border-wallstreet-700 shadow-sm">{inner}</div>
     ) : inner;
 };

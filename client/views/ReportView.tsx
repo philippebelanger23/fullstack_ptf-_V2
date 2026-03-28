@@ -1,8 +1,10 @@
 import React, { useEffect, useState, useMemo } from 'react';
-import { AlertCircle, Printer } from 'lucide-react';
+import { AlertCircle, Printer, ChevronDown } from 'lucide-react';
+import { WorldChoroplethMap } from '../components/WorldChoroplethMap';
 import { FreshnessBadge } from '../components/ui/FreshnessBadge';
 import { SectorDeviationCard } from '../components/SectorDeviationCard';
 import { SectorGeographyDeviationCard } from '../components/SectorGeographyDeviationCard';
+import { AttributionTable } from './attribution/AttributionTable';
 import type { ChartView } from './performance/PerformanceCharts';
 import type { Period } from './performance/PerformanceKPIs';
 import { UnifiedPerformancePanel } from './performance/UnifiedPerformancePanel';
@@ -11,7 +13,7 @@ import {
     fetchPortfolioBackcast, fetchRiskContribution, fetchIndexExposure, fetchSectors,
     loadSectorWeights, loadAssetGeo
 } from '../services/api';
-import { formatPct, formatPercent } from '../utils/formatters';
+import { formatPct } from '../utils/formatters';
 import { aggregatePeriodData } from './attribution/attributionUtils';
 import {
     PortfolioItem, BackcastResponse, RiskContributionResponse,
@@ -24,6 +26,9 @@ interface ReportViewProps {
     customSectors?: Record<string, Record<string, number>>;
     assetGeo?: Record<string, string>;
     onViewAttribution?: () => void;
+    isActive?: boolean;
+    sharedBackcast?: BackcastResponse | null;
+    sharedBackcastLoading?: boolean;
 }
 
 const getDateRangeForPeriod = (period: Period): { start: Date; end?: Date } => {
@@ -31,7 +36,7 @@ const getDateRangeForPeriod = (period: Period): { start: Date; end?: Date } => {
     now.setHours(0, 0, 0, 0);
     switch (period) {
         case '2025': return { start: new Date(2025, 0, 1), end: new Date(2025, 11, 31) };
-        case 'YTD': return { start: new Date(now.getFullYear(), 0, 1) };
+        case 'YTD': return { start: new Date(now.getFullYear() - 1, 11, 31) };
         case '3M': return { start: new Date(new Date().setMonth(now.getMonth() - 3)) };
         case '6M': return { start: new Date(new Date().setMonth(now.getMonth() - 6)) };
         case '1Y': return { start: new Date(new Date().setFullYear(now.getFullYear() - 1)) };
@@ -66,7 +71,7 @@ const KPI: React.FC<{
 
 // ── Main Component ─────────────────────────────────────────────────────────────
 
-export const ReportView: React.FC<ReportViewProps> = ({ data, customSectors, assetGeo, onViewAttribution }) => {
+export const ReportView: React.FC<ReportViewProps> = ({ data, customSectors, assetGeo, onViewAttribution, isActive, sharedBackcast, sharedBackcastLoading }) => {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [backcast, setBackcast] = useState<BackcastResponse | null>(null);
@@ -82,8 +87,16 @@ export const ReportView: React.FC<ReportViewProps> = ({ data, customSectors, ass
     const effectiveCustomSectors = customSectors || localCustomSectorWeights;
     const effectiveAssetGeo = assetGeo || localAssetGeo;
 
+    // When shared backcast updates (e.g. portfolio reloaded), sync it in directly
+    useEffect(() => {
+        if (sharedBackcast != null) setBackcast(sharedBackcast);
+        else if (sharedBackcastLoading) setLoading(true);
+    }, [sharedBackcast, sharedBackcastLoading]);
+
     // ── Data fetching ─────────────────────────────────────────────────────────
     useEffect(() => {
+        // Skip when tab is not active; re-fetch every time it becomes active.
+        if (isActive === false) return;
         let cancelled = false;
         const fetchData = async () => {
             setLoading(true);
@@ -105,11 +118,11 @@ export const ReportView: React.FC<ReportViewProps> = ({ data, customSectors, ass
                 const latestDate = allItems.reduce((max, i) => i.date > max ? i.date : max, allItems[0].date);
                 const latestItems = allItems.filter(i => i.date === latestDate && i.weight > 0);
 
-                const tickersToFetch = Array.from(new Set(
+                const tickersToFetch: string[] = Array.from(new Set(
                     data.filter(d => d.ticker && !d.ticker.includes('$')).map(d => d.ticker.trim())
                 ));
                 const [backcastRes, riskRes, exposure, sectors] = await Promise.all([
-                    fetchPortfolioBackcast(allItems),
+                    sharedBackcast != null ? Promise.resolve(sharedBackcast) : fetchPortfolioBackcast(allItems),
                     fetchRiskContribution(latestItems),
                     fetchIndexExposure(),
                     fetchSectors(tickersToFetch),
@@ -155,7 +168,7 @@ export const ReportView: React.FC<ReportViewProps> = ({ data, customSectors, ass
         };
         fetchData();
         return () => { cancelled = true; };
-    }, []);
+    }, [isActive]);
 
     // ── Derived data ──────────────────────────────────────────────────────────
 
@@ -172,15 +185,6 @@ export const ReportView: React.FC<ReportViewProps> = ({ data, customSectors, ass
                 return sectorWeights ? { ...item, sector, sectorWeights } : sector ? { ...item, sector } : item;
             });
     }, [data, effectiveCustomSectors, sectorMap]);
-
-    const top10 = useMemo(() => {
-        if (!data.length) return [];
-        const latestDate = [...new Set(data.map(d => d.date))].sort().pop()!;
-        return data
-            .filter(d => d.date === latestDate && d.weight > 0.001)
-            .sort((a, b) => b.weight - a.weight)
-            .slice(0, 10);
-    }, [data]);
 
     const chartData = useMemo(() => {
         if (!backcast?.series?.length) return [];
@@ -228,26 +232,51 @@ export const ReportView: React.FC<ReportViewProps> = ({ data, customSectors, ass
     }, [backcast, riskData]);
 
 
-    // ── Enrich Top Holdings with period contribution + risk % ──────────────────
-    const enrichedTop10 = useMemo(() => {
-        if (!riskData) return top10;
+    // ── Portfolio geographic exposure ──────────────────────────────────────────
+    const geoExposure = useMemo(() => {
+        const buckets: Record<string, number> = { CA: 0, US: 0, INTL: 0, Cash: 0 };
+        enrichedCurrentHoldings.forEach(item => {
+            if (item.sector === 'CASH' || item.ticker.toUpperCase() === '*CASH*') {
+                buckets.Cash += item.weight;
+                return;
+            }
+            let region = 'US';
+            if (effectiveAssetGeo[item.ticker]) {
+                region = effectiveAssetGeo[item.ticker];
+            } else if (item.ticker.toUpperCase().endsWith('.TO')) {
+                region = 'CA';
+            }
+            if (buckets[region] !== undefined) {
+                buckets[region] += item.weight;
+            } else {
+                buckets.INTL += item.weight;
+            }
+        });
+        return [
+            { key: 'CA',   label: 'Canada',         flag: '🇨🇦', weight: buckets.CA,   color: '#ef4444' },
+            { key: 'US',   label: 'United States',   flag: '🇺🇸', weight: buckets.US,   color: '#3b82f6' },
+            { key: 'INTL', label: 'International',   flag: '🌍', weight: buckets.INTL, color: '#10b981' },
+            { key: 'Cash', label: 'Cash',            flag: '💵', weight: buckets.Cash, color: '#6b7280' },
+        ].filter(r => r.weight > 0.001);
+    }, [enrichedCurrentHoldings, effectiveAssetGeo]);
 
-        const riskMap = new Map(riskData.positions.map(p => [
-            p.ticker,
-            { riskContribution: p.riskContribution }
-        ]));
-
-        const contribMap = new Map(periodAttribution.map(p => [
-            p.ticker,
-            p.contribution
-        ]));
-
-        return top10.map(item => ({
-            ...item,
-            periodContribution: contribMap.get(item.ticker) ?? 0,
-            riskPercent: riskMap.get(item.ticker)?.riskContribution ?? 0
-        }));
-    }, [top10, riskData, periodAttribution]);
+    // ── Sunburst segments for portfolio geography ──────────────────────────────
+    const portfolioGeoSegments = useMemo(() => {
+        const na = geoExposure.filter(g => g.key === 'US' || g.key === 'CA');
+        const intl = geoExposure.filter(g => g.key === 'INTL');
+        const cash = geoExposure.filter(g => g.key === 'Cash');
+        const segs = [];
+        const naVal = na.reduce((s, g) => s + g.weight, 0);
+        if (naVal > 0.001) segs.push({ name: 'NA', value: parseFloat(naVal.toFixed(2)), color: '#1e3a8a',
+            children: na.map(g => ({ name: g.label, value: g.weight, color: g.color })) });
+        const intlVal = intl.reduce((s, g) => s + g.weight, 0);
+        if (intlVal > 0.001) segs.push({ name: 'INTL', value: parseFloat(intlVal.toFixed(2)), color: '#9d174d',
+            children: intl.map(g => ({ name: g.label, value: g.weight, color: g.color })) });
+        const cashVal = cash.reduce((s, g) => s + g.weight, 0);
+        if (cashVal > 0.001) segs.push({ name: 'Cash', value: parseFloat(cashVal.toFixed(2)), color: '#374151',
+            children: cash.map(g => ({ name: g.label, value: g.weight, color: '#6b7280' })) });
+        return segs;
+    }, [geoExposure]);
 
     // ── States ────────────────────────────────────────────────────────────────
 
@@ -277,10 +306,9 @@ export const ReportView: React.FC<ReportViewProps> = ({ data, customSectors, ass
 
     const m = backcast.metrics;
     const genDate = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
-    const top10Sum = top10.reduce((s, i) => s + i.weight, 0);
 
     return (
-        <div className="report-page p-6 max-w-[100vw] min-h-screen">
+        <div className="report-page p-6 max-w-[100vw] h-screen flex flex-col overflow-hidden">
 
             {/* ── Header ──────────────────────────────────────────────────── */}
             <div className="flex justify-between items-center mb-5">
@@ -289,7 +317,7 @@ export const ReportView: React.FC<ReportViewProps> = ({ data, customSectors, ass
                         PORTFOLIO <span className="text-wallstreet-accent">REPORT</span>
                     </h1>
                     <p className="text-wallstreet-500 text-xs mt-0.5 font-mono">
-                        {genDate} &middot; Benchmark: 75% ACWI + 25% TSX60
+                        {genDate} &middot; Benchmark: 75% ACWI + 25% TSX
                     </p>
                 </div>
                 <div className="print-hide flex items-center gap-3">
@@ -302,30 +330,15 @@ export const ReportView: React.FC<ReportViewProps> = ({ data, customSectors, ass
                 </div>
             </div>
 
-            {/* ── KPI Strip ───────────────────────────────────────────────── */}
-            <div className="report-kpi-strip grid grid-cols-4 lg:grid-cols-8 gap-2 mb-5">
-                <KPI label="Total Return" value={formatPercent(m.totalReturn)} positive={m.totalReturn >= 0} sub="Full Period" />
-                <KPI label="Alpha" value={formatPercent(m.alpha)} positive={m.alpha >= 0} sub="vs Benchmark" />
-                <KPI label="Sharpe" value={m.sharpeRatio.toFixed(2)} positive={m.sharpeRatio >= 1} neutral={m.sharpeRatio >= 0 && m.sharpeRatio < 1} />
-                <KPI label="Sortino" value={m.sortinoRatio.toFixed(2)} positive={m.sortinoRatio >= 1} neutral={m.sortinoRatio >= 0 && m.sortinoRatio < 1} />
-                <KPI label="Volatility" value={formatPct(m.volatility)} neutral />
-                <KPI label="Beta" value={m.beta.toFixed(2)} neutral />
-                <KPI label="Max DD" value={formatPercent(m.maxDrawdown)} positive={false} />
-                <KPI label="VaR 95%" value={`${riskData.var95.toFixed(2)}%`} positive={false} />
-            </div>
-
-            {/* ── Main Bento: Performance (left) + 4 cards (right) ────────── */}
-            <div className="grid gap-4 mb-4" style={{
-                gridTemplateColumns: '2fr 1fr 1fr',
-                gridTemplateRows: '1fr 1fr',
-                height: 'calc(40vh - 112px)',
-                minHeight: '320px',
+            {/* ── Main Bento: 2-col left (perf + holdings) · 2-col right (4 panels) ── */}
+            <div className="grid gap-4 mb-4 flex-1 min-h-0" style={{
+                gridTemplateColumns: '1fr 1fr 1fr 1fr',
+                gridTemplateRows: 'minmax(0, 1fr) minmax(0, 1fr)',
             }}>
 
-                {/* ── LEFT: Performance Chart spanning both rows ───────────── */}
-                <div style={{ gridRow: '1 / 3' }} className="bg-wallstreet-800 border border-wallstreet-700 rounded-2xl p-5 shadow-sm flex flex-col h-full">
-                    {/* Toolbar: title left · view center · period right */}
-                    <div className="flex items-center justify-between mb-3">
+                {/* ── ROW 1, COL 1-2: Performance Chart ───────────────────── */}
+                <div style={{ gridColumn: '1 / 3' }} className="bg-wallstreet-800 border border-wallstreet-700 rounded-2xl p-5 shadow-sm flex flex-col h-full">
+                    <div className="flex items-center justify-between mb-3 flex-shrink-0">
                         <h3 className="text-xs font-bold font-mono text-wallstreet-text uppercase tracking-wider">Performance</h3>
                         <div className="flex items-center gap-1">
                             {(['absolute', 'relative', 'drawdowns'] as ChartView[]).map(v => (
@@ -358,7 +371,6 @@ export const ReportView: React.FC<ReportViewProps> = ({ data, customSectors, ass
                             ))}
                         </div>
                     </div>
-                    {/* Chart body */}
                     <UnifiedPerformancePanel
                         chartData={chartData}
                         chartView={chartView}
@@ -371,67 +383,86 @@ export const ReportView: React.FC<ReportViewProps> = ({ data, customSectors, ass
                     />
                 </div>
 
-                {/* ── TOP RIGHT: Benchmark Deviation ──────────────────────── */}
-                <SectorDeviationCard
-                    currentHoldings={enrichedCurrentHoldings}
-                    benchmarkData={benchmarkSectors}
-                    benchmarkGeography={benchmarkGeography}
-                    assetGeo={effectiveAssetGeo}
-                />
-                {/* ── TOP RIGHT: Regional Sector Tilt ─────────────────────── */}
-                <SectorGeographyDeviationCard
-                    currentHoldings={enrichedCurrentHoldings}
-                    benchmarkSectors={benchmarkSectors}
-                    benchmarkGeography={benchmarkGeography}
-                    assetGeo={effectiveAssetGeo}
-                />
-                {/* ── BOTTOM RIGHT: Empty panels ───────────────────────────── */}
-                <div className="bg-wallstreet-800 border border-wallstreet-700 rounded-xl shadow-sm" />
-                <div className="bg-wallstreet-800 border border-wallstreet-700 rounded-xl shadow-sm" />
+                {/* ── ROW 1, COL 3-4: Benchmark Deviation + Regional Sector Tilt ── */}
+                <div style={{ gridColumn: '3 / 5' }} className="bg-wallstreet-800 border border-wallstreet-700 rounded-2xl p-5 shadow-sm flex gap-6 h-full">
+                    <div className="flex flex-col flex-1 min-w-0">
+                        <SectorDeviationCard
+                            currentHoldings={enrichedCurrentHoldings}
+                            benchmarkData={benchmarkSectors}
+                            benchmarkGeography={benchmarkGeography}
+                            assetGeo={effectiveAssetGeo}
+                            noWrapper
+                        />
+                    </div>
+                    <div className="w-px bg-wallstreet-700 self-stretch" />
+                    <div className="flex flex-col flex-1 min-w-0">
+                        <SectorGeographyDeviationCard
+                            currentHoldings={enrichedCurrentHoldings}
+                            benchmarkSectors={benchmarkSectors}
+                            benchmarkGeography={benchmarkGeography}
+                            assetGeo={effectiveAssetGeo}
+                            noWrapper
+                        />
+                    </div>
+                </div>
+
+                {/* ── ROW 2, COL 1: Top 10 Holdings ────────────────────────── */}
+                <div className="bg-wallstreet-800 border border-wallstreet-700 rounded-2xl p-4 shadow-sm flex flex-col h-full overflow-hidden">
+                    <div className="flex items-center justify-between mb-2 flex-shrink-0">
+                        <h3 className="text-xs font-bold font-mono text-wallstreet-text uppercase tracking-wider">
+                            Holdings
+                        </h3>
+                    </div>
+                    <div className="flex-1 flex flex-col min-h-0">
+                        <div className="flex-1 overflow-y-auto">
+                            <table className="w-full text-xs font-mono">
+                                <thead className="sticky top-0 bg-wallstreet-800 z-10">
+                                    <tr className="text-wallstreet-500 uppercase text-[11px] tracking-wide border-b border-wallstreet-700">
+                                        <th className="text-left pb-2.5 pr-4 w-20">Ticker</th>
+                                        <th className="text-left pb-2.5">Sector</th>
+                                        <th className="text-right pb-2.5 w-14">Weight</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {[...enrichedCurrentHoldings].sort((a, b) => b.weight - a.weight).map((item, i) => (
+                                        <tr key={item.ticker} className={i % 2 === 0 ? '' : 'bg-wallstreet-900/40'}>
+                                            <td className="py-1.5 pr-4 font-bold text-wallstreet-text">{item.ticker}</td>
+                                            <td className="py-1.5 text-wallstreet-400">{item.sector}</td>
+                                            <td className="py-1.5 text-right text-wallstreet-text">{formatPct(item.weight)}</td>
+                                        </tr>
+                                    ))}
+                                    <tr className="bg-wallstreet-700 border-t-2 border-wallstreet-500 font-bold">
+                                        <td className="py-1.5 pr-4 text-wallstreet-text">TOTAL</td>
+                                        <td></td>
+                                        <td className="py-1.5 text-right text-wallstreet-text">{formatPct(enrichedCurrentHoldings.reduce((s: number, item: { weight: number }) => s + item.weight, 0))}</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                {/* ── ROW 2, COL 2: Geographic Breakdown ───────────────────── */}
+                <div className="bg-wallstreet-800 border border-wallstreet-700 rounded-xl p-4 shadow-sm flex flex-col overflow-hidden">
+                    <p className="text-[10px] font-bold font-mono text-wallstreet-text uppercase tracking-wider mb-1 flex-shrink-0">Geographic Breakdown</p>
+                    <div className="flex-1 min-h-0">
+                        <WorldChoroplethMap data={benchmarkGeography} />
+                    </div>
+                </div>
+
+                {/* ── ROW 2, COL 3-4: Attribution Table ───────────────────── */}
+                <div style={{ gridColumn: '3 / 5' }} className="min-h-0 overflow-hidden">
+                    <AttributionTable
+                        title={selectedPeriod}
+                        items={periodAttribution}
+                        contributionFormat="pct"
+                    />
+                </div>
 
             </div>
-
-            {/* ── Top 10 Holdings ─────────────────────────────────────────── */}
-            <div className="bg-wallstreet-800 border border-wallstreet-700 rounded-xl p-5 shadow-sm mb-8">
-                <h3 className="text-xs font-bold font-mono text-wallstreet-text uppercase tracking-wider mb-3">Top Holdings</h3>
-                <table className="w-full text-xs font-mono">
-                    <thead>
-                        <tr className="text-[10px] text-wallstreet-500 uppercase border-b border-wallstreet-700">
-                            <th className="text-left pb-1.5 font-medium">#</th>
-                            <th className="text-left pb-1.5 font-medium">Ticker</th>
-                            <th className="text-right pb-1.5 font-medium">Wt</th>
-                            <th className="text-right pb-1.5 font-medium">Contrib</th>
-                            <th className="text-right pb-1.5 font-medium">Risk %</th>
-                            <th className="text-left pb-1.5 pl-2 font-medium">Sector</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {enrichedTop10.map((item, i) => (
-                            <tr key={item.ticker} className="border-b border-wallstreet-700 last:border-0">
-                                <td className="py-1.5 text-wallstreet-500 text-[10px]">{i + 1}</td>
-                                <td className="py-1.5 text-wallstreet-text font-bold">{item.ticker}</td>
-                                <td className="py-1.5 text-right text-wallstreet-text">{item.weight.toFixed(2)}%</td>
-                                <td className="py-1.5 text-right text-wallstreet-text">{(item.periodContribution * 100).toFixed(2)} bps</td>
-                                <td className="py-1.5 text-right text-wallstreet-text">{(item.riskPercent * 100).toFixed(2)}%</td>
-                                <td className="py-1.5 pl-2 text-wallstreet-500 truncate max-w-[80px]">{item.sector ?? '—'}</td>
-                            </tr>
-                        ))}
-                    </tbody>
-                    <tfoot>
-                        <tr className="border-t-2 border-wallstreet-700">
-                            <td className="pt-2 pb-1 text-[10px] text-wallstreet-500 uppercase font-medium" colSpan={2}>Top 10 Total</td>
-                            <td className="pt-2 pb-1 text-right font-bold text-wallstreet-text">{top10Sum.toFixed(2)}%</td>
-                            <td className="pt-2 pb-1 text-right font-bold text-wallstreet-text">{(periodAttribution.reduce((s, i) => s + i.contribution, 0) * 100).toFixed(0)} bps</td>
-                            <td colSpan={2} />
-                        </tr>
-                    </tfoot>
-                </table>
-            </div>
-
-            {/* ── Monthly Attribution Cards ───────────────────────────────── */}
 
             {/* ── Footer ──────────────────────────────────────────────────── */}
-            <div className="mt-5 pt-3 border-t border-wallstreet-700 flex justify-between items-center text-[10px] font-mono text-wallstreet-500">
+            <div className="pt-3 border-t border-wallstreet-700 flex justify-between items-center text-[10px] font-mono text-wallstreet-500">
                 <span className="flex items-center gap-2">
                     Generated {genDate}
                     {fetchedAt && <><span>&middot;</span><FreshnessBadge fetchedAt={fetchedAt} /></>}

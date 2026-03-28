@@ -82,7 +82,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, setView, hasData,
 
         <div onClick={() => hasData && !isLocked && setView(ViewState.ANALYSIS)} className={navItemClass(ViewState.ANALYSIS, !hasData || isLocked)}>
           <FileText size={20} />
-          <span className="font-medium">Portfolio Report</span>
+          <span className="font-medium">Portfolio Composition</span>
         </div>
       </nav>
 

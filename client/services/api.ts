@@ -197,11 +197,11 @@ export const fetchIndexHistory = async (): Promise<Record<string, { date: string
             return data;
         } else {
             console.error('Failed to fetch index history');
-            return { "ACWI": [], "XIU.TO": [], "Index": [] };
+            return { "ACWI": [], "XIC.TO": [], "Index": [] };
         }
     } catch (error) {
         console.error("Error fetching index history:", error);
-        return { "ACWI": [], "XIU.TO": [], "Index": [] };
+        return { "ACWI": [], "XIC.TO": [], "Index": [] };
     }
 };
 

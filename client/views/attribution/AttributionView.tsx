@@ -100,7 +100,7 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
     const [tickerSectors, setTickerSectors] = useState<Record<string, string>>({});
     const [isAttributionLoading, setIsAttributionLoading] = useState(true);
     const [regionFilter, setRegionFilter] = useState<'ALL' | 'US' | 'CA'>('ALL');
-    const [benchmarkMode, setBenchmarkMode] = useState<'SECTOR' | 'SP500' | 'TSX60'>('SECTOR');
+    const [benchmarkMode, setBenchmarkMode] = useState<'SECTOR' | 'SP500' | 'TSX'>('SECTOR');
     const [benchmarkExposure, setBenchmarkExposure] = useState<any[]>([]);
     const [fetchedAt, setFetchedAt] = useState<string | null>(null);
 
@@ -525,7 +525,7 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
 
     const overallBenchmarkReturn = useMemo(() => {
         if (benchmarkMode === 'SECTOR') return null;
-        const key = benchmarkMode === 'SP500' ? 'SP500' : 'TSX60';
+        const key = benchmarkMode === 'SP500' ? 'SP500' : 'TSX';
         const hist = sectorHistory.OVERALL?.[key];
         if (!hist || hist.length < 2) return null;
 
@@ -621,8 +621,8 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
             "Real Estate": "XRE.TO",
             "Consumer Staples": "XST.TO",
             "Consumer Discretionary": "XCD.TO",
-            "Health Care": "XIU.TO",           // No pure CA healthcare ETF → TSX60 fallback
-            "Communication Services": "XIU.TO", // No CA comm services ETF → TSX60 fallback
+            "Health Care": "XIC.TO",           // No pure CA healthcare ETF → TSX fallback
+            "Communication Services": "XIC.TO", // No CA comm services ETF → TSX fallback
         };
 
         const activeBenchmarkETFs = regionFilter === 'CA' ? CA_SECTOR_BENCHMARK_ETF : US_SECTOR_BENCHMARK_ETF;
@@ -782,7 +782,7 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
             Object.assign(effectiveBenchmarkReturns, sectorBenchmarkReturns);
         }
 
-        const overallBenchmarkETF = benchmarkMode === 'SP500' ? 'SPY' : benchmarkMode === 'TSX60' ? 'XIU.TO' : null;
+        const overallBenchmarkETF = benchmarkMode === 'SP500' ? 'SPY' : benchmarkMode === 'TSX' ? 'XIC.TO' : null;
 
         // 2b. Calculate Total Benchmark Return (Weighted sum of sector benchmark returns)
         let totalBenchReturnSum = 0;
@@ -974,7 +974,7 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
     }
 
     return (
-        <div className="max-w-[100vw] mx-auto p-4 md:p-6 space-y-6 min-h-screen">
+        <div className="max-w-[100vw] mx-auto p-4 md:p-6 space-y-6">
             <header className="border-b border-wallstreet-700 pb-4 flex flex-col md:flex-row justify-between items-start md:items-end gap-4 print:hidden">
                 <div>
                     <div className="flex items-center gap-3">
@@ -1042,8 +1042,8 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
                             setRegionFilter={(region) => {
                                 setRegionFilter(region);
                                 // Auto-correct incompatible region/benchmark combos
-                                if (region === 'US' && benchmarkMode === 'TSX60') setBenchmarkMode('SP500');
-                                if (region === 'CA' && benchmarkMode === 'SP500') setBenchmarkMode('TSX60');
+                                if (region === 'US' && benchmarkMode === 'TSX') setBenchmarkMode('SP500');
+                                if (region === 'CA' && benchmarkMode === 'SP500') setBenchmarkMode('TSX');
                                 if (region === 'ALL' && benchmarkMode !== 'SECTOR') setBenchmarkMode('SECTOR');
                             }}
                             benchmarkMode={benchmarkMode}

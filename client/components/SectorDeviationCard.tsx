@@ -21,9 +21,10 @@ interface Props {
     benchmarkData: IndexSector[];
     benchmarkGeography?: GeoEntry[];
     assetGeo?: Record<string, string>;
+    noWrapper?: boolean;
 }
 
-export const SectorDeviationCard: React.FC<Props> = ({ currentHoldings, benchmarkData, benchmarkGeography, assetGeo }) => {
+export const SectorDeviationCard: React.FC<Props> = ({ currentHoldings, benchmarkData, benchmarkGeography, assetGeo, noWrapper }) => {
     const [deviationView, setDeviationView] = useState<'SECTOR' | 'GEOGRAPHY'>('SECTOR');
     const [hoveredSector, setHoveredSector] = useState<string | null>(null);
     const [tooltipPos, setTooltipPos] = useState<{ x: number; y: number } | null>(null);
@@ -243,7 +244,7 @@ export const SectorDeviationCard: React.FC<Props> = ({ currentHoldings, benchmar
 
     return (
         <>
-        <div className="lg:col-span-1 bg-wallstreet-800 p-6 rounded-xl border border-wallstreet-700 shadow-sm flex flex-col h-full">
+        <div className={noWrapper ? "flex flex-col h-full" : "lg:col-span-1 bg-wallstreet-800 p-6 rounded-xl border border-wallstreet-700 shadow-sm flex flex-col h-full"}>
             <div className="flex items-center justify-between mb-4">
                 <h3 className="font-mono font-bold text-wallstreet-text uppercase tracking-wider text-sm">
                     Benchmark Deviation
@@ -272,16 +273,16 @@ export const SectorDeviationCard: React.FC<Props> = ({ currentHoldings, benchmar
                 </div>
             </div>
 
-            <div className="flex-1 w-full overflow-auto">
+            <div className="flex-1 w-full overflow-hidden">
                 {deviationView === 'SECTOR' ? (
-                    <table className="w-full text-sm font-mono border-collapse">
+                    <table className="w-full h-full text-sm font-mono border-collapse table-fixed">
                         <thead className="bg-wallstreet-50 text-wallstreet-500 text-xs uppercase sticky top-0">
                             <tr>
-                                <th className="w-8 p-2"></th>
-                                <th className="p-2 text-left w-[26%]">Sector</th>
-                                <th className="p-2 text-right w-[22%]">Bench</th>
-                                <th className="p-2 text-right w-[22%]">Actual</th>
-                                <th className="p-2 text-center w-[30%] pb-2">
+                                <th className="w-8 p-1"></th>
+                                <th className="p-1 text-left w-[26%]">Sector</th>
+                                <th className="p-1 text-right w-[22%]">Bench</th>
+                                <th className="p-1 text-right w-[22%]">Actual</th>
+                                <th className="p-1 text-center w-[30%]">
                                     <span className="border-b border-wallstreet-300 pb-0.5">Delta</span>
                                 </th>
                             </tr>
@@ -303,9 +304,9 @@ export const SectorDeviationCard: React.FC<Props> = ({ currentHoldings, benchmar
                                             {sIdx === 0 && (
                                                 <td
                                                     rowSpan={group.sectors.length}
-                                                    className={`p-0 text-center border-r-2 ${group.name === 'Cyclical' ? 'border-red-200 bg-red-50 dark:border-red-800/60 dark:bg-red-900/20' : group.name === 'Sensitive' ? 'border-blue-200 bg-blue-50 dark:border-blue-800/60 dark:bg-blue-900/20' : 'border-green-200 bg-green-50 dark:border-green-800/60 dark:bg-green-900/20'} align-middle relative`}
+                                                    className={`p-0 text-center border-r-2 ${group.name === 'Cyclical' ? 'border-red-200 dark:border-red-800/60' : group.name === 'Sensitive' ? 'border-blue-200 dark:border-blue-800/60' : 'border-green-200 dark:border-green-800/60'} ${group.bgColor} align-middle relative`}
                                                 >
-                                                    <div className="h-full w-full flex items-center justify-center py-4">
+                                                    <div className="h-full w-full flex items-center justify-center py-1">
                                                         <span
                                                             className={`text-[11px] uppercase -rotate-90 whitespace-nowrap font-black tracking-widest ${group.color}`}
                                                             style={{ writingMode: 'vertical-rl', textOrientation: 'mixed', transform: 'rotate(180deg)' }}
@@ -315,16 +316,16 @@ export const SectorDeviationCard: React.FC<Props> = ({ currentHoldings, benchmar
                                                     </div>
                                                 </td>
                                             )}
-                                            <td className={`p-2 font-bold ${group.bgColor}`}>
+                                            <td className={`p-1 font-bold ${group.bgColor}`}>
                                                 <span className={`${group.color} text-sm`}>{sector.name}</span>
                                             </td>
-                                            <td className={`p-2 text-right font-bold text-wallstreet-500 text-sm ${group.bgColor}`}>
+                                            <td className={`p-1 text-right font-bold text-wallstreet-500 text-sm ${group.bgColor}`}>
                                                 {sector.benchmark.toFixed(2)}%
                                             </td>
-                                            <td className={`p-2 text-right font-bold text-wallstreet-text text-sm ${group.bgColor}`}>
+                                            <td className={`p-1 text-right font-bold text-wallstreet-text text-sm ${group.bgColor}`}>
                                                 {sector.actual.toFixed(2)}%
                                             </td>
-                                            <td className={`p-2 ${group.bgColor}`}>
+                                            <td className={`p-1 ${group.bgColor}`}>
                                                 <DeltaBar val={sector.delta} />
                                             </td>
                                         </tr>
@@ -334,8 +335,8 @@ export const SectorDeviationCard: React.FC<Props> = ({ currentHoldings, benchmar
                         </tbody>
                         <tfoot className="bg-wallstreet-100 border-t-2 border-wallstreet-300">
                             <tr>
-                                <td className="p-2 font-bold text-right text-xs uppercase" colSpan={3}>Total Allocated:</td>
-                                <td className="p-2 text-right font-bold text-wallstreet-text text-sm">{sectorData.totalActual.toFixed(2)}%</td>
+                                <td className="p-1 font-bold text-right text-xs uppercase" colSpan={3}>Total Allocated:</td>
+                                <td className="p-1 text-right font-bold text-wallstreet-text text-sm">{sectorData.totalActual.toFixed(2)}%</td>
                                 <td></td>
                             </tr>
                         </tfoot>
@@ -346,7 +347,7 @@ export const SectorDeviationCard: React.FC<Props> = ({ currentHoldings, benchmar
                         {geoDeviationData.length === 0 ? (
                             <p className="text-xs text-wallstreet-400 italic mt-4 text-center">Geography benchmark data not available.</p>
                         ) : (
-                            <table className="w-full text-sm font-mono border-collapse">
+                            <table className="w-full h-full text-sm font-mono border-collapse">
                                 <thead className="bg-wallstreet-50 text-wallstreet-500 text-xs uppercase sticky top-0">
                                     <tr>
                                         <th className="p-2 text-left w-[28%]">Region</th>

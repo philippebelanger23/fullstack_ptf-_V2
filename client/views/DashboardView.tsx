@@ -479,7 +479,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ data, customSector
               <div className="flex-1 flex flex-col items-center justify-center">
                 <div className="flex items-center gap-1.5 mb-1">
                   <span className="text-xs font-extrabold text-wallstreet-500 uppercase tracking-wider">Beta</span>
-                  <span className="text-xs text-wallstreet-500/60" title="Portfolio sensitivity to your chosen benchmark (75% ACWI + 25% XIU.TO)">ⓘ</span>
+                  <span className="text-xs text-wallstreet-500/60" title="Portfolio sensitivity to your chosen benchmark (75% ACWI + 25% XIC.TO)"></span>
                 </div>
                 <span className="text-xl font-bold text-wallstreet-text font-mono">
                   {portfolioBeta !== null ? portfolioBeta.toFixed(2) : "—"}
@@ -514,20 +514,29 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ data, customSector
         />
       </div>
 
-      <div className="grid grid-cols-1 gap-6 mb-8 items-stretch" style={{ gridTemplateColumns: 'minmax(0, 2fr) minmax(0, 1.5fr) minmax(0, 1.5fr)' }}>
+      <div className="grid grid-cols-1 gap-6 mb-8 items-stretch" style={{ gridTemplateColumns: 'minmax(0, 2fr) minmax(0, 3fr)' }}>
         <PortfolioEvolutionChart data={areaChartData} topTickers={topTickers} dates={dates} colors={chartColors} />
-        <SectorDeviationCard
-          currentHoldings={enrichedCurrentHoldings}
-          benchmarkData={benchmarkSectors}
-          benchmarkGeography={benchmarkGeography}
-          assetGeo={effectiveAssetGeo}
-        />
-        <SectorGeographyDeviationCard
-          currentHoldings={enrichedCurrentHoldings}
-          benchmarkSectors={benchmarkSectors}
-          benchmarkGeography={benchmarkGeography}
-          assetGeo={effectiveAssetGeo}
-        />
+        <div className="bg-wallstreet-800 p-6 rounded-xl border border-wallstreet-700 shadow-sm flex gap-6 h-full">
+          <div className="flex flex-col flex-1 min-w-0">
+            <SectorDeviationCard
+              currentHoldings={enrichedCurrentHoldings}
+              benchmarkData={benchmarkSectors}
+              benchmarkGeography={benchmarkGeography}
+              assetGeo={effectiveAssetGeo}
+              noWrapper
+            />
+          </div>
+          <div className="w-px bg-wallstreet-700 self-stretch" />
+          <div className="flex flex-col flex-1 min-w-0">
+            <SectorGeographyDeviationCard
+              currentHoldings={enrichedCurrentHoldings}
+              benchmarkSectors={benchmarkSectors}
+              benchmarkGeography={benchmarkGeography}
+              assetGeo={effectiveAssetGeo}
+              noWrapper
+            />
+          </div>
+        </div>
       </div>
 
       <PortfolioTable

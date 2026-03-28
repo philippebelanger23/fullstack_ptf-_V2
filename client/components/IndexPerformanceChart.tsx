@@ -72,7 +72,7 @@ export const IndexPerformanceChart: React.FC<IndexPerformanceChartProps> = ({ da
 
     const chartData = useMemo(() => {
         const acwi = data['ACWI'] || [];
-        const xiu = data['XIU.TO'] || [];
+        const xiu = data['XIC.TO'] || [];
         const index = data['Index'] || [];
 
         if (acwi.length === 0 || xiu.length === 0) return [];
@@ -83,7 +83,7 @@ export const IndexPerformanceChart: React.FC<IndexPerformanceChartProps> = ({ da
         const endDateStr = end ? end.toISOString().split('T')[0] : '9999-12-31';
 
         // Create a map for quick lookup by date
-        const dateMap = new Map<string, { date: string, ACWI?: number, XIU?: number, Index?: number }>();
+        const dateMap = new Map<string, { date: string, ACWI?: number, XIC?: number, Index?: number }>();
 
         acwi.forEach(item => {
             if (item.date >= startDateStr && item.date <= endDateStr) {
@@ -94,7 +94,7 @@ export const IndexPerformanceChart: React.FC<IndexPerformanceChartProps> = ({ da
         xiu.forEach(item => {
             if (item.date >= startDateStr && item.date <= endDateStr) {
                 const existing = dateMap.get(item.date) || { date: item.date };
-                dateMap.set(item.date, { ...existing, XIU: item.value });
+                dateMap.set(item.date, { ...existing, XIC: item.value });
             }
         });
 
@@ -107,20 +107,20 @@ export const IndexPerformanceChart: React.FC<IndexPerformanceChartProps> = ({ da
 
         // Convert map to array and sort by date
         const combined = Array.from(dateMap.values())
-            .filter(item => item.ACWI !== undefined && item.XIU !== undefined)
+            .filter(item => item.ACWI !== undefined && item.XIC !== undefined)
             .sort((a, b) => a.date.localeCompare(b.date));
 
         // Normalize to start at 0%
         if (combined.length > 0) {
             const startACWI = combined[0].ACWI!;
-            const startXIU = combined[0].XIU!;
+            const startXIC = combined[0].XIC!;
             const startIndex = combined[0].Index;
 
             return combined.map(item => {
                 const pt: any = {
                     date: item.date,
                     ACWI: ((item.ACWI! - startACWI) / startACWI) * 100,
-                    XIU: ((item.XIU! - startXIU) / startXIU) * 100,
+                    XIC: ((item.XIC! - startXIC) / startXIC) * 100,
                 };
 
                 if (startIndex !== undefined && item.Index !== undefined) {
@@ -173,7 +173,7 @@ export const IndexPerformanceChart: React.FC<IndexPerformanceChartProps> = ({ da
 
         return {
             acwi: calcCAGR(lastPoint.ACWI),
-            xiu: calcCAGR(lastPoint.XIU),
+            xiu: calcCAGR(lastPoint.XIC),
             index: calcCAGR(lastPoint.Index),
             isCAGR: years >= 1, // Only label as CAGR if period >= 1 year
         };
@@ -289,7 +289,7 @@ export const IndexPerformanceChart: React.FC<IndexPerformanceChartProps> = ({ da
                         </div>
                         <div className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-700 ${getPerformanceColor(performanceMetrics.xiu)}`}>
                             {getPerformanceIcon(performanceMetrics.xiu)}
-                            <span className="font-bold text-red-700 dark:text-red-300">XIU:</span>
+                            <span className="font-bold text-red-700 dark:text-red-300">XIC:</span>
                             <span className="font-bold">{formatPercent(performanceMetrics.xiu)}</span>
                         </div>
                     </div>
@@ -332,7 +332,7 @@ export const IndexPerformanceChart: React.FC<IndexPerformanceChartProps> = ({ da
                                 const getDisplayName = (dataKey: string) => {
                                     if (dataKey === 'Index') return 'Global 75/25';
                                     if (dataKey === 'ACWI') return 'ACWI (Global)';
-                                    if (dataKey === 'XIU') return 'XIU (Canada)';
+                                    if (dataKey === 'XIC') return 'XIC (Canada)';
                                     return dataKey;
                                 };
 
@@ -358,7 +358,7 @@ export const IndexPerformanceChart: React.FC<IndexPerformanceChartProps> = ({ da
                             formatter={(value) => {
                                 if (value === 'Index') return 'Global 75/25 (Composite)';
                                 if (value === 'ACWI') return 'ACWI (Global Markets)';
-                                if (value === 'XIU') return 'XIU (Canada TSX)';
+                                if (value === 'XIC') return 'XIC (Canada TSX)';
                                 return value;
                             }}
                         />
@@ -393,8 +393,8 @@ export const IndexPerformanceChart: React.FC<IndexPerformanceChartProps> = ({ da
                         />
                         <Line
                             type="monotone"
-                            dataKey="XIU"
-                            name="XIU"
+                            dataKey="XIC"
+                            name="XIC"
                             stroke="#dc2626"
                             strokeWidth={2}
                             dot={false}
