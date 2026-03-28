@@ -2,7 +2,7 @@ import React from 'react';
 import { formatBps } from '../../utils/formatters';
 import { TableItem } from './attributionUtils';
 
-export const AttributionTable = ({ title, items, isQuarter = false, status = 'COMPLETED', contributionFormat = 'bps', compact = false }: { title: string, items: TableItem[], isQuarter?: boolean, status?: 'COMPLETED' | 'IN_PROGRESS', contributionFormat?: 'bps' | 'pct', compact?: boolean }) => {
+export const AttributionTable = ({ title, items, isQuarter = false, status = 'COMPLETED', contributionFormat = 'bps', compact = false, totalContribution }: { title: string, items: TableItem[], isQuarter?: boolean, status?: 'COMPLETED' | 'IN_PROGRESS', contributionFormat?: 'bps' | 'pct', compact?: boolean, totalContribution?: number }) => {
     const fmtContrib = (v: number) => contributionFormat === 'pct'
         ? (v >= 0 ? `+${v.toFixed(2)}%` : `(${Math.abs(v).toFixed(2)}%)`)
         : formatBps(v);
@@ -132,8 +132,8 @@ export const AttributionTable = ({ title, items, isQuarter = false, status = 'CO
                             <td className="p-1.5 px-3 text-left font-extrabold text-wallstreet-text">Total Portfolio</td>
                             <td className="p-1.5 px-2 text-center font-bold text-wallstreet-text">100.00%</td>
                             <td className="p-1.5 px-2 text-center font-bold text-wallstreet-500"></td>
-                            <td className={`p-1.5 px-2 text-right font-extrabold pr-4 ${totalSum.contribution < 0 ? 'text-red-700' : 'text-green-700'}`}>
-                                {fmtContrib(totalSum.contribution)}
+                            <td className={`p-1.5 px-2 text-right font-extrabold pr-4 ${(totalContribution ?? totalSum.contribution) < 0 ? 'text-red-700' : 'text-green-700'}`}>
+                                {fmtContrib(totalContribution ?? totalSum.contribution)}
                             </td>
                         </tr>
                     </tfoot>

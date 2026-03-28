@@ -95,17 +95,6 @@ export const WorldChoroplethMap: React.FC<WorldChoroplethMapProps> = ({ data }) 
         };
     }, [data, view, getWeight]);
 
-    // Legend gradient stops
-    const legendColors = useMemo(() => {
-        const interp = view === 'TSX' ? interpolateRed : interpolateBlue;
-        return Array.from({ length: 10 }, (_, i) => interp(i / 9));
-    }, [view]);
-
-    const capWeight = useMemo(() => {
-        const weights = data.map(d => getWeight(d)).filter(w => w > 0);
-        return weights.length ? Math.max(...weights) : 1;
-    }, [data, getWeight]);
-
     const handleMouseMove = useCallback((e: React.MouseEvent) => {
         const rect = e.currentTarget.getBoundingClientRect();
         setTooltipPos({
@@ -240,8 +229,8 @@ export const WorldChoroplethMap: React.FC<WorldChoroplethMapProps> = ({ data }) 
                 <ComposableMap
                     projection="geoMercator"
                     projectionConfig={{
-                        scale: 120,
-                        center: [10, 30],
+                        scale: 130,
+                        center: [0, 50],
                     }}
                     style={{ width: '100%', height: '100%' }}
                 >
@@ -328,22 +317,6 @@ export const WorldChoroplethMap: React.FC<WorldChoroplethMapProps> = ({ data }) 
                 )}
             </div>
 
-            {/* Legend — hidden in table mode or when XIC.TO is selected */}
-            {displayMode === 'map' && view !== 'TSX' && (
-                <div className="flex items-center gap-3 mt-2 px-1">
-                    <span className="text-xs font-mono text-wallstreet-400">0%</span>
-                    <div className="flex-1 h-2 rounded-full overflow-hidden flex">
-                        {legendColors.map((c, i) => (
-                            <div key={i} className="flex-1" style={{ backgroundColor: c }} />
-                        ))}
-                    </div>
-                    <span className="text-xs font-mono text-wallstreet-400">{capWeight.toFixed(0)}%+</span>
-                    <div className="flex items-center gap-1 ml-2">
-                        <div className="w-3 h-2 rounded-sm" style={{ backgroundColor: NO_DATA_COLOR }} />
-                        <span className="text-xs text-wallstreet-400">No data</span>
-                    </div>
-                </div>
-            )}
         </div>
     );
 };

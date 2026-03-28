@@ -67,6 +67,17 @@ export interface DrawdownEpisode {
   recoveryDays: number | null;
 }
 
+// Per-period, per-ticker attribution derived from the backcast daily series.
+// Shaped like PortfolioItem so it can be merged directly into portfolioData.
+export interface PeriodAttributionItem {
+  ticker: string;
+  date: string;
+  weight: number;      // %-form  (e.g. 10.0 for 10 %)
+  returnPct: number;   // decimal (e.g. 0.05  for  5 %)
+  contribution: number; // %-form (= weight * returnPct)
+  isCash?: boolean;
+}
+
 export interface BackcastResponse {
   metrics: BackcastMetrics;
   series: BackcastSeriesPoint[];
@@ -74,6 +85,7 @@ export interface BackcastResponse {
   topDrawdowns?: DrawdownEpisode[];
   fetchedAt?: string;
   error?: string;
+  periodAttribution?: PeriodAttributionItem[];
 }
 
 // Risk Contribution types

@@ -5,6 +5,7 @@ import { BackcastResponse, BackcastSeriesPoint, PortfolioItem } from '../../type
 import { FreshnessBadge } from '../../components/ui/FreshnessBadge';
 import type { Period, PeriodMetrics } from './PerformanceKPIs';
 import { PerformanceCharts, ChartView } from './PerformanceCharts';
+import { getDateRangeForPeriod } from '../../utils/dateUtils';
 
 const computeMetricsFromSeries = (filtered: BackcastSeriesPoint[]): PeriodMetrics | null => {
     if (filtered.length < 5) return null;
@@ -83,27 +84,6 @@ const computeMetricsFromSeries = (filtered: BackcastSeriesPoint[]): PeriodMetric
     };
 };
 
-const getDateRangeForPeriod = (period: Period): { start: Date; end?: Date } => {
-    const now = new Date();
-    now.setHours(0, 0, 0, 0);
-    switch (period) {
-        case '2025':
-            return { start: new Date(2025, 0, 1), end: new Date(2025, 11, 31) };
-        case 'YTD':
-            // Start from Dec 31 of the prior year so the base aligns with the attribution's
-            // period-start convention (rebalance periods begin at the Dec 31 close).
-            // This is also standard financial reporting: YTD = since Dec 31 prior-year close.
-            return { start: new Date(now.getFullYear() - 1, 11, 31) };
-        case '3M':
-            return { start: new Date(new Date().setMonth(now.getMonth() - 3)) };
-        case '6M':
-            return { start: new Date(new Date().setMonth(now.getMonth() - 6)) };
-        case '1Y':
-            return { start: new Date(new Date().setFullYear(now.getFullYear() - 1)) };
-        default:
-            return { start: new Date(new Date().setFullYear(now.getFullYear() - 1)) };
-    }
-};
 
 export const PerformanceView: React.FC<{
     isActive?: boolean;

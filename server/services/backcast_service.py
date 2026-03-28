@@ -226,6 +226,89 @@ def build_period_weighted_portfolio_returns(
     return portfolio_returns, list(all_missing)
 
 
+def compute_period_attribution(
+    returns_df: pd.DataFrame,
+    period_weights: list[tuple[str, dict[str, float], set[str]]],
+) -> list[dict]:
+    """
+    Compute per-period, per-ticker attribution from the same daily returns
+    used by build_period_weighted_portfolio_returns.
+
+    Returns a list of dicts shaped like PortfolioItem (ticker, date, weight,
+    returnPct, contribution) — one entry per (ticker, period).
+
+    Formats match /analyze-manual output:
+      weight       — %-form  (e.g. 10.0 for 10 %)
+      returnPct    — decimal  (e.g. 0.05  for 5 %)
+      contribution — %-form  (= weight * returnPct, e.g. 0.5)
+
+    Using the daily-chain approach guarantees that the sum of period
+    portfolio returns compounds to exactly the same total as the backcast
+    cumulative series.
+    """
+    n = len(period_weights)
+    if n == 0:
+        return []
+
+    results: list[dict] = []
+
+    for i, (date_str, weights, mf_tickers) in enumerate(period_weights):
+        period_end = pd.Timestamp(date_str)
+
+        # Same date-range mask as build_period_weighted_portfolio_returns
+        if n == 1:
+            mask = pd.Series(True, index=returns_df.index)
+        elif i == 0:
+            mask = returns_df.index <= period_end
+        elif i == n - 1:
+            prev_end = pd.Timestamp(period_weights[i - 1][0])
+            mask = returns_df.index > prev_end
+        else:
+            prev_end = pd.Timestamp(period_weights[i - 1][0])
+            mask = (returns_df.index > prev_end) & (returns_df.index <= period_end)
+
+        slice_df = returns_df.loc[mask]
+
+        for ticker, weight_decimal in weights.items():
+            weight_pct = weight_decimal * 100.0  # convert to %-form for PortfolioItem
+
+            if is_cash_ticker(ticker):
+                results.append({
+                    "ticker": ticker,
+                    "date": date_str,
+                    "weight": round(weight_pct, 6),
+                    "returnPct": 0.0,
+                    "contribution": 0.0,
+                    "isCash": True,
+                })
+                continue
+
+            if ticker not in returns_df.columns or slice_df.empty:
+                # Ticker missing from price data — skip (will remain as-is from analyze-manual)
+                continue
+
+            is_mf = ticker in mf_tickers
+            if needs_fx_adjustment(ticker, is_mutual_fund=is_mf) and "USDCAD=X" in returns_df.columns:
+                fx_ret = slice_df["USDCAD=X"]
+                daily_ret = (1 + slice_df[ticker]) * (1 + fx_ret) - 1
+            else:
+                daily_ret = slice_df[ticker]
+
+            # Geometric chain of daily returns = period return
+            period_return = float((1 + daily_ret).prod() - 1)
+            contribution_pct = weight_pct * period_return  # %-form * decimal = %-form
+
+            results.append({
+                "ticker": ticker,
+                "date": date_str,
+                "weight": round(weight_pct, 6),
+                "returnPct": period_return,
+                "contribution": contribution_pct,
+            })
+
+    return results
+
+
 def fetch_returns_df(
     portfolio_tickers: List[str],
     period: str = "1y",

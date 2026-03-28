@@ -15,6 +15,7 @@ import {
 } from '../services/api';
 import { formatPct } from '../utils/formatters';
 import { aggregatePeriodData } from './attribution/attributionUtils';
+import { getDateRangeForPeriod } from '../utils/dateUtils';
 import {
     PortfolioItem, BackcastResponse, RiskContributionResponse,
 } from '../types';
@@ -30,19 +31,6 @@ interface ReportViewProps {
     sharedBackcast?: BackcastResponse | null;
     sharedBackcastLoading?: boolean;
 }
-
-const getDateRangeForPeriod = (period: Period): { start: Date; end?: Date } => {
-    const now = new Date();
-    now.setHours(0, 0, 0, 0);
-    switch (period) {
-        case '2025': return { start: new Date(2025, 0, 1), end: new Date(2025, 11, 31) };
-        case 'YTD': return { start: new Date(now.getFullYear() - 1, 11, 31) };
-        case '3M': return { start: new Date(new Date().setMonth(now.getMonth() - 3)) };
-        case '6M': return { start: new Date(new Date().setMonth(now.getMonth() - 6)) };
-        case '1Y': return { start: new Date(new Date().setFullYear(now.getFullYear() - 1)) };
-        default:   return { start: new Date(new Date().setFullYear(now.getFullYear() - 1)) };
-    }
-};
 
 const getPeriodCutoff = (period: Period): Date => getDateRangeForPeriod(period).start;
 

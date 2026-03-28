@@ -1,4 +1,4 @@
-import React, { useState, useRef, Component, ErrorInfo, useEffect } from 'react';
+import React, { useState, useRef, Component, ErrorInfo, useEffect, useMemo } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { UploadView } from './views/UploadView';
 import { DashboardView } from './views/DashboardView';
@@ -82,7 +82,9 @@ function App() {
   // Deep-link state: incremented to trigger Attribution view to switch to TABLES mode
   const [attributionTablesRequest, setAttributionTablesRequest] = useState(0);
 
-  // Single canonical backcast — fetched once whenever portfolioData changes, shared to all views
+  // Single canonical backcast — fetched once whenever portfolioData changes, shared to all views.
+  // includeAttribution=true adds per-period, per-ticker return data derived from the same daily
+  // series, ensuring all views (waterfall, performance graph, portfolio composition) are consistent.
   const [backcastData, setBackcastData] = useState<BackcastResponse | null>(null);
   const [backcastLoading, setBackcastLoading] = useState(false);
 
@@ -93,7 +95,7 @@ function App() {
     }
     let cancelled = false;
     setBackcastLoading(true);
-    fetchPortfolioBackcast(portfolioData)
+    fetchPortfolioBackcast(portfolioData, '75/25', true)
       .then(res => {
         if (cancelled) return;
         if (!res.error) setBackcastData(res);
@@ -102,6 +104,28 @@ function App() {
       .finally(() => { if (!cancelled) setBackcastLoading(false); });
     return () => { cancelled = true; };
   }, [portfolioData]);
+
+  // Merge period attribution from the backcast (daily-chain returns) into portfolioData.
+  // Only returnPct and contribution are overridden — all metadata (isMutualFund, sectorWeights,
+  // startPrice, etc.) is preserved from /analyze-manual. Views that receive mergedPortfolioData
+  // will automatically show returns consistent with the performance graph.
+  const mergedPortfolioData = useMemo(() => {
+    if (!backcastData?.periodAttribution || backcastData.periodAttribution.length === 0) {
+      return portfolioData;
+    }
+    const attrMap = new Map<string, { returnPct: number; contribution: number }>();
+    backcastData.periodAttribution.forEach(item => {
+      attrMap.set(`${item.ticker}|${item.date}`, {
+        returnPct: item.returnPct,
+        contribution: item.contribution,
+      });
+    });
+    return portfolioData.map(item => {
+      const key = `${item.ticker}|${item.date}`;
+      const override = attrMap.get(key);
+      return override ? { ...item, returnPct: override.returnPct, contribution: override.contribution } : item;
+    });
+  }, [portfolioData, backcastData]);
 
   // Logic to determine if all active ETFs/MFs have sector data and no lags
   const getIsAssetSpecsComplete = () => {
@@ -214,7 +238,7 @@ function App() {
     <div
       key={view}
       className={`transition-opacity duration-300 ease-in-out ${
-        currentView === view ? 'opacity-100' : 'opacity-0 pointer-events-none absolute inset-0 overflow-hidden'
+        currentView === view ? 'opacity-100 h-full' : 'opacity-0 pointer-events-none absolute inset-0 overflow-hidden'
       }`}
     >
       {children}
@@ -253,13 +277,13 @@ function App() {
 
           {/* Mount once visited, then keep alive */}
           {visited.has(ViewState.DASHBOARD) && viewPane(ViewState.DASHBOARD,
-            <DashboardView data={portfolioData} customSectors={customSectors} assetGeo={assetGeo} />
+            <DashboardView data={mergedPortfolioData} customSectors={customSectors} assetGeo={assetGeo} />
           )}
           {visited.has(ViewState.INDEX) && viewPane(ViewState.INDEX,
             <IndexView />
           )}
           {visited.has(ViewState.ATTRIBUTION) && viewPane(ViewState.ATTRIBUTION,
-            <AttributionView data={portfolioData} selectedYear={selectedYear} setSelectedYear={setSelectedYear} customSectors={customSectors} tablesRequest={attributionTablesRequest} />
+            <AttributionView data={mergedPortfolioData} selectedYear={selectedYear} setSelectedYear={setSelectedYear} customSectors={customSectors} tablesRequest={attributionTablesRequest} sharedBackcast={backcastData} />
           )}
           {visited.has(ViewState.PERFORMANCE) && viewPane(ViewState.PERFORMANCE,
             <PerformanceView isActive={currentView === ViewState.PERFORMANCE} sharedBackcast={backcastData} sharedBackcastLoading={backcastLoading} />
@@ -278,7 +302,7 @@ function App() {
           )}
           {visited.has(ViewState.ANALYSIS) && viewPane(ViewState.ANALYSIS,
             <ReportView
-              data={portfolioData}
+              data={mergedPortfolioData}
               customSectors={customSectors}
               assetGeo={assetGeo}
               isActive={currentView === ViewState.ANALYSIS}

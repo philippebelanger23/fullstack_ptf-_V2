@@ -290,9 +290,9 @@ export const IndexView: React.FC = () => {
     }
 
     return (
-        <div className="w-full max-w-[100vw] mx-auto p-6 space-y-8 animate-in fade-in duration-500 overflow-x-hidden">
+        <div className="w-full flex flex-col lg:h-full overflow-x-hidden px-6 pt-6 animate-in fade-in duration-500">
 
-            <div className="border-b border-wallstreet-700 pb-6">
+            <div className="flex-shrink-0 border-b border-wallstreet-700 pb-4 mb-4">
                 <div className="flex justify-between items-start">
                     <div>
                         <h2 className="text-3xl font-bold font-mono text-wallstreet-text flex items-center gap-3"><Globe className="text-wallstreet-accent" /> Global 75/25 Index</h2>
@@ -302,45 +302,63 @@ export const IndexView: React.FC = () => {
                 </div>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            <div className="flex flex-col lg:flex-row gap-6 pb-6 lg:flex-1 lg:min-h-0 lg:overflow-hidden">
 
-                {/* Top Left: Index Performance Graph */}
-                <div className="bg-wallstreet-800 p-6 rounded-xl border border-wallstreet-700 shadow-sm flex flex-col h-full min-h-[600px]">
-                    <div className="flex justify-between items-center mb-2">
-                        <h3 className="text-lg font-bold font-mono text-wallstreet-text flex items-center gap-2">
-                            <TrendingUp size={20} className="text-wallstreet-accent" />
-                            Index Performance
-                        </h3>
+                {/* Left column: Index Performance + Sector Exposure (equal split) */}
+                <div className="flex flex-col gap-6 lg:w-1/2 lg:min-h-0">
+                    {/* Index Performance Graph */}
+                    <div className="bg-wallstreet-800 p-6 rounded-xl border border-wallstreet-700 shadow-sm flex flex-col min-h-[400px] lg:min-h-0 lg:flex-1">
+                        <div className="flex justify-between items-center mb-2">
+                            <h3 className="text-lg font-bold font-mono text-wallstreet-text flex items-center gap-2">
+                                <TrendingUp size={20} className="text-wallstreet-accent" />
+                                Index Performance
+                            </h3>
+                        </div>
+                        <div className="flex-1 w-full min-h-0">
+                            <IndexPerformanceChart data={indexHistory} />
+                        </div>
                     </div>
-                    <div className="flex-1 w-full min-h-0">
-                        <IndexPerformanceChart data={indexHistory} />
+
+                    {/* Sector Exposure */}
+                    <div className="bg-wallstreet-800 p-6 rounded-xl border border-wallstreet-700 shadow-sm flex flex-col min-h-[400px] lg:min-h-0 lg:flex-1">
+                        <div className="flex justify-between items-center mb-6">
+                            <h3 className="text-lg font-bold font-mono text-wallstreet-text flex items-center gap-2">
+                                <PieChart size={20} className="text-wallstreet-accent" />
+                                Sector Exposure
+                            </h3>
+                        </div>
+                        <div className="flex-1 w-full min-h-0">
+                            <ClevelandDotPlot data={exposure.sectors} />
+                        </div>
                     </div>
                 </div>
 
-                {/* Top Right: Sector Exposure */}
-                <div className="bg-wallstreet-800 p-6 rounded-xl border border-wallstreet-700 shadow-sm flex flex-col h-full min-h-[600px]">
-                    <div className="flex justify-between items-center mb-6">
-                        <h3 className="text-lg font-bold font-mono text-wallstreet-text flex items-center gap-2">
-                            <PieChart size={20} className="text-wallstreet-accent" />
-                            Sector Exposure
-                        </h3>
-                    </div>
-                    <div className="flex-1 w-full min-h-0">
-                        <ClevelandDotPlot data={exposure.sectors} />
-                    </div>
-                </div>
+                {/* Right column: Geographic Breakdown (2/3) + Currency Exposure (1/3) */}
+                <div className="flex flex-col gap-6 lg:w-1/2 lg:min-h-0">
+                    {/* Geographic Breakdown — 80% */}
+                    <div className="bg-wallstreet-800 p-6 rounded-xl border border-wallstreet-700 shadow-sm flex flex-col min-h-[400px] lg:min-h-0 lg:flex-[7]">
+                        <div className="flex justify-between items-center mb-4">
+                            <h3 className="text-lg font-bold font-mono text-wallstreet-text flex items-center gap-2">
+                                <Globe size={20} className="text-wallstreet-accent" />
+                                Geographic Breakdown
+                            </h3>
+                        </div>
 
-                {/* Bottom Left: Currency Exposure */}
-                <div className="bg-wallstreet-800 p-6 rounded-xl border border-wallstreet-700 shadow-sm flex flex-col h-full min-h-[600px]">
-                    <div className="mb-4 flex justify-between items-center border-b border-wallstreet-100 pb-2">
-                        <h3 className="text-lg font-bold font-mono text-wallstreet-text flex items-center gap-2">
-                            <DollarSign size={20} className="text-wallstreet-accent" />
-                            Currency Exposure
-                        </h3>
+                        <div className="flex-1 w-full relative min-h-0">
+                            <WorldChoroplethMap data={geoMapData} />
+                        </div>
                     </div>
 
-                    <div className="flex-1">
-                        <div className="flex flex-col h-full">
+                    {/* Currency Exposure — 20% */}
+                    <div className="bg-wallstreet-800 p-6 rounded-xl border border-wallstreet-700 shadow-sm flex flex-col min-h-[200px] lg:min-h-0 lg:flex-[3]">
+                        <div className="mb-4 flex justify-between items-center border-b border-wallstreet-100 pb-2">
+                            <h3 className="text-lg font-bold font-mono text-wallstreet-text flex items-center gap-2">
+                                <DollarSign size={20} className="text-wallstreet-accent" />
+                                Currency Exposure
+                            </h3>
+                        </div>
+
+                        <div className="flex-1 min-h-0 overflow-auto">
                             <div className="mb-2">
                                 <p className="text-xs text-wallstreet-400">Derived from geographic allocation.</p>
                             </div>
@@ -385,20 +403,6 @@ export const IndexView: React.FC = () => {
                                 </tbody>
                             </table>
                         </div>
-                    </div>
-                </div>
-
-                {/* Bottom Right: Geographic Breakdown */}
-                <div className="bg-wallstreet-800 p-6 rounded-xl border border-wallstreet-700 shadow-sm flex flex-col h-full min-h-[600px]">
-                    <div className="flex justify-between items-center mb-4">
-                        <h3 className="text-lg font-bold font-mono text-wallstreet-text flex items-center gap-2">
-                            <Globe size={20} className="text-wallstreet-accent" />
-                            Geographic Breakdown
-                        </h3>
-                    </div>
-
-                    <div className="flex-1 w-full relative min-h-0">
-                        <WorldChoroplethMap data={geoMapData} />
                     </div>
                 </div>
 

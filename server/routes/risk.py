@@ -19,6 +19,7 @@ from services.backcast_service import (
     build_period_weighted_portfolio_returns,
     build_portfolio_returns,
     compute_backcast_metrics,
+    compute_period_attribution,
     compute_beta,
     compute_annualized_vol,
     compute_rolling_metrics,
@@ -74,6 +75,10 @@ async def portfolio_backcast(request: BackcastRequest):
     result = compute_backcast_metrics(portfolio_returns, benchmark_returns)
     result["missingTickers"] = missing_tickers
     result["fetchedAt"] = datetime.now(timezone.utc).isoformat()
+
+    # 5. Optional: per-period, per-ticker attribution derived from the same daily data
+    if request.includeAttribution:
+        result["periodAttribution"] = compute_period_attribution(returns_df, period_weights)
 
     return result
 

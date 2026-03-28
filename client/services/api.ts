@@ -386,14 +386,14 @@ export const convertConfigToItems = (tickers: any[], periods: any[]): PortfolioI
 
 // BackcastMetrics, BackcastSeriesPoint, BackcastResponse moved to types.ts
 
-export const fetchPortfolioBackcast = async (items: PortfolioItem[], benchmark: string = '75/25'): Promise<BackcastResponse> => {
+export const fetchPortfolioBackcast = async (items: PortfolioItem[], benchmark: string = '75/25', includeAttribution: boolean = false): Promise<BackcastResponse> => {
     try {
         const response = await fetch(`${API_Base_URL}/portfolio-backcast`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
             },
-            body: JSON.stringify({ items, benchmark }),
+            body: JSON.stringify({ items, benchmark, includeAttribution }),
         });
 
         if (!response.ok) {

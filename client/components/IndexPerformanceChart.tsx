@@ -32,7 +32,9 @@ const getDateRangeForPeriod = (period: Period): { start: Date; end?: Date } => {
                 end: new Date(2025, 11, 31)
             };
         case 'YTD':
-            return { start: new Date(now.getFullYear(), 0, 1) };
+            // Dec 31 of prior year — matches financial reporting convention and
+            // aligns with attribution's period-start (same as PerformanceView/ReportView).
+            return { start: new Date(now.getFullYear() - 1, 11, 31) };
         case '3M': {
             const date = new Date(now);
             date.setMonth(date.getMonth() - 3);
