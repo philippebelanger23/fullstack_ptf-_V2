@@ -5,11 +5,12 @@ import { correlationColor } from './riskUtils';
 interface CorrelationHeatmapProps {
     correlationMatrix: { tickers: string[]; matrix: number[][] };
     loading: boolean;
+    noWrapper?: boolean;
 }
 
 const CELL_SIZE = 38;
 
-export const CorrelationHeatmap: React.FC<CorrelationHeatmapProps> = ({ correlationMatrix, loading }) => {
+export const CorrelationHeatmap: React.FC<CorrelationHeatmapProps> = ({ correlationMatrix, loading, noWrapper }) => {
     const tc = useThemeColors();
     const [hovered, setHovered] = useState<{ i: number; j: number } | null>(null);
 
@@ -25,8 +26,8 @@ export const CorrelationHeatmap: React.FC<CorrelationHeatmapProps> = ({ correlat
     const gridWidth = maxShow * (CELL_SIZE + 2); // +2 for margin:1 on each side
     const labelWidth = 72;
 
-    return (
-        <div className="bg-wallstreet-800 rounded-2xl border border-wallstreet-700 shadow-sm p-6">
+    const inner = (
+        <>
             <div className="mb-5">
                 <h3 className="text-sm font-bold text-wallstreet-text uppercase tracking-wider">Correlation Matrix</h3>
                 <p className="text-[11px] text-wallstreet-500 mt-0.5">EWMA pairwise correlations (63-day halflife) — top {maxShow} by risk contribution</p>
@@ -64,7 +65,7 @@ export const CorrelationHeatmap: React.FC<CorrelationHeatmapProps> = ({ correlat
                     {displayMatrix.map((row, i) => (
                         <div key={i} className="flex items-center">
                             <div
-                                className={`shrink-0 text-right pr-2 text-[10px] font-mono font-medium truncate transition-colors ${
+                                className={`shrink-0 text-right pr-2 text-[13px] font-mono font-medium truncate transition-colors ${
                                     hovered?.i === i ? 'text-wallstreet-text' : 'text-wallstreet-500'
                                 }`}
                                 style={{ width: labelWidth }}
@@ -98,7 +99,7 @@ export const CorrelationHeatmap: React.FC<CorrelationHeatmapProps> = ({ correlat
                                         onMouseEnter={() => setHovered({ i, j })}
                                         onMouseLeave={() => setHovered(null)}
                                     >
-                                        <span className={`text-[9px] font-mono font-semibold select-none ${
+                                        <span className={`text-[12px] font-mono font-semibold select-none ${
                                             isDiag
                                                 ? 'text-wallstreet-500'
                                                 : Math.abs(value) > 0.55
@@ -118,7 +119,7 @@ export const CorrelationHeatmap: React.FC<CorrelationHeatmapProps> = ({ correlat
                         {displayTickers.map((ticker, j) => (
                             <div
                                 key={j}
-                                className={`shrink-0 flex items-center justify-center pt-1 text-[9px] font-mono font-medium transition-colors ${
+                                className={`shrink-0 flex items-center justify-center pt-1 text-[13px] font-mono font-medium transition-colors ${
                                     hovered?.j === j ? 'text-wallstreet-text' : 'text-wallstreet-500'
                                 }`}
                                 style={{ width: CELL_SIZE + 2 }}
@@ -131,6 +132,12 @@ export const CorrelationHeatmap: React.FC<CorrelationHeatmapProps> = ({ correlat
                 </div>
             </div>
 
+        </>
+    );
+
+    return noWrapper ? inner : (
+        <div className="bg-wallstreet-800 rounded-2xl border border-wallstreet-700 shadow-sm p-6">
+            {inner}
         </div>
     );
 };

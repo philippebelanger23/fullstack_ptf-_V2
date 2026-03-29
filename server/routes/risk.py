@@ -54,8 +54,9 @@ async def portfolio_backcast(request: BackcastRequest):
 
     # 2. Fetch price data — all unique tradeable tickers across every period
     all_tickers = list({t for _, w, _ in period_weights for t in w if not is_cash_ticker(t)})
+    all_mutual_fund_tickers = {t for _, _, mf in period_weights for t in mf}
     try:
-        returns_df, _, missing_tickers = fetch_returns_df(all_tickers)
+        returns_df, _, missing_tickers = fetch_returns_df(all_tickers, mutual_fund_tickers=all_mutual_fund_tickers)
     except ValueError as e:
         return {"error": str(e)}
     except Exception as e:
@@ -100,10 +101,10 @@ async def risk_contribution(request: BackcastRequest):
     if not weights_by_ticker:
         return {"error": "No valid tickers found"}
 
-    # 2. Fetch price data — exclude cash tickers (they earn 0% and have no price series)
+    # 2. Fetch price data — exclude cash tickers and mutual funds (CSV-sourced, not on yfinance)
     tradeable_tickers = [t for t in weights_by_ticker if not is_cash_ticker(t)]
     try:
-        returns_df, raw_returns_df, _ = fetch_returns_df(tradeable_tickers)
+        returns_df, raw_returns_df, _ = fetch_returns_df(tradeable_tickers, mutual_fund_tickers=mutual_fund_tickers)
     except ValueError as e:
         return {"error": str(e)}
     except Exception as e:
@@ -366,8 +367,9 @@ async def rolling_metrics_endpoint(request: BackcastRequest):
         return {"error": "No valid tickers found"}
 
     all_tickers = list({t for _, w, _ in period_weights for t in w if not is_cash_ticker(t)})
+    all_mutual_fund_tickers = {t for _, _, mf in period_weights for t in mf}
     try:
-        returns_df, _, _ = fetch_returns_df(all_tickers)
+        returns_df, _, _ = fetch_returns_df(all_tickers, mutual_fund_tickers=all_mutual_fund_tickers)
     except ValueError as e:
         return {"error": str(e)}
     except Exception as e:

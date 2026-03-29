@@ -20,28 +20,29 @@ const COLUMN_INFO: Record<string, string> = {
 
 /* ── Sector color palette ── */
 const SECTOR_COLORS: Record<string, { bg: string; text: string }> = {
-    'Technology':             { bg: 'rgba(99,102,241,0.15)',  text: '#a5b4fc' },
-    'Information Technology': { bg: 'rgba(99,102,241,0.15)',  text: '#a5b4fc' },
-    'Financial Services':     { bg: 'rgba(16,185,129,0.15)',  text: '#6ee7b7' },
-    'Financials':             { bg: 'rgba(16,185,129,0.15)',  text: '#6ee7b7' },
-    'Health Care':            { bg: 'rgba(244,63,94,0.12)',   text: '#fda4af' },
-    'Healthcare':             { bg: 'rgba(244,63,94,0.12)',   text: '#fda4af' },
-    'Energy':                 { bg: 'rgba(245,158,11,0.15)',  text: '#fcd34d' },
-    'Consumer Cyclical':      { bg: 'rgba(168,85,247,0.15)',  text: '#d8b4fe' },
-    'Consumer Discretionary': { bg: 'rgba(168,85,247,0.15)',  text: '#d8b4fe' },
-    'Consumer Defensive':     { bg: 'rgba(20,184,166,0.15)',  text: '#5eead4' },
-    'Consumer Staples':       { bg: 'rgba(20,184,166,0.15)',  text: '#5eead4' },
-    'Communication Services': { bg: 'rgba(14,165,233,0.15)',  text: '#7dd3fc' },
-    'Industrials':            { bg: 'rgba(100,116,139,0.15)', text: '#94a3b8' },
-    'Basic Materials':        { bg: 'rgba(132,204,22,0.15)',  text: '#bef264' },
-    'Materials':              { bg: 'rgba(132,204,22,0.15)',  text: '#bef264' },
-    'Utilities':              { bg: 'rgba(52,211,153,0.12)',  text: '#6ee7b7' },
-    'Real Estate':            { bg: 'rgba(251,146,60,0.15)',  text: '#fdba74' },
-    'Mixed':                  { bg: 'rgba(100,116,139,0.12)', text: '#94a3b8' },
+    'Technology':             { bg: '#e0e7ff', text: '#3730a3' },
+    'Information Technology': { bg: '#e0e7ff', text: '#3730a3' },
+    'Financial Services':     { bg: '#d1fae5', text: '#065f46' },
+    'Financials':             { bg: '#d1fae5', text: '#065f46' },
+    'Health Care':            { bg: '#ffe4e6', text: '#9f1239' },
+    'Healthcare':             { bg: '#ffe4e6', text: '#9f1239' },
+    'Energy':                 { bg: '#fef3c7', text: '#92400e' },
+    'Consumer Cyclical':      { bg: '#f3e8ff', text: '#6b21a8' },
+    'Consumer Discretionary': { bg: '#f3e8ff', text: '#6b21a8' },
+    'Consumer Defensive':     { bg: '#ccfbf1', text: '#134e4a' },
+    'Consumer Staples':       { bg: '#ccfbf1', text: '#134e4a' },
+    'Communication Services': { bg: '#e0f2fe', text: '#0c4a6e' },
+    'Industrials':            { bg: '#dbeafe', text: '#0037e8' },
+    'Basic Materials':        { bg: '#ecfccb', text: '#365314' },
+    'Materials':              { bg: '#ecfccb', text: '#365314' },
+    'Utilities':              { bg: '#dcfce7', text: '#14532d' },
+    'Real Estate':            { bg: '#ffedd5', text: '#7c2d12' },
+    'Mixed':                  { bg: '#f1f5f9', text: '#334155' },
+    'CASH':                   { bg: '#f1f5f9', text: '#334155' },
 };
-const defaultSectorColor = { bg: 'rgba(100,116,139,0.12)', text: '#94a3b8' };
+const defaultSectorColor = { bg: '#f1f5f9', text: '#334155' };
 
-const SectorBadge: React.FC<{ sector: string }> = ({ sector }) => {
+export const SectorBadge: React.FC<{ sector: string }> = ({ sector }) => {
     const c = SECTOR_COLORS[sector] ?? defaultSectorColor;
     return (
         <span

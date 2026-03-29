@@ -312,14 +312,18 @@ def compute_period_attribution(
 def fetch_returns_df(
     portfolio_tickers: List[str],
     period: str = "1y",
+    mutual_fund_tickers: set = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame, list]:
     """
     Download price data for *portfolio_tickers* plus benchmark tickers.
     Returns (returns_df, raw_returns_df, missing_tickers).
     - returns_df: ffill/bfill + fillna(0) — for portfolio returns and covariance
     - raw_returns_df: pct_change with NaN preserved — for pairwise correlation
+    Mutual fund tickers are excluded from the yfinance fetch (their data comes from CSV).
     """
-    fetch_list = list(set(portfolio_tickers + BENCHMARK_BLEND_TICKERS))
+    mf = mutual_fund_tickers or set()
+    yf_tickers = [t for t in portfolio_tickers if t not in mf]
+    fetch_list = list(set(yf_tickers + BENCHMARK_BLEND_TICKERS))
     data = yf.download(fetch_list, period=period, interval="1d", progress=False)
     if data.empty:
         raise ValueError("Failed to fetch price data")

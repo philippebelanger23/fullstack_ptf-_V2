@@ -84,7 +84,7 @@ function App() {
 
   // Single canonical backcast — fetched once whenever portfolioData changes, shared to all views.
   // includeAttribution=true adds per-period, per-ticker return data derived from the same daily
-  // series, ensuring all views (waterfall, performance graph, portfolio composition) are consistent.
+  // series, ensuring all views (waterfall, performance graph, one pager) are consistent.
   const [backcastData, setBackcastData] = useState<BackcastResponse | null>(null);
   const [backcastLoading, setBackcastLoading] = useState(false);
 

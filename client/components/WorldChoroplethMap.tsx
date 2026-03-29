@@ -15,6 +15,7 @@ interface GeoEntry {
 
 interface WorldChoroplethMapProps {
     data: GeoEntry[];
+    projectionConfig?: { rotate?: [number, number, number]; scale?: number; center?: [number, number] };
 }
 
 type ViewMode = 'Index' | 'ACWI' | 'TSX';
@@ -47,7 +48,7 @@ function interpolateRed(t: number): string {
 const NO_DATA_COLOR = '#e2e8f0'; // slate-200
 const HOVER_STROKE = '#1e3a5a';
 
-export const WorldChoroplethMap: React.FC<WorldChoroplethMapProps> = ({ data }) => {
+export const WorldChoroplethMap: React.FC<WorldChoroplethMapProps> = ({ data, projectionConfig }) => {
     const [displayMode, setDisplayMode] = useState<'map' | 'table'>('map');
     const [view, setView] = useState<ViewMode>('Index');
     const [hoveredGeo, setHoveredGeo] = useState<string | null>(null);
@@ -229,14 +230,15 @@ export const WorldChoroplethMap: React.FC<WorldChoroplethMapProps> = ({ data }) 
                 <ComposableMap
                     projection="geoMercator"
                     projectionConfig={{
-                        scale: 130,
-                        center: [0, 50],
+                        rotate: projectionConfig?.rotate ?? [-10, 0, 0],
+                        scale: projectionConfig?.scale ?? 145,
+                        center: projectionConfig?.center ?? [0, 45],
                     }}
                     style={{ width: '100%', height: '100%' }}
                 >
                     <Geographies geography={GEO_URL}>
                         {({ geographies }: { geographies: any[] }) =>
-                            geographies.map((geo) => {
+                            geographies.filter((geo) => geo.properties.name !== 'Antarctica').map((geo) => {
                                 const geoName = geo.properties.name;
                                 const entry = dataByTopoName.get(geoName);
                                 const weight = getWeight(entry);

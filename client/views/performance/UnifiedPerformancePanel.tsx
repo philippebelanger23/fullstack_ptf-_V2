@@ -178,6 +178,7 @@ export const UnifiedPerformancePanel: React.FC<UnifiedPerformancePanelProps> = (
                                         tickLine={false}
                                         axisLine={false}
                                         ticks={getMonthlyTicks}
+                                        tickMargin={8}
                                     />
                                     <YAxis
                                         tickFormatter={(val) => val < 0 ? `(${Math.abs(val).toFixed(0)}%)` : `${val > 0 ? '+' : ''}${val.toFixed(0)}%`}
@@ -229,6 +230,7 @@ export const UnifiedPerformancePanel: React.FC<UnifiedPerformancePanelProps> = (
                                         tickLine={false}
                                         axisLine={false}
                                         ticks={getMonthlyTicks}
+                                        tickMargin={8}
                                     />
                                     <YAxis
                                         tickFormatter={(val) => val < 0 ? `(${Math.abs(val).toFixed(0)}%)` : '0%'}
@@ -273,6 +275,7 @@ export const UnifiedPerformancePanel: React.FC<UnifiedPerformancePanelProps> = (
                                         tickLine={false}
                                         axisLine={false}
                                         ticks={getMonthlyTicks}
+                                        tickMargin={8}
                                     />
                                     <YAxis
                                         tickFormatter={(val) => val < 0 ? `(${Math.abs(val).toFixed(0)}%)` : `${val > 0 ? '+' : ''}${val.toFixed(0)}%`}

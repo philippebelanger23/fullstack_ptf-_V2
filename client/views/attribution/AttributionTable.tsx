@@ -119,7 +119,7 @@ export const AttributionTable = ({ title, items, isQuarter = false, status = 'CO
                             <td className={`p-1 px-2 text-center font-medium ${othersReturn < 0 ? 'text-red-700' : 'text-green-700'}`}>
                                 {othersReturn < 0 ? `(${Math.abs(othersReturn).toFixed(2)}%)` : `${othersReturn.toFixed(2)}%`}
                             </td>
-                            <td className={`p-1 px-2 text-right font-bold pr-4 ${othersSum.contribution < 0 ? 'text-red-700' : 'text-green-700'}`}>
+                            <td className={`p-1 px-2 text-center font-bold ${othersSum.contribution < 0 ? 'text-red-700' : 'text-green-700'}`}>
                                 {fmtContrib(othersSum.contribution)}
                             </td>
                         </tr>
@@ -132,7 +132,7 @@ export const AttributionTable = ({ title, items, isQuarter = false, status = 'CO
                             <td className="p-1.5 px-3 text-left font-extrabold text-wallstreet-text">Total Portfolio</td>
                             <td className="p-1.5 px-2 text-center font-bold text-wallstreet-text">100.00%</td>
                             <td className="p-1.5 px-2 text-center font-bold text-wallstreet-500"></td>
-                            <td className={`p-1.5 px-2 text-right font-extrabold pr-4 ${(totalContribution ?? totalSum.contribution) < 0 ? 'text-red-700' : 'text-green-700'}`}>
+                            <td className={`p-1.5 px-2 text-center font-extrabold ${(totalContribution ?? totalSum.contribution) < 0 ? 'text-red-700' : 'text-green-700'}`}>
                                 {fmtContrib(totalContribution ?? totalSum.contribution)}
                             </td>
                         </tr>

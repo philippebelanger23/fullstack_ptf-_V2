@@ -146,15 +146,15 @@ export const PerformanceView: React.FC<{
                 const currentHoldings = items.filter(item => item.date === latestDate);
 
                 const [result, exposure, geo] = await Promise.all([
-                    (benchmark === '75/25' && sharedBackcast != null)
-                        ? Promise.resolve(sharedBackcast)
+                    (benchmark === '75/25' && (sharedBackcast != null || sharedBackcastLoading))
+                        ? Promise.resolve(sharedBackcast ?? null)
                         : fetchPortfolioBackcast(items, benchmark),
                     fetchIndexExposure(),
                     loadAssetGeo(),
                 ]);
-                if (result.error) {
+                if (result?.error) {
                     setError(result.error);
-                } else {
+                } else if (result) {
                     setData(result);
                 }
                 setBenchmarkSectors(exposure.sectors || []);
@@ -178,8 +178,14 @@ export const PerformanceView: React.FC<{
                 }
             } catch (e) {
                 setError(String(e));
-            } finally {
                 setLoading(false);
+            } finally {
+                // For the default benchmark, the sync useEffect manages loading state
+                // (it sets loading=false when sharedBackcast arrives). Only clear loading
+                // here for non-default benchmarks where we fetched our own backcast.
+                if (benchmark !== '75/25') {
+                    setLoading(false);
+                }
             }
         };
         fetchData();

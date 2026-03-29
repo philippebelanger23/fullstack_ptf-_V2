@@ -5,6 +5,8 @@ import { FreshnessBadge } from '../components/ui/FreshnessBadge';
 import { SectorDeviationCard } from '../components/SectorDeviationCard';
 import { SectorGeographyDeviationCard } from '../components/SectorGeographyDeviationCard';
 import { AttributionTable } from './attribution/AttributionTable';
+import { SectorBadge } from './risk/RiskTable';
+import { CorrelationHeatmap } from './risk/CorrelationHeatmap';
 import type { ChartView } from './performance/PerformanceCharts';
 import type { Period } from './performance/PerformanceKPIs';
 import { UnifiedPerformancePanel } from './performance/UnifiedPerformancePanel';
@@ -214,6 +216,15 @@ export const ReportView: React.FC<ReportViewProps> = ({ data, customSectors, ass
         return aggregatePeriodData(filtered).sort((a, b) => b.contribution - a.contribution);
     }, [data, selectedPeriod]);
 
+    const sortedHoldings = useMemo(() => {
+        const sorted = [...enrichedCurrentHoldings].sort((a, b) => b.weight - a.weight);
+        let cum = 0;
+        return sorted.map(item => {
+            cum += item.weight;
+            return { ...item, cumulative: cum };
+        });
+    }, [enrichedCurrentHoldings]);
+
     const fetchedAt = useMemo(() => {
         const times = [backcast?.fetchedAt, riskData?.fetchedAt].filter(Boolean) as string[];
         return times.length > 0 ? times.sort()[0] : null;
@@ -403,27 +414,24 @@ export const ReportView: React.FC<ReportViewProps> = ({ data, customSectors, ass
                     </div>
                     <div className="flex-1 flex flex-col min-h-0">
                         <div className="flex-1 overflow-y-auto">
-                            <table className="w-full text-xs font-mono">
+                            <table className="w-full text-xs font-mono table-fixed">
                                 <thead className="sticky top-0 bg-wallstreet-800 z-10">
                                     <tr className="text-wallstreet-500 uppercase text-[11px] tracking-wide border-b border-wallstreet-700">
-                                        <th className="text-left pb-2.5 pr-4 w-20">Ticker</th>
-                                        <th className="text-left pb-2.5">Sector</th>
-                                        <th className="text-right pb-2.5 w-14">Weight</th>
+                                        <th className="text-left pb-2.5 w-[22%]">Ticker</th>
+                                        <th className="text-left pb-2.5 w-[38%]">Sector</th>
+                                        <th className="text-right pb-2.5 pr-8 w-[20%]">Weight</th>
+                                        <th className="text-right pb-2.5 pr-8 w-[20%]">Cumul.</th>
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {[...enrichedCurrentHoldings].sort((a, b) => b.weight - a.weight).map((item, i) => (
+                                    {sortedHoldings.map((item, i) => (
                                         <tr key={item.ticker} className={i % 2 === 0 ? '' : 'bg-wallstreet-900/40'}>
-                                            <td className="py-1.5 pr-4 font-bold text-wallstreet-text">{item.ticker}</td>
-                                            <td className="py-1.5 text-wallstreet-400">{item.sector}</td>
-                                            <td className="py-1.5 text-right text-wallstreet-text">{formatPct(item.weight)}</td>
+                                            <td className="py-1.5 font-bold text-wallstreet-text">{item.ticker}</td>
+                                            <td className="py-1.5"><SectorBadge sector={item.sector ?? '—'} /></td>
+                                            <td className="py-1.5 text-right pr-8 text-wallstreet-text">{formatPct(item.weight)}</td>
+                                            <td className="py-1.5 text-right pr-8 text-wallstreet-500 font-bold">{formatPct(item.cumulative)}</td>
                                         </tr>
                                     ))}
-                                    <tr className="bg-wallstreet-700 border-t-2 border-wallstreet-500 font-bold">
-                                        <td className="py-1.5 pr-4 text-wallstreet-text">TOTAL</td>
-                                        <td></td>
-                                        <td className="py-1.5 text-right text-wallstreet-text">{formatPct(enrichedCurrentHoldings.reduce((s: number, item: { weight: number }) => s + item.weight, 0))}</td>
-                                    </tr>
                                 </tbody>
                             </table>
                         </div>
@@ -434,17 +442,31 @@ export const ReportView: React.FC<ReportViewProps> = ({ data, customSectors, ass
                 <div className="bg-wallstreet-800 border border-wallstreet-700 rounded-xl p-4 shadow-sm flex flex-col overflow-hidden">
                     <p className="text-[10px] font-bold font-mono text-wallstreet-text uppercase tracking-wider mb-1 flex-shrink-0">Geographic Breakdown</p>
                     <div className="flex-1 min-h-0">
-                        <WorldChoroplethMap data={benchmarkGeography} />
+                        <WorldChoroplethMap
+                            data={benchmarkGeography}
+                            projectionConfig={{ rotate: [-10, 0, 0], scale: 118, center: [0, 45] }}
+                        />
                     </div>
                 </div>
 
-                {/* ── ROW 2, COL 3-4: Attribution Table ───────────────────── */}
-                <div style={{ gridColumn: '3 / 5' }} className="min-h-0 overflow-hidden">
+                {/* ── ROW 2, COL 3: Attribution Table ─────────────────────── */}
+                <div style={{ gridColumn: '3 / 4' }} className="min-h-0 overflow-hidden">
                     <AttributionTable
                         title={selectedPeriod}
                         items={periodAttribution}
                         contributionFormat="pct"
                     />
+                </div>
+
+                {/* ── ROW 2, COL 4: Correlation Matrix ─────────────────────── */}
+                <div style={{ gridColumn: '4 / 5' }} className="bg-wallstreet-800 border border-wallstreet-700 rounded-2xl shadow-sm overflow-hidden relative">
+                    <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%) scale(0.75)' }}>
+                        <CorrelationHeatmap
+                            correlationMatrix={riskData.correlationMatrix ?? { tickers: [], matrix: [] }}
+                            loading={false}
+                            noWrapper
+                        />
+                    </div>
                 </div>
 
             </div>
