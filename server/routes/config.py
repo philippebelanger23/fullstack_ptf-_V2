@@ -131,8 +131,8 @@ async def save_manual_nav(request: dict):
 @router.post("/check-nav-lag")
 async def check_nav_lag(request: dict):
     """
-    Compare last NAV date on file with last yfinance date for a set of tickers.
-    If NAV date is behind yfinance (usually > 1-2 days lag), flag it.
+    Compare last NAV date on file with a supplied reference date for a set of tickers.
+    If no reference date is provided, fall back to market freshness vs SPY.
 
     Args:
         request.tickers: List of ticker symbols to check
@@ -161,15 +161,15 @@ async def check_nav_lag(request: dict):
             reference_date -= datetime.timedelta(days=1)
         return reference_date
 
-    # 2. Get global market threshold
+    # 2. Get comparison date
+    comparison_date = None
     if reference_date_str:
         try:
-            last_market_date = datetime.datetime.strptime(reference_date_str, "%Y-%m-%d").date()
-            last_market_date = get_last_business_day(last_market_date)
-            logger.info(f"check-nav-lag: Using provided reference date: {last_market_date}")
+            comparison_date = datetime.datetime.strptime(reference_date_str, "%Y-%m-%d").date()
+            logger.info(f"check-nav-lag: Using provided reference date: {comparison_date}")
         except Exception as e:
             logger.warning(f"Invalid reference_date {reference_date_str}, falling back to today. Error: {e}")
-            last_market_date = get_last_business_day()
+            comparison_date = get_last_business_day()
     else:
         try:
             spy_hist = yf.download("SPY", period="5d", progress=False, threads=False)
@@ -185,8 +185,7 @@ async def check_nav_lag(request: dict):
             )
             last_market_date = get_last_business_day()
 
-    last_bday = get_last_business_day(last_market_date)
-    threshold_date = get_last_business_day(last_bday - datetime.timedelta(days=1))
+        comparison_date = get_last_business_day(last_market_date)
 
     for ticker in tickers:
         try:
@@ -198,8 +197,9 @@ async def check_nav_lag(request: dict):
                     "lagging": True,
                     "reason": "Missing Data",
                     "last_nav": None,
-                    "last_market": last_market_date.strftime("%Y-%m-%d"),
-                    "threshold_date": threshold_date.strftime("%Y-%m-%d"),
+                    "last_market": comparison_date.strftime("%Y-%m-%d"),
+                    "reference_date": comparison_date.strftime("%Y-%m-%d"),
+                    "threshold_date": comparison_date.strftime("%Y-%m-%d"),
                     "days_diff": 999,
                 }
                 continue
@@ -210,22 +210,23 @@ async def check_nav_lag(request: dict):
             else:
                 last_nav_date = last_nav_dt
 
-            is_lagging = last_nav_date < threshold_date
-            days_diff = (last_market_date - last_nav_date).days
+            is_lagging = last_nav_date < comparison_date
+            days_diff = (comparison_date - last_nav_date).days
 
             results[ticker] = {
                 "lagging": is_lagging,
                 "last_nav": last_nav_date.strftime("%Y-%m-%d"),
-                "last_market": last_market_date.strftime("%Y-%m-%d"),
+                "last_market": comparison_date.strftime("%Y-%m-%d"),
+                "reference_date": comparison_date.strftime("%Y-%m-%d"),
                 "days_diff": days_diff,
-                "threshold_date": threshold_date.strftime("%Y-%m-%d"),
+                "threshold_date": comparison_date.strftime("%Y-%m-%d"),
                 "is_stale": is_lagging,
             }
 
             if is_lagging:
                 logger.info(
                     f"check-nav-lag: {ticker} is LAGGING. "
-                    f"Last NAV: {last_nav_date}, Market: {last_market_date}"
+                    f"Last NAV: {last_nav_date}, Reference date: {comparison_date}"
                 )
 
         except Exception as e:

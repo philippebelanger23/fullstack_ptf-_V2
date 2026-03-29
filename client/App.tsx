@@ -9,7 +9,7 @@ import { IndexView } from './views/IndexView';
 import { PerformanceView } from './views/PerformanceView';
 import { RiskContributionView } from './views/RiskContributionView';
 import { PortfolioItem, ViewState, BackcastResponse } from './types';
-import { loadPortfolioConfig, analyzeManualPortfolio, convertConfigToItems, loadSectorWeights, loadAssetGeo, checkNavLag, fetchPortfolioBackcast } from './services/api';
+import { loadPortfolioConfig, analyzeManualPortfolio, convertConfigToItems, loadSectorWeights, loadAssetGeo, fetchPortfolioBackcast } from './services/api';
 
 class GlobalErrorBoundary extends Component<{ children: React.ReactNode }, { hasError: boolean, error: Error | null, errorInfo: ErrorInfo | null }> {
   constructor(props: any) {
@@ -183,12 +183,6 @@ function App() {
               const results = await analyzeManualPortfolio(flatItems);
               handleDataLoaded(results, { name: "Manual Entry", count: results.length });
 
-              // NEW: Proactively check for NAV lags after auto-load
-              const mfs = results.filter(i => i.isMutualFund).map(i => i.ticker);
-              if (mfs.length > 0) {
-                const lagResults = await checkNavLag(Array.from(new Set(mfs)));
-                setLagStatus(lagResults);
-              }
             } catch (analysisErr) {
               console.error("Backend analysis failed during auto-load, falling back to basic data:", analysisErr);
               // Fallback: Create basic items so the UI can still show the management list

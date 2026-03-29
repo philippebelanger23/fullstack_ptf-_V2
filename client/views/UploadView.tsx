@@ -44,28 +44,42 @@ export const UploadView: React.FC<UploadViewProps> = ({
   const runLagCheck = useCallback(async (items: PortfolioItem[], forceRefresh: boolean = false) => {
     if (items.length === 0) return;
 
-    // Find the latest date specifically for Mutual Funds to decouple them from live Stock dates
-    // This ensures we check lag relative to the latest available MF data point
-    const mfLatestDate = items
-      .filter(i => i.isMutualFund && i.weight > 0)
-      .reduce((max, item) => (item.date > max ? item.date : max), '');
+    const globalLatestDate = items.length > 0
+      ? items.reduce((max, item) => (item.date > max ? item.date : max), '')
+      : '';
 
-    // Use mutual fund date if available, otherwise fallback to global (though we filter for MFs later)
-    const referenceDate = mfLatestDate || items.reduce((max, item) => (item.date > max ? item.date : max), '');
+    const activeMfTickers = Array.from(new Set(
+      items.filter(i => i.isMutualFund).map(i => i.ticker)
+    )).filter(ticker => {
+      const tickerData = items.filter(d => d.ticker === ticker);
+      if (tickerData.length === 0) return false;
+      const latestRecord = tickerData.reduce((prev, curr) => (curr.date > prev.date) ? curr : prev);
+      return latestRecord.date === globalLatestDate && latestRecord.weight > 0;
+    });
 
-    // Only check mutual funds that are ACTIVE (weight > 0) in that specific reference period
-    const mfTickers = Array.from(new Set(
-      items
-        .filter(i => i.isMutualFund && i.date === referenceDate && i.weight > 0)
-        .map(i => i.ticker)
-    ));
-
-    if (mfTickers.length > 0) {
+    if (activeMfTickers.length > 0) {
       setIsCheckingLag(true);
       try {
-        // Pass referenceDate so we check lag relative to the MF snapshot
-        const lagResults = await checkNavLag(mfTickers, forceRefresh, referenceDate);
-        setLagStatus(lagResults);
+        const checks = new Map<string, string[]>();
+
+        activeMfTickers.forEach(ticker => {
+          const tickerData = items.filter(i => i.ticker === ticker);
+          const latestRecord = tickerData.reduce((prev, curr) => (curr.date > prev.date) ? curr : prev);
+          const latestHeldDate = latestRecord.date;
+          if (!latestHeldDate) return;
+
+          const bucket = checks.get(latestHeldDate) || [];
+          bucket.push(ticker);
+          checks.set(latestHeldDate, bucket);
+        });
+
+        const lagResultsList = await Promise.all(
+          Array.from(checks.entries()).map(([referenceDate, tickers]) =>
+            checkNavLag(tickers, forceRefresh, referenceDate)
+          )
+        );
+
+        setLagStatus(Object.assign({}, ...lagResultsList));
       } catch (err) {
         console.error("Lag check failed", err);
       } finally {
@@ -329,75 +343,69 @@ export const UploadView: React.FC<UploadViewProps> = ({
                   <div className="p-5 bg-wallstreet-800 rounded-2xl border border-wallstreet-700 flex flex-col items-center justify-center shadow-sm hover:shadow-md transition-shadow">
                     <p className="text-xs text-wallstreet-500 uppercase font-black tracking-widest mb-2">Data Recency</p>
                     {(() => {
-                      const activeMfItems = currentData.filter(i => i.isMutualFund && i.weight > 0);
-                      const hasMfs = activeMfItems.length > 0;
+                      const activeMfTickers = Array.from(new Set(currentData.filter(i => i.isMutualFund).map(i => i.ticker)))
+                        .filter(ticker => {
+                          const tickerData = currentData.filter(d => d.ticker === ticker);
+                          if (tickerData.length === 0) return false;
+                          const latestRecord = tickerData.reduce((prev, curr) => (curr.date > prev.date) ? curr : prev);
+                          return latestRecord.date === globalLatestDate && latestRecord.weight > 0;
+                        });
+                      const hasMfs = activeMfTickers.length > 0;
+                      const formatDateDMY = (d: string) => {
+                        const [y, m, day] = d.split('-');
+                        return `${day}/${m}/${y}`;
+                      };
 
                       if (!hasMfs) {
                         return (
-                          <div className="flex flex-col items-center gap-2 py-4">
-                            <span className="text-green-600 font-bold text-lg">Live Data</span>
-                            <span className="text-xs text-wallstreet-500 px-4 text-center">Using real-time market pricing</span>
+                          <div className="w-full max-w-[320px] rounded-2xl border px-4 py-4 shadow-sm bg-green-50 text-green-700 border-green-200">
+                            <div className="text-center">
+                              <p className="text-[10px] uppercase tracking-[0.25em] font-black text-green-700">Data Recency</p>
+                              <p className="mt-1 text-2xl font-black leading-none text-green-700">Up to Date</p>
+                              <p className="mt-2 text-[11px] font-medium text-green-700">Stocks only, no NAV refresh needed</p>
+                            </div>
                           </div>
                         );
                       }
 
-                      const lastMfDate = activeMfItems.reduce((max, item) => (item.date > max ? item.date : max), '');
-                      const activeMfTickers = activeMfItems.map(i => i.ticker);
                       const relevantStatuses = activeMfTickers.map(t => lagStatus[t]).filter(Boolean);
 
                       const navDates = relevantStatuses.map(s => s.last_nav).filter(Boolean).sort();
                       const oldestNavDate = navDates[0] || '';
 
-                      const marketDates = relevantStatuses.map(s => s.last_market).filter(Boolean).sort();
-                      const latestMarketDate = marketDates[marketDates.length - 1] || '';
-
-                      // Check for match
-                      const isSynced = oldestNavDate && lastMfDate && oldestNavDate >= lastMfDate;
+                      // Check each MF independently against its own held-date reference
+                      const isSynced = relevantStatuses.length > 0 && relevantStatuses.every(s => !s.lagging);
                       const isChecking = isCheckingLag;
-
-                      const todayStr = new Date().toISOString().split('T')[0];
-                      const isStockCurrent = latestMarketDate === todayStr;
+                      const recencyClass = isSynced
+                        ? 'bg-green-50 text-green-700 border-green-200'
+                        : 'bg-red-50 text-red-700 border-red-200';
+                      const statusLabel = isChecking ? 'Checking...' : (isSynced ? 'Up to Date' : 'Lagging');
+                      const statusSubtext = !isChecking && isSynced
+                        ? 'All active MFs are current'
+                        : !isChecking
+                          ? `Last NAV on file ${oldestNavDate ? formatDateDMY(oldestNavDate) : 'N/A'}`
+                          : 'Verifying NAV files';
 
                       return (
                         <>
-                          <div className="flex items-center gap-2 mb-3">
-                            {isChecking ? (
-                              <RefreshCw size={20} className="animate-spin text-wallstreet-500" />
-                            ) : (
-                              <span className={`text-2xl font-black ${isSynced ? 'text-green-600' : 'text-amber-600'}`}>
-                                {isSynced ? 'Synced' : 'Lagging'}
-                              </span>
-                            )}
+                          <div className={`w-full max-w-[360px] rounded-2xl border px-4 py-4 shadow-sm ${recencyClass}`}>
+                            <div className="text-center">
+                              <p className="text-[10px] uppercase tracking-[0.25em] font-black opacity-80">Data Recency</p>
+                              <p className="mt-1 text-2xl font-black leading-none">{statusLabel}</p>
+                              <p className="mt-2 text-[11px] font-medium opacity-90">{statusSubtext}</p>
+                            </div>
                             {!isSynced && !isChecking && (
-                              <button
-                                onClick={() => runLagCheck(currentData, true)}
-                                className="ml-1 bg-amber-50 text-amber-600 p-1.5 rounded-full hover:bg-amber-100 transition-colors"
-                                title="Force refresh"
-                              >
-                                <RefreshCw size={10} />
-                              </button>
+                              <div className="mt-3 flex justify-center">
+                                <button
+                                  onClick={() => runLagCheck(currentData, true)}
+                                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-red-200 bg-red-50 text-red-700 text-[11px] font-bold hover:bg-red-100 transition-colors"
+                                  title="Force refresh"
+                                >
+                                  <RefreshCw size={10} />
+                                  Refresh NAVs
+                                </button>
+                              </div>
                             )}
-                          </div>
-
-                          <div className="w-full bg-wallstreet-900 rounded-lg p-3 text-xs font-mono space-y-2.5 border border-wallstreet-700">
-                            <div className="flex justify-between items-center border-b border-wallstreet-700 pb-2 mb-1">
-                              <span className="text-wallstreet-500 uppercase tracking-tighter">Stock Data</span>
-                              <span className={isStockCurrent ? "text-green-600 font-bold" : "text-wallstreet-500 font-bold"}>
-                                {latestMarketDate || 'N/A'}
-                              </span>
-                            </div>
-
-                            <div className="flex justify-between items-center">
-                              <span className="text-wallstreet-500 uppercase tracking-tighter">Last MF Date</span>
-                              <span className="text-wallstreet-text font-bold">{lastMfDate || '-'}</span>
-                            </div>
-
-                            <div className="flex justify-between items-center">
-                              <span className="text-wallstreet-500 uppercase tracking-tighter">Last NAV Data</span>
-                              <span className={`font-bold ${isSynced ? 'text-green-600' : 'text-amber-600'}`}>
-                                {oldestNavDate || (isChecking ? '...' : 'Missing')}
-                              </span>
-                            </div>
                           </div>
                         </>
                       );
@@ -544,15 +552,45 @@ export const UploadView: React.FC<UploadViewProps> = ({
                             const [y, m, day] = d.split('-');
                             return `${day}/${m}/${y}`;
                           };
+                          const toUtcMs = (d: string) => {
+                            const [y, m, day] = d.split('-').map(Number);
+                            return Date.UTC(y, (m || 1) - 1, day || 1);
+                          };
+                          const mostRecentNavDate = mostRecentNav?.date || '';
+                          const lastHeldDate = lastHeldRecord?.date || '';
+                          const hasComparisonDates = !!mostRecentNavDate && !!lastHeldDate;
+                          const navLagDays = hasComparisonDates
+                            ? Math.round((toUtcMs(lastHeldDate) - toUtcMs(mostRecentNavDate)) / 86400000)
+                            : null;
+                          const navComparisonLabel = !hasComparisonDates
+                            ? 'No comparison'
+                            : navLagDays > 0
+                              ? 'Lagging'
+                              : 'Up to Date';
+                          const navComparisonClass = !hasComparisonDates
+                            ? 'bg-wallstreet-800 text-wallstreet-500 border-wallstreet-700'
+                            : navLagDays > 0
+                              ? 'bg-red-50 text-red-700 border-red-200'
+                              : 'bg-green-50 text-green-700 border-green-200';
+                          const navComparisonTitleClass = !hasComparisonDates
+                            ? 'opacity-80'
+                            : navLagDays > 0
+                              ? 'text-red-700'
+                              : 'text-green-700';
+                          const navComparisonValueClass = !hasComparisonDates
+                            ? 'text-wallstreet-500'
+                            : navLagDays > 0
+                              ? 'text-red-700'
+                              : 'text-green-700';
 
                           return (
                             <div key={ticker} className="border border-wallstreet-700 rounded-xl overflow-hidden">
                               {/* Header row */}
                               <button
                                 onClick={() => setAuditExpandedTicker(isExpanded ? null : ticker)}
-                                className="w-full flex items-center justify-between p-3 bg-wallstreet-900 hover:bg-wallstreet-900 transition-colors text-left"
+                                className="w-full flex items-center justify-between p-3 bg-wallstreet-900 hover:bg-wallstreet-900 transition-colors text-left lg:grid lg:grid-cols-[minmax(0,1fr)_440px_auto] lg:items-center lg:gap-4"
                               >
-                                <div className="flex items-center gap-3">
+                                <div className="flex items-center gap-3 lg:justify-self-start">
                                   <div className="w-8 h-8 bg-purple-600 rounded-lg flex items-center justify-center">
                                     <Database size={14} className="text-white" />
                                   </div>
@@ -561,8 +599,6 @@ export const UploadView: React.FC<UploadViewProps> = ({
                                       <span className="font-bold text-wallstreet-text">{ticker}</span>
                                       {isCurrentlyHeld ? (
                                         <span className="text-[10px] font-bold text-green-600 bg-green-50 px-1.5 py-0.5 rounded-full border border-green-200">Currently held</span>
-                                      ) : lastHeldRecord ? (
-                                        <span className="text-[10px] font-bold text-red-600 bg-red-50 px-1.5 py-0.5 rounded-full border border-red-200">Last held {formatDateDMY(lastHeldRecord.date)}</span>
                                       ) : null}
                                     </div>
                                     <div className="flex items-center gap-2 mt-0.5">
@@ -572,19 +608,27 @@ export const UploadView: React.FC<UploadViewProps> = ({
                                     </div>
                                   </div>
                                 </div>
-                                <div className="flex items-center gap-4">
-                                  {/* Most recent NAV (across all data, not just year) */}
-                                  <div className="text-right">
-                                    <p className="text-[10px] text-wallstreet-500 uppercase tracking-wider font-bold">Latest NAV</p>
-                                    {mostRecentNav ? (
-                                      <>
-                                        <p className="text-sm font-mono font-bold text-wallstreet-text">{mostRecentNav.nav.toFixed(4)}</p>
-                                        <p className="text-[10px] font-mono text-wallstreet-500">{mostRecentNav.date}</p>
-                                      </>
-                                    ) : (
-                                      <p className="text-xs text-wallstreet-500">N/A</p>
-                                    )}
-                                  </div>
+                                <div className="hidden lg:flex lg:justify-self-center lg:w-[440px] items-center justify-center px-4">
+                                  {mostRecentNav && lastHeldRecord ? (
+                                    <div className={`w-full max-w-[440px] rounded-2xl border px-4 py-3 shadow-sm ${navComparisonClass}`}>
+                                      <div className="flex items-center justify-between gap-3">
+                                        <div className="min-w-[120px] text-center">
+                                          <p className={`text-[10px] uppercase tracking-[0.25em] font-black ${navComparisonTitleClass}`}>Last Held</p>
+                                          <p className="mt-1 text-sm font-mono font-black">{formatDateDMY(lastHeldRecord.date)}</p>
+                                        </div>
+                                        <div className="flex flex-col items-center text-center px-2">
+                                          <p className="text-[10px] uppercase tracking-[0.25em] font-black opacity-80">NAV vs Held</p>
+                                          <p className={`mt-1 text-sm font-black leading-none ${navComparisonValueClass}`}>{navComparisonLabel}</p>
+                                        </div>
+                                        <div className="min-w-[120px] text-center">
+                                          <p className={`text-[10px] uppercase tracking-[0.25em] font-black ${navComparisonTitleClass}`}>Last NAV on File</p>
+                                          <p className="mt-1 text-sm font-mono font-black">{formatDateDMY(mostRecentNav.date)}</p>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  ) : null}
+                                </div>
+                                <div className="flex items-center gap-2 lg:justify-self-end">
                                   {isExpanded ? <ChevronUp size={16} className="text-wallstreet-500" /> : <ChevronDown size={16} className="text-wallstreet-500" />}
                                 </div>
                               </button>
@@ -754,7 +798,7 @@ const AssetCard: React.FC<AssetCardProps> = ({ asset, lagStatus, onEditSector, o
               {asset.isMutualFund && (
                 <div className="flex items-center gap-1">
                   {isLagging ? <AlertTriangle size={12} className="text-amber-500" /> : <CheckCircle2 size={12} className="text-green-500" />}
-                  <span className="text-xs font-medium text-wallstreet-500">{isLagging ? 'Lagging' : 'Optimal'}</span>
+                  <span className="text-xs font-medium text-wallstreet-500">{isLagging ? 'Lagging' : 'Current'}</span>
                 </div>
               )}
             </div>
@@ -789,25 +833,25 @@ const AssetCard: React.FC<AssetCardProps> = ({ asset, lagStatus, onEditSector, o
         </div>
       </div>
 
-      {asset.isMutualFund && (
-        <div className={`p-3 rounded-xl border flex items-center justify-between gap-4 transition-all ${isLagging ? 'bg-amber-50 border-amber-200 shadow-sm' : 'bg-wallstreet-900 border-wallstreet-700'}`}>
-          <div className="flex gap-2">
-            <div className={`w-7 h-7 rounded-lg flex items-center justify-center ${isLagging ? 'bg-amber-200 text-amber-700' : 'bg-wallstreet-900 text-wallstreet-500'}`}>
-              <RefreshCw size={12} className={isLagging ? 'animate-pulse' : ''} />
-            </div>
-            <div>
-              <p className={`text-xs font-bold leading-tight ${isLagging ? 'text-amber-800' : 'text-wallstreet-text'}`}>
-                {isLagging ? 'Update Required' : 'NAV is Current'}
-              </p>
-              {status && (
-                <p className="text-[11px] text-wallstreet-500 mt-1">
-                  Last: <span className="font-mono font-bold text-wallstreet-text">{status.last_nav || 'N/A'}</span>
-                  <span className="mx-1 text-wallstreet-500">|</span>
-                  Mkt: <span className="font-mono font-bold text-wallstreet-text">{status.last_market}</span>
-                </p>
-              )}
-            </div>
-          </div>
+              {asset.isMutualFund && (
+                <div className={`p-3 rounded-xl border flex items-center justify-between gap-4 transition-all ${isLagging ? 'bg-amber-50 border-amber-200 shadow-sm' : 'bg-wallstreet-900 border-wallstreet-700'}`}>
+                  <div className="flex gap-2">
+                    <div className={`w-7 h-7 rounded-lg flex items-center justify-center ${isLagging ? 'bg-amber-200 text-amber-700' : 'bg-wallstreet-900 text-wallstreet-500'}`}>
+                      <RefreshCw size={12} className={isLagging ? 'animate-pulse' : ''} />
+                    </div>
+                    <div>
+                      <p className={`text-xs font-bold leading-tight ${isLagging ? 'text-amber-800' : 'text-wallstreet-text'}`}>
+                        {isLagging ? 'Update Required' : 'NAV is Current'}
+                      </p>
+                      {status && (
+                        <p className="text-[11px] text-wallstreet-500 mt-1">
+                          NAV: <span className="font-mono font-bold text-wallstreet-text">{status.last_nav || 'N/A'}</span>
+                          <span className="mx-1 text-wallstreet-500">|</span>
+                          Held: <span className="font-mono font-bold text-wallstreet-text">{status.reference_date || status.last_market}</span>
+                        </p>
+                      )}
+                    </div>
+                  </div>
 
           <label className={`cursor-pointer group/upload px-3 py-2 rounded-lg border shadow-sm transition-all flex items-center gap-1.5 ${isLagging ? 'bg-wallstreet-800 border-amber-300 text-amber-700 hover:bg-amber-100' : 'bg-wallstreet-800 border-wallstreet-700 text-wallstreet-500 hover:bg-wallstreet-900'}`}>
             <Upload size={14} className="group-hover/upload:-translate-y-0.5 transition-transform" />

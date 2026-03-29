@@ -76,18 +76,26 @@ export const PeriodManager: React.FC<PeriodManagerProps> = ({
                             {displayTickers.map(t => {
                                 const currentWeight = parseFloat(period.weights[t.ticker] || '0');
                                 const prevWeight = originalIdx > 0 ? parseFloat(periods[originalIdx - 1].weights[t.ticker] || '0') : currentWeight;
+                                const isZeroWeight = Math.abs(currentWeight) < 0.0001;
 
-                                let bgClass = "bg-wallstreet-700 hover:bg-wallstreet-600 text-wallstreet-text";
+                                let bgClass = "bg-wallstreet-700 hover:bg-wallstreet-600";
+                                let textClass = "text-wallstreet-text";
                                 let borderClass = "border-wallstreet-600";
 
                                 if (originalIdx > 0) {
                                     if (currentWeight > prevWeight + 0.001) {
-                                        bgClass = "bg-green-100 hover:bg-green-200 text-green-700 dark:bg-green-900/20 dark:hover:bg-green-900/40 dark:text-green-400";
+                                        bgClass = "bg-green-100 hover:bg-green-200 dark:bg-green-900/20 dark:hover:bg-green-900/40";
+                                        textClass = "text-green-700 dark:text-green-400";
                                         borderClass = "border-green-700 dark:border-green-700";
                                     } else if (currentWeight < prevWeight - 0.001) {
-                                        bgClass = "bg-red-100 hover:bg-red-200 text-red-600 dark:bg-red-900/20 dark:hover:bg-red-900/40 dark:text-red-400";
+                                        bgClass = "bg-red-100 hover:bg-red-200 dark:bg-red-900/20 dark:hover:bg-red-900/40";
+                                        textClass = "text-red-600 dark:text-red-400";
                                         borderClass = "border-red-600 dark:border-red-700";
                                     }
+                                }
+
+                                if (isZeroWeight) {
+                                    textClass = "text-gray-400 placeholder:text-gray-400 dark:text-gray-400 dark:placeholder:text-gray-400";
                                 }
 
                                 return (
@@ -99,7 +107,7 @@ export const PeriodManager: React.FC<PeriodManagerProps> = ({
                                                 value={period.weights[t.ticker] || ''}
                                                 onChange={(e) => handleWeightChange(period.id, t.ticker, e.target.value)}
                                                 onBlur={(e) => handleWeightBlur(period.id, t.ticker, e.target.value)}
-                                                className={`w-full text-right pr-5 pl-2 py-1.5 text-sm ${bgClass} border ${borderClass} rounded-lg font-mono font-medium focus:ring-1 focus:ring-blue-400 focus:outline-none transition-colors`}
+                                                className={`w-full text-right pr-5 pl-2 py-1.5 text-sm ${bgClass} ${textClass} border ${borderClass} rounded-lg font-mono font-medium focus:ring-1 focus:ring-blue-400 focus:outline-none transition-colors`}
                                                 placeholder="0.00"
                                             />
                                             <span className="absolute right-2 top-1/2 -translate-y-1/2 text-wallstreet-500 text-[10px] font-bold">%</span>
