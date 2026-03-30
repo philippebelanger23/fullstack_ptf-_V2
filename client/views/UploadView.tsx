@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { AlertCircle, ArrowRight, Trash2, Database, Edit, FileSpreadsheet, CheckCircle2, AlertTriangle, Upload, PieChart, RefreshCw, Layers, ChevronDown, ChevronUp, HelpCircle, Search, Eye, Plus, Save } from 'lucide-react';
 import { PortfolioItem } from '../types';
 import { analyzeManualPortfolio, checkNavLag, loadSectorWeights, saveSectorWeights, uploadNav, saveAssetGeo, fetchNavAudit, saveManualNav } from '../services/api';
@@ -40,22 +40,14 @@ export const UploadView: React.FC<UploadViewProps> = ({
 
   // UI State
   const [isAssetSectionOpen, setIsAssetSectionOpen] = useState(true); // Default to open if data exists
+  const autoLagCheckDataRef = useRef<PortfolioItem[] | null>(null);
 
   const runLagCheck = useCallback(async (items: PortfolioItem[], forceRefresh: boolean = false) => {
     if (items.length === 0) return;
 
-    const globalLatestDate = items.length > 0
-      ? items.reduce((max, item) => (item.date > max ? item.date : max), '')
-      : '';
-
     const activeMfTickers = Array.from(new Set(
-      items.filter(i => i.isMutualFund).map(i => i.ticker)
-    )).filter(ticker => {
-      const tickerData = items.filter(d => d.ticker === ticker);
-      if (tickerData.length === 0) return false;
-      const latestRecord = tickerData.reduce((prev, curr) => (curr.date > prev.date) ? curr : prev);
-      return latestRecord.date === globalLatestDate && latestRecord.weight > 0;
-    });
+      items.filter(i => i.isMutualFund && i.weight > 0).map(i => i.ticker)
+    ));
 
     if (activeMfTickers.length > 0) {
       setIsCheckingLag(true);
@@ -94,10 +86,18 @@ export const UploadView: React.FC<UploadViewProps> = ({
 
   // Auto-run lag check when portfolio data changes and lag hasn't been checked yet
   useEffect(() => {
-    if (currentData.length > 0 && Object.keys(lagStatus).length === 0) {
-      runLagCheck(currentData);
+    if (currentData.length === 0) {
+      autoLagCheckDataRef.current = null;
+      return;
     }
-  }, [currentData, lagStatus, runLagCheck]);
+
+    if (autoLagCheckDataRef.current === currentData) {
+      return;
+    }
+
+    autoLagCheckDataRef.current = currentData;
+    runLagCheck(currentData);
+  }, [currentData, runLagCheck]);
 
   // Manual Entry State
   const [isManualModalOpen, setIsManualModalOpen] = useState(false);
@@ -343,14 +343,8 @@ export const UploadView: React.FC<UploadViewProps> = ({
                   <div className="p-5 bg-wallstreet-800 rounded-2xl border border-wallstreet-700 flex flex-col items-center justify-center shadow-sm hover:shadow-md transition-shadow">
                     <p className="text-xs text-wallstreet-500 uppercase font-black tracking-widest mb-2">Data Recency</p>
                     {(() => {
-                      const activeMfTickers = Array.from(new Set(currentData.filter(i => i.isMutualFund).map(i => i.ticker)))
-                        .filter(ticker => {
-                          const tickerData = currentData.filter(d => d.ticker === ticker);
-                          if (tickerData.length === 0) return false;
-                          const latestRecord = tickerData.reduce((prev, curr) => (curr.date > prev.date) ? curr : prev);
-                          return latestRecord.date === globalLatestDate && latestRecord.weight > 0;
-                        });
-                      const hasMfs = activeMfTickers.length > 0;
+                      const activeMfItems = currentData.filter(i => i.isMutualFund && i.weight > 0);
+                      const hasMfs = activeMfItems.length > 0;
                       const formatDateDMY = (d: string) => {
                         const [y, m, day] = d.split('-');
                         return `${day}/${m}/${y}`;
@@ -368,6 +362,7 @@ export const UploadView: React.FC<UploadViewProps> = ({
                         );
                       }
 
+                      const activeMfTickers = activeMfItems.map(i => i.ticker);
                       const relevantStatuses = activeMfTickers.map(t => lagStatus[t]).filter(Boolean);
 
                       const navDates = relevantStatuses.map(s => s.last_nav).filter(Boolean).sort();

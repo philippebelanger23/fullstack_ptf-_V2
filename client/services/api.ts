@@ -13,6 +13,59 @@ const CACHE_VERSIONS = {
     dividend: 6,  // Increment when dividend yield normalization changes (was 5: yfinance 1.2.0 returns dividendYield as % directly)
 };
 
+type RequestCacheEntry<T> = {
+    timestamp: number;
+    value: T;
+};
+
+const requestCache = new Map<string, RequestCacheEntry<unknown>>();
+const requestInflight = new Map<string, Promise<unknown>>();
+const REQUEST_CACHE_TTL_MS = 2000;
+
+function getCachedRequest<T>(cacheKey: string, ttlMs: number): T | null {
+    const entry = requestCache.get(cacheKey) as RequestCacheEntry<T> | undefined;
+    if (!entry) return null;
+    if ((Date.now() - entry.timestamp) > ttlMs) {
+        requestCache.delete(cacheKey);
+        return null;
+    }
+    return entry.value;
+}
+
+function setCachedRequest<T>(cacheKey: string, value: T): T {
+    requestCache.set(cacheKey, { timestamp: Date.now(), value });
+    return value;
+}
+
+function invalidateRequestCache(prefix: string) {
+    for (const key of requestCache.keys()) {
+        if (key === prefix || key.startsWith(prefix)) {
+            requestCache.delete(key);
+        }
+    }
+}
+
+async function memoizedRequest<T>(
+    cacheKey: string,
+    fetcher: () => Promise<T>,
+    ttlMs: number = REQUEST_CACHE_TTL_MS
+): Promise<T> {
+    const cached = getCachedRequest<T>(cacheKey, ttlMs);
+    if (cached !== null) return cached;
+
+    const inflight = requestInflight.get(cacheKey) as Promise<T> | undefined;
+    if (inflight) return inflight;
+
+    const request = fetcher()
+        .then(result => setCachedRequest(cacheKey, result))
+        .finally(() => {
+            requestInflight.delete(cacheKey);
+        });
+
+    requestInflight.set(cacheKey, request);
+    return request;
+}
+
 /**
  * Load a versioned cache from localStorage.
  * Returns empty object if version mismatch or load fails.
@@ -68,30 +121,35 @@ function createCachedFetcher<T>(
     let cache: Record<string, T> = loadVersionedCache(cacheKey, versionKey, version) || {};
 
     return async (tickers: string[]): Promise<Record<string, T>> => {
-        const missingTickers = tickers.filter(ticker => isMissing(cache, ticker));
+        const normalizedTickers = Array.from(new Set(tickers.map(ticker => ticker.trim()))).sort();
+        const missingTickers = normalizedTickers.filter(ticker => isMissing(cache, ticker));
 
         if (missingTickers.length > 0) {
             try {
-                const response = await fetch(`${API_Base_URL}/${endpoint}`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ tickers: missingTickers }),
+                const requestKey = `${endpoint}:${missingTickers.join(',')}`;
+                const newData = await memoizedRequest<Record<string, T>>(requestKey, async () => {
+                    const response = await fetch(`${API_Base_URL}/${endpoint}`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ tickers: missingTickers }),
+                    });
+
+                    if (!response.ok) {
+                        throw new Error(`Failed to fetch ${endpoint}`);
+                    }
+
+                    return await response.json();
                 });
 
-                if (response.ok) {
-                    const newData = await response.json();
-                    cache = { ...cache, ...newData };
-                    saveVersionedCache(cacheKey, cache);
-                } else {
-                    console.error(`Failed to fetch ${endpoint}`);
-                }
+                cache = { ...cache, ...newData };
+                saveVersionedCache(cacheKey, cache);
             } catch (error) {
                 console.error(`Error fetching ${endpoint}:`, error);
             }
         }
 
         const result: Record<string, T> = {};
-        tickers.forEach(ticker => {
+        normalizedTickers.forEach(ticker => {
             if (cache[ticker] !== undefined) {
                 result[ticker] = cache[ticker];
             }
@@ -141,35 +199,41 @@ export const analyzeManualPortfolio = async (items: PortfolioItem[]): Promise<Po
 };
 
 export const fetchIndexExposure = async (): Promise<{ sectors: any[], geography: any[], last_scraped?: string }> => {
-    try {
-        const response = await fetch(`${API_Base_URL}/index-exposure`);
-        if (!response.ok) throw new Error("Failed to fetch index exposure");
+    return memoizedRequest('GET /index-exposure', async () => {
+        try {
+            const response = await fetch(`${API_Base_URL}/index-exposure`);
+            if (!response.ok) throw new Error("Failed to fetch index exposure");
 
-        return await response.json();
-    } catch (error) {
-        console.error("Error fetching index exposure:", error);
-        return { sectors: [], geography: [] };
-    }
+            return await response.json();
+        } catch (error) {
+            console.error("Error fetching index exposure:", error);
+            return { sectors: [], geography: [] };
+        }
+    });
 };
 
 export const fetchCurrencyPerformance = async (tickers: string[]): Promise<Record<string, Record<string, number>>> => {
-    try {
-        const response = await fetch(`${API_Base_URL}/fetch-performance`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ tickers }),
-        });
+    const normalizedTickers = Array.from(new Set(tickers.map(ticker => ticker.trim()))).sort();
+    const cacheKey = `POST /fetch-performance:${normalizedTickers.join(',')}`;
+    return memoizedRequest(cacheKey, async () => {
+        try {
+            const response = await fetch(`${API_Base_URL}/fetch-performance`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ tickers: normalizedTickers }),
+            });
 
-        if (response.ok) {
-            return await response.json();
-        } else {
-            console.error('Failed to fetch currency performance');
+            if (response.ok) {
+                return await response.json();
+            } else {
+                console.error('Failed to fetch currency performance');
+                return {};
+            }
+        } catch (error) {
+            console.error("Error fetching currency performance:", error);
             return {};
         }
-    } catch (error) {
-        console.error("Error fetching currency performance:", error);
-        return {};
-    }
+    });
 };
 
 // In-memory cache for index history data
@@ -181,48 +245,50 @@ let indexHistoryCache: {
 const INDEX_HISTORY_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
 export const fetchIndexHistory = async (): Promise<Record<string, { date: string, value: number }[]>> => {
-    // Check if cache is valid
-    const now = Date.now();
-    if (indexHistoryCache.data && (now - indexHistoryCache.timestamp) < INDEX_HISTORY_CACHE_TTL) {
+    return memoizedRequest('GET /index-history', async () => {
+        const now = Date.now();
+        if (indexHistoryCache.data && (now - indexHistoryCache.timestamp) < INDEX_HISTORY_CACHE_TTL) {
+            return indexHistoryCache.data;
+        }
 
-        return indexHistoryCache.data;
-    }
-
-    try {
-        const response = await fetch(`${API_Base_URL}/index-history`);
-        if (response.ok) {
-            const data = await response.json();
-            // Update cache
-            indexHistoryCache = { data, timestamp: now };
-            return data;
-        } else {
-            console.error('Failed to fetch index history');
+        try {
+            const response = await fetch(`${API_Base_URL}/index-history`);
+            if (response.ok) {
+                const data = await response.json();
+                // Update cache
+                indexHistoryCache = { data, timestamp: now };
+                return data;
+            } else {
+                console.error('Failed to fetch index history');
+                return { "ACWI": [], "XIC.TO": [], "Index": [] };
+            }
+        } catch (error) {
+            console.error("Error fetching index history:", error);
             return { "ACWI": [], "XIC.TO": [], "Index": [] };
         }
-    } catch (error) {
-        console.error("Error fetching index history:", error);
-        return { "ACWI": [], "XIC.TO": [], "Index": [] };
-    }
+    }, INDEX_HISTORY_CACHE_TTL);
 };
 
 // SectorHistoryData moved to types.ts
 
 export const fetchSectorHistory = async (): Promise<{ US: SectorHistoryData, CA: SectorHistoryData, OVERALL: SectorHistoryData }> => {
-    try {
-        const response = await fetch(`${API_Base_URL}/sector-history`);
-        if (response.ok) {
-            const data = await response.json();
-            // Handle both old flat format and new nested format
-            if (data.US) return { US: data.US, CA: data.CA || {}, OVERALL: data.OVERALL || {} };
-            return { US: data, CA: {}, OVERALL: {} };
-        } else {
-            console.error('Failed to fetch sector history');
+    return memoizedRequest('GET /sector-history', async () => {
+        try {
+            const response = await fetch(`${API_Base_URL}/sector-history`);
+            if (response.ok) {
+                const data = await response.json();
+                // Handle both old flat format and new nested format
+                if (data.US) return { US: data.US, CA: data.CA || {}, OVERALL: data.OVERALL || {} };
+                return { US: data, CA: {}, OVERALL: {} };
+            } else {
+                console.error('Failed to fetch sector history');
+                return { US: {}, CA: {}, OVERALL: {} };
+            }
+        } catch (error) {
+            console.error("Error fetching sector history:", error);
             return { US: {}, CA: {}, OVERALL: {} };
         }
-    } catch (error) {
-        console.error("Error fetching sector history:", error);
-        return { US: {}, CA: {}, OVERALL: {} };
-    }
+    });
 };
 
 export const savePortfolioConfig = async (config: { tickers: any[], periods: any[] }): Promise<void> => {
@@ -238,6 +304,7 @@ export const savePortfolioConfig = async (config: { tickers: any[], periods: any
         if (!response.ok) {
             throw new Error(`Failed to save portfolio config: ${response.statusText}`);
         }
+        invalidateRequestCache('GET /load-portfolio-config');
     } catch (error) {
         console.error("Error saving portfolio config:", error);
         throw error;
@@ -245,11 +312,13 @@ export const savePortfolioConfig = async (config: { tickers: any[], periods: any
 };
 
 export const loadPortfolioConfig = async (): Promise<{ tickers: any[], periods: any[] }> => {
-    const response = await fetch(`${API_Base_URL}/load-portfolio-config`);
-    if (!response.ok) {
-        throw new Error(`Failed to load portfolio config: ${response.statusText}`);
-    }
-    return await response.json();
+    return memoizedRequest('GET /load-portfolio-config', async () => {
+        const response = await fetch(`${API_Base_URL}/load-portfolio-config`);
+        if (!response.ok) {
+            throw new Error(`Failed to load portfolio config: ${response.statusText}`);
+        }
+        return await response.json();
+    });
 };
 
 export const saveSectorWeights = async (weights: Record<string, Record<string, number>>): Promise<void> => {
@@ -260,6 +329,7 @@ export const saveSectorWeights = async (weights: Record<string, Record<string, n
             body: JSON.stringify({ weights }),
         });
         if (!response.ok) throw new Error("Failed to save sector weights");
+        invalidateRequestCache('GET /load-sector-weights');
     } catch (error) {
         console.error("Error saving sector weights:", error);
         throw error;
@@ -267,14 +337,16 @@ export const saveSectorWeights = async (weights: Record<string, Record<string, n
 };
 
 export const loadSectorWeights = async (): Promise<Record<string, Record<string, number>>> => {
-    try {
-        const response = await fetch(`${API_Base_URL}/load-sector-weights`);
-        if (!response.ok) return {};
-        return await response.json();
-    } catch (error) {
-        console.error("Error loading sector weights:", error);
-        return {};
-    }
+    return memoizedRequest('GET /load-sector-weights', async () => {
+        try {
+            const response = await fetch(`${API_Base_URL}/load-sector-weights`);
+            if (!response.ok) return {};
+            return await response.json();
+        } catch (error) {
+            console.error("Error loading sector weights:", error);
+            return {};
+        }
+    });
 };
 
 export const saveAssetGeo = async (geo: Record<string, string>): Promise<void> => {
@@ -285,6 +357,7 @@ export const saveAssetGeo = async (geo: Record<string, string>): Promise<void> =
             body: JSON.stringify({ geo }),
         });
         if (!response.ok) throw new Error("Failed to save asset geography");
+        invalidateRequestCache('GET /load-asset-geo');
     } catch (error) {
         console.error("Error saving asset geography:", error);
         throw error;
@@ -292,34 +365,40 @@ export const saveAssetGeo = async (geo: Record<string, string>): Promise<void> =
 };
 
 export const loadAssetGeo = async (): Promise<Record<string, string>> => {
-    try {
-        const response = await fetch(`${API_Base_URL}/load-asset-geo`);
-        if (!response.ok) return {};
-        return await response.json();
-    } catch (error) {
-        console.error("Error loading asset geography:", error);
-        return {};
-    }
+    return memoizedRequest('GET /load-asset-geo', async () => {
+        try {
+            const response = await fetch(`${API_Base_URL}/load-asset-geo`);
+            if (!response.ok) return {};
+            return await response.json();
+        } catch (error) {
+            console.error("Error loading asset geography:", error);
+            return {};
+        }
+    });
 };
 
 export const checkNavLag = async (tickers: string[], forceRefresh: boolean = false, referenceDate?: string): Promise<Record<string, any>> => {
-    try {
-        const response = await fetch(`${API_Base_URL}/check-nav-lag`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                tickers,
-                force_refresh: forceRefresh,
-                reference_date: referenceDate,
-                _t: Date.now()  // Cache buster
-            }),
-        });
-        if (!response.ok) return {};
-        return await response.json();
-    } catch (error) {
-        console.error("Error checking NAV lag:", error);
-        return {};
-    }
+    const normalizedTickers = Array.from(new Set(tickers.map(ticker => ticker.trim()))).sort();
+    const cacheKey = `POST /check-nav-lag:${normalizedTickers.join(',')}:${forceRefresh}:${referenceDate || ''}`;
+    return memoizedRequest(cacheKey, async () => {
+        try {
+            const response = await fetch(`${API_Base_URL}/check-nav-lag`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    tickers: normalizedTickers,
+                    force_refresh: forceRefresh,
+                    reference_date: referenceDate,
+                    _t: Date.now()  // Cache buster
+                }),
+            });
+            if (!response.ok) return {};
+            return await response.json();
+        } catch (error) {
+            console.error("Error checking NAV lag:", error);
+            return {};
+        }
+    }, 1000);
 };
 
 export const saveManualNav = async (ticker: string, date: string, nav: number): Promise<void> => {
@@ -329,17 +408,21 @@ export const saveManualNav = async (ticker: string, date: string, nav: number): 
         body: JSON.stringify({ ticker, date, nav }),
     });
     if (!response.ok) throw new Error("Failed to save manual NAV");
+    invalidateRequestCache('GET /nav-audit');
+    invalidateRequestCache('POST /check-nav-lag');
 };
 
 export const fetchNavAudit = async (): Promise<Record<string, { date: string, nav: number, source: string, returnPct: number | null }[]>> => {
-    try {
-        const response = await fetch(`${API_Base_URL}/nav-audit`);
-        if (!response.ok) throw new Error("Failed to fetch NAV audit data");
-        return await response.json();
-    } catch (error) {
-        console.error("Error fetching NAV audit:", error);
-        return {};
-    }
+    return memoizedRequest('GET /nav-audit', async () => {
+        try {
+            const response = await fetch(`${API_Base_URL}/nav-audit`);
+            if (!response.ok) throw new Error("Failed to fetch NAV audit data");
+            return await response.json();
+        } catch (error) {
+            console.error("Error fetching NAV audit:", error);
+            return {};
+        }
+    });
 };
 
 export const uploadNav = async (ticker: string, file: File): Promise<void> => {
@@ -356,6 +439,8 @@ export const uploadNav = async (ticker: string, file: File): Promise<void> => {
             const errorText = await response.text();
             throw new Error(`Failed to upload NAV: ${errorText}`);
         }
+        invalidateRequestCache('GET /nav-audit');
+        invalidateRequestCache('POST /check-nav-lag');
     } catch (error) {
         console.error(`Error uploading NAV for ${ticker}:`, error);
         throw error;
@@ -387,51 +472,57 @@ export const convertConfigToItems = (tickers: any[], periods: any[]): PortfolioI
 // BackcastMetrics, BackcastSeriesPoint, BackcastResponse moved to types.ts
 
 export const fetchPortfolioBackcast = async (items: PortfolioItem[], benchmark: string = '75/25', includeAttribution: boolean = false): Promise<BackcastResponse> => {
-    try {
-        const response = await fetch(`${API_Base_URL}/portfolio-backcast`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ items, benchmark, includeAttribution }),
-        });
+    const cacheKey = `POST /portfolio-backcast:${JSON.stringify({ items, benchmark, includeAttribution })}`;
+    return memoizedRequest(cacheKey, async () => {
+        try {
+            const response = await fetch(`${API_Base_URL}/portfolio-backcast`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ items, benchmark, includeAttribution }),
+            });
 
-        if (!response.ok) {
-            const errorText = await response.text();
-            throw new Error(`Server Error: ${response.status} - ${errorText}`);
+            if (!response.ok) {
+                const errorText = await response.text();
+                throw new Error(`Server Error: ${response.status} - ${errorText}`);
+            }
+
+            return await response.json();
+        } catch (error) {
+            console.error("Portfolio Backcast Error:", error);
+            return {
+                metrics: {
+                    totalReturn: 0, benchmarkReturn: 0, alpha: 0, sharpeRatio: 0, sortinoRatio: 0,
+                    informationRatio: 0, trackingError: 0, volatility: 0, beta: 0, maxDrawdown: 0,
+                    benchmarkMaxDrawdown: 0, benchmarkVolatility: 0, benchmarkSharpe: 0, benchmarkSortino: 0
+                },
+                series: [],
+                missingTickers: [],
+                error: String(error)
+            };
         }
-
-        return await response.json();
-    } catch (error) {
-        console.error("Portfolio Backcast Error:", error);
-        return {
-            metrics: {
-                totalReturn: 0, benchmarkReturn: 0, alpha: 0, sharpeRatio: 0, sortinoRatio: 0,
-                informationRatio: 0, trackingError: 0, volatility: 0, beta: 0, maxDrawdown: 0,
-                benchmarkMaxDrawdown: 0, benchmarkVolatility: 0, benchmarkSharpe: 0, benchmarkSortino: 0
-            },
-            series: [],
-            missingTickers: [],
-            error: String(error)
-        };
-    }
+    });
 };
 
 export const fetchRollingMetrics = async (items: PortfolioItem[], benchmark: string = '75/25'): Promise<RollingMetricsResponse> => {
-    try {
-        const response = await fetch(`${API_Base_URL}/rolling-metrics`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ items, benchmark }),
-        });
-        if (!response.ok) {
-            throw new Error(`Server Error: ${response.status}`);
+    const cacheKey = `POST /rolling-metrics:${JSON.stringify({ items, benchmark })}`;
+    return memoizedRequest(cacheKey, async () => {
+        try {
+            const response = await fetch(`${API_Base_URL}/rolling-metrics`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ items, benchmark }),
+            });
+            if (!response.ok) {
+                throw new Error(`Server Error: ${response.status}`);
+            }
+            return await response.json();
+        } catch (error) {
+            console.error("Rolling Metrics Error:", error);
+            return { windows: { 21: [], 63: [], 126: [] }, error: String(error) };
         }
-        return await response.json();
-    } catch (error) {
-        console.error("Rolling Metrics Error:", error);
-        return { windows: { 21: [], 63: [], 126: [] }, error: String(error) };
-    }
+    });
 };
 
 // =============================================================================
@@ -442,29 +533,32 @@ export const fetchRollingMetrics = async (items: PortfolioItem[], benchmark: str
 export type { RiskPosition, SectorRisk, RiskContributionResponse } from '../types';
 
 export const fetchRiskContribution = async (items: PortfolioItem[]): Promise<RiskContributionResponse> => {
-    try {
-        const response = await fetch(`${API_Base_URL}/risk-contribution`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ items }),
-        });
+    const cacheKey = `POST /risk-contribution:${JSON.stringify({ items })}`;
+    return memoizedRequest(cacheKey, async () => {
+        try {
+            const response = await fetch(`${API_Base_URL}/risk-contribution`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ items }),
+            });
 
-        if (!response.ok) {
-            const errorText = await response.text();
-            throw new Error(`Server Error: ${response.status} - ${errorText}`);
+            if (!response.ok) {
+                const errorText = await response.text();
+                throw new Error(`Server Error: ${response.status} - ${errorText}`);
+            }
+
+            return await response.json();
+        } catch (error) {
+            console.error("Risk Contribution Error:", error);
+            return {
+                portfolioVol: 0, benchmarkVol: 0, portfolioBeta: 1,
+                diversificationRatio: 0, concentrationRatio: 0,
+                numEffectiveBets: 0, top3Concentration: 0,
+                var95: 0, cvar95: 0,
+                positions: [], sectorRisk: [], missingTickers: [],
+                error: String(error),
+            };
         }
-
-        return await response.json();
-    } catch (error) {
-        console.error("Risk Contribution Error:", error);
-        return {
-            portfolioVol: 0, benchmarkVol: 0, portfolioBeta: 1,
-            diversificationRatio: 0, concentrationRatio: 0,
-            numEffectiveBets: 0, top3Concentration: 0,
-            var95: 0, cvar95: 0,
-            positions: [], sectorRisk: [], missingTickers: [],
-            error: String(error),
-        };
-    }
+    });
 };
 
