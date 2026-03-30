@@ -102,6 +102,7 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
     const [isAttributionLoading, setIsAttributionLoading] = useState(true);
     const [regionFilter, setRegionFilter] = useState<'ALL' | 'US' | 'CA'>('ALL');
     const [benchmarkMode, setBenchmarkMode] = useState<'SECTOR' | 'SP500' | 'TSX'>('SECTOR');
+    const [heatmapMode, setHeatmapMode] = useState<'CONTRIBUTION' | 'PERFORMANCE'>('CONTRIBUTION');
     const [benchmarkExposure, setBenchmarkExposure] = useState<any[]>([]);
     const [fetchedAt, setFetchedAt] = useState<string | null>(null);
 
@@ -256,6 +257,7 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
 
         return uniqueTickers.map(ticker => {
             const history = filteredOverviewData.filter(d => d.ticker === ticker);
+            const yearHistory = cleanData.filter(d => d.ticker === ticker);
             // Forward-compounded contribution (ATTRIBUTION_LOGIC.md §4)
             const sortedHistory = [...history].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
             const totalContrib = forwardCompoundedContribution(sortedHistory);
@@ -306,8 +308,12 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
                 (product: number, item: PortfolioItem) => product * (1 + (item.returnPct || 0)),
                 1
             ) - 1) * 100;
+            const ytdReturn = (yearHistory.reduce(
+                (product: number, item: PortfolioItem) => product * (1 + (item.returnPct || 0)),
+                1
+            ) - 1) * 100;
 
-            return { ticker, totalContrib, totalReturn, history, latestWeight, stdDevContrib, beta, riskScore: stdDevContrib };
+            return { ticker, totalContrib, totalReturn, ytdReturn, history, latestWeight, stdDevContrib, beta, riskScore: stdDevContrib };
         }).filter(t => t.latestWeight > 0.001 || Math.abs(t.totalContrib) > 0.0001);
     }, [uniqueTickers, filteredOverviewData, allMonths]);
 
@@ -315,8 +321,53 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
     // Update: Sort by latestWeight instead of avgWeight to match Dashboard logic
     const sortedByWeight = useMemo(() => [...tickerStats].sort((a, b) => b.latestWeight - a.latestWeight), [tickerStats]);
 
+    const chainReturnPct = useCallback((items: { returnPct?: number | null | undefined }[]) => {
+        if (items.length === 0) return 0;
+        return (items.reduce((product, item) => product * (1 + (item.returnPct || 0)), 1) - 1) * 100;
+    }, []);
+
+    const formatHeatmapPct = useCallback((value: number) => {
+        return value < 0 ? `(${Math.abs(value).toFixed(2)}%)` : `${value > 0 ? '+' : ''}${value.toFixed(2)}%`;
+    }, []);
+
+    const getHeatmapCellStyle = useCallback((value: number | null, mode: 'CONTRIBUTION' | 'PERFORMANCE') => {
+        const emptyBg = tc.isDark ? '#1e293b' : '#f8fafc';
+        if (value === null) {
+            return {
+                bg: emptyBg,
+                text: tc.tickFill,
+                showNeutral: true,
+            };
+        }
+
+        const isPerformanceMode = mode === 'PERFORMANCE';
+        const scale = isPerformanceMode ? 8 : 0.75;
+        const minAlpha = isPerformanceMode ? 0.18 : 0.3;
+        const maxAlpha = isPerformanceMode ? 0.9 : 1;
+        const intensity = Math.min(Math.abs(value) / scale, 1);
+        const alpha = minAlpha + (intensity * (maxAlpha - minAlpha));
+        const rgb = value >= 0 ? '22, 163, 74' : '220, 38, 38';
+
+        let bg = `rgba(${rgb}, ${alpha})`;
+        if (Math.abs(value) < 0.0001) {
+            bg = tc.isDark ? '#1e293b' : '#ffffff';
+        }
+
+        const text = intensity > (isPerformanceMode ? 0.55 : 0.45)
+            ? 'white'
+            : (tc.isDark ? (value >= 0 ? '#4ade80' : '#f87171') : (value >= 0 ? '#14532d' : '#7f1d1d'));
+
+        return { bg, text, showNeutral: false };
+    }, [tc.isDark, tc.tickFill]);
+
     const matrixData = sortedByContrib.map(stat => {
-        const row: any = { ticker: stat.ticker, total: stat.totalContrib, latestWeight: stat.latestWeight }; // Use latestWeight explicitly
+        const row: any = {
+            ticker: stat.ticker,
+            total: stat.totalContrib,
+            totalContribution: stat.totalContrib,
+            totalPerformance: stat.ytdReturn,
+            latestWeight: stat.latestWeight,
+        }; // Use latestWeight explicitly
         allMonths.forEach(monthDate => {
             const m = monthDate.getMonth();
             const y = monthDate.getFullYear();
@@ -329,8 +380,12 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
             if (monthlyEntries.length > 0) {
                 const sorted = [...monthlyEntries].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
                 row[key] = forwardCompoundedContribution(sorted);
+                row[`p-${key}`] = chainReturnPct(sorted);
+                row[`partial-${key}`] = sorted.some(item => item.isMutualFund && (item.startPrice == null || item.endPrice == null));
             } else {
                 row[key] = null;
+                row[`p-${key}`] = null;
+                row[`partial-${key}`] = false;
             }
             // Capture max weight for this month to determine if 0.00% is due to strict 0 position
             row[`w-${key}`] = monthlyEntries.length > 0 ? Math.max(...monthlyEntries.map(e => e.weight)) : 0;
@@ -350,12 +405,40 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
         return hasAnyNonNullContrib && isNotCash;
     });
 
+    const toBackcastDateKey = (date: Date) => {
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+    };
+
+    const getBackcastReturnForRange = useCallback((startDateKey: string, endDateKey: string): number | null => {
+        if (!sharedBackcast?.series || sharedBackcast.series.length === 0) return null;
+
+        const startPoints = sharedBackcast.series.filter(pt => pt.date <= startDateKey);
+        const endPoints = sharedBackcast.series.filter(pt => pt.date <= endDateKey);
+        if (startPoints.length === 0 || endPoints.length === 0) return null;
+
+        const startValue = startPoints[startPoints.length - 1].portfolio;
+        const endValue = endPoints[endPoints.length - 1].portfolio;
+        if (startValue === 0) return null;
+
+        return ((endValue - startValue) / startValue) * 100;
+    }, [sharedBackcast]);
+
+    const getMonthlyBackcastReturn = useCallback((date: Date): number | null => {
+        const start = new Date(date.getFullYear(), date.getMonth(), 0);
+        const end = new Date(date.getFullYear(), date.getMonth() + 1, 0);
+        return getBackcastReturnForRange(toBackcastDateKey(start), toBackcastDateKey(end));
+    }, [getBackcastReturnForRange]);
+
+    const heatmapFooterLabel = heatmapMode === 'PERFORMANCE' ? 'YTD Performance' : 'Compounded Total';
+    const compoundedTotalLabel = 'Total';
 
     // Geometric portfolio total return from the backcast series for the current time window.
     // This is the same value shown on the performance graph, ensuring cross-view consistency.
     // Must be defined BEFORE heatmapTotals which references it.
     const portfolioTotalReturn = useMemo((): number | null => {
-        if (!sharedBackcast?.series || sharedBackcast.series.length === 0) return null;
         let startStr: string;
         let endStr: string;
         if (timeRange === 'YTD') {
@@ -366,53 +449,59 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
             const startMonth = quarterStart[timeRange];
             const start = new Date(selectedYear, startMonth, 1);
             const end = new Date(selectedYear, startMonth + 3, 0);
-            startStr = start.toISOString().split('T')[0];
-            endStr = end.toISOString().split('T')[0];
+            startStr = toBackcastDateKey(start);
+            endStr = toBackcastDateKey(end);
         }
-        const filtered = sharedBackcast.series.filter(pt => pt.date >= startStr && pt.date <= endStr);
-        if (filtered.length < 2) return null;
-        return ((filtered[filtered.length - 1].portfolio - filtered[0].portfolio) / filtered[0].portfolio) * 100;
-    }, [sharedBackcast, timeRange, selectedYear]);
+        return getBackcastReturnForRange(startStr, endStr);
+    }, [getBackcastReturnForRange, timeRange, selectedYear]);
 
-    // Per-quarter geometric returns from the backcast series, used to override the
-    // "Total Portfolio" row in each quarterly AttributionTable.
+    const portfolioYtdReturn = useMemo((): number | null => {
+        if (!sharedBackcast?.series || sharedBackcast.series.length === 0) return null;
+        const startStr = `${selectedYear - 1}-12-31`;
+        const endStr = '9999-12-31';
+        return getBackcastReturnForRange(startStr, endStr);
+    }, [getBackcastReturnForRange, selectedYear, sharedBackcast]);
+
+    // Per-period geometric returns from the backcast series, used to override the
+    // compounded total row in each monthly and quarterly AttributionTable.
     const backcastQuarterReturns = useMemo((): Record<string, number> => {
         const result: Record<string, number> = {};
-        if (!sharedBackcast?.series || sharedBackcast.series.length === 0) return result;
         const quarters: Record<string, [number, number]> = { Q1: [0, 2], Q2: [3, 5], Q3: [6, 8], Q4: [9, 11] };
         Object.entries(quarters).forEach(([q, [startM, endM]]) => {
             // prevEnd = last day before quarter start (i.e. end of prior quarter)
-            const prevEnd = new Date(primaryYear, startM, 0).toISOString().split('T')[0];
-            const qEnd = new Date(primaryYear, endM + 1, 0).toISOString().split('T')[0];
-            const prevPts = sharedBackcast.series.filter(pt => pt.date <= prevEnd);
-            const qPts = sharedBackcast.series.filter(pt => pt.date > prevEnd && pt.date <= qEnd);
-            if (prevPts.length > 0 && qPts.length > 0) {
-                result[q] = ((qPts[qPts.length - 1].portfolio - prevPts[prevPts.length - 1].portfolio) / prevPts[prevPts.length - 1].portfolio) * 100;
-            }
+            const prevEnd = toBackcastDateKey(new Date(primaryYear, startM, 0));
+            const qEnd = toBackcastDateKey(new Date(primaryYear, endM + 1, 0));
+            const quarterReturn = getBackcastReturnForRange(prevEnd, qEnd);
+            if (quarterReturn !== null) result[q] = quarterReturn;
         });
         return result;
-    }, [sharedBackcast, primaryYear]);
+    }, [getBackcastReturnForRange, primaryYear]);
 
     const heatmapTotals = useMemo(() => {
         const totals: Record<string, number> = {};
         const hasDataMap: Record<string, boolean> = {};
         const monthlyReturns: number[] = [];
+        const partialMap: Record<string, boolean> = {};
         let grandTotal = 0;
 
         allMonths.forEach(date => {
             const key = `${date.getFullYear()}-${date.getMonth()}`;
             totals[key] = 0;
             hasDataMap[key] = false;
+            partialMap[key] = false;
         });
 
         matrixData.forEach(row => {
-            grandTotal += row.total;
+            grandTotal += heatmapMode === 'PERFORMANCE' ? (row.totalPerformance ?? 0) : row.total;
             allMonths.forEach(date => {
                 const key = `${date.getFullYear()}-${date.getMonth()}`;
-                const val = row[key];
+                const val = heatmapMode === 'PERFORMANCE' ? row[`p-${key}`] : row[key];
                 if (val !== null && val !== undefined) {
                     totals[key] += val;
                     hasDataMap[key] = true;
+                    if (heatmapMode === 'PERFORMANCE' && row[`partial-${key}`]) {
+                        partialMap[key] = true;
+                    }
                 }
             });
         });
@@ -420,15 +509,19 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
         // Override only the grand total with the geometric portfolio return from the backcast
         // series (same source as the performance graph). Monthly cells remain as contribution
         // sums — only the YTD/period total needs to match the graph exactly.
-        if (portfolioTotalReturn !== null) grandTotal = portfolioTotalReturn;
+        const selectedTotal = heatmapMode === 'PERFORMANCE'
+            ? (portfolioYtdReturn ?? portfolioTotalReturn)
+            : portfolioTotalReturn;
+
+        if (selectedTotal !== null) grandTotal = selectedTotal;
 
         allMonths.forEach(date => {
             const key = `${date.getFullYear()}-${date.getMonth()}`;
             if (hasDataMap[key]) monthlyReturns.push(totals[key]);
         });
 
-        return { totals, grandTotal, hasDataMap, monthlyReturns };
-    }, [matrixData, allMonths, portfolioTotalReturn]);
+        return { totals, grandTotal, hasDataMap, monthlyReturns, partialMap };
+    }, [matrixData, allMonths, portfolioTotalReturn, portfolioYtdReturn, heatmapMode]);
 
     const waterfallData = useMemo(() => {
         if (sortedByWeight.length === 0) return [];
@@ -466,7 +559,7 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
         }
 
         const totalVal = portfolioTotalReturn ?? currentVal;
-        dataPoints.push({ name: 'Total', value: [0, totalVal], delta: totalVal, isTotal: true, color: tc.isDark ? '#38bdf8' : '#0A2351' });
+        dataPoints.push({ name: compoundedTotalLabel, value: [0, totalVal], delta: totalVal, isTotal: true, color: tc.isDark ? '#38bdf8' : '#0A2351' });
         return dataPoints;
     }, [sortedByWeight, tc.isDark, portfolioTotalReturn]);
 
@@ -941,17 +1034,6 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
         return { data: chartData, domain: [-domainLimit, domainLimit] };
     }, [sectorAttributionData.data]);
 
-    const activeReturn = heatmapTotals.grandTotal;
-    const sharpeRatio = useMemo(() => {
-        const returns = heatmapTotals.monthlyReturns;
-        if (returns.length < 2) return 0;
-        const mean = returns.reduce((a, b) => a + b, 0) / returns.length;
-        const variance = returns.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / (returns.length - 1);
-        const stdDev = Math.sqrt(variance);
-        if (stdDev === 0) return 0;
-        return (mean / stdDev) * Math.sqrt(12);
-    }, [heatmapTotals.monthlyReturns]);
-
     // Debug logging
 
 
@@ -1104,10 +1186,31 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
 
 
                     <div className="bg-wallstreet-800 rounded-xl border border-wallstreet-700 shadow-lg flex flex-col mt-6">
-                        <div className="flex justify-between items-center p-6 border-b border-wallstreet-700 bg-wallstreet-900/50">
+                        <div className="flex justify-between items-start gap-4 p-6 border-b border-wallstreet-700 bg-wallstreet-900/50">
                             <div>
-                                <h3 className="text-lg font-mono font-black text-wallstreet-text uppercase tracking-widest">Contribution Heatmap</h3>
-                                <p className="text-[11px] text-wallstreet-500 mt-2 font-mono font-bold uppercase tracking-tight">BPS contribution per ticker. Bottom row represents aggregate portfolio return.</p>
+                                <h3 className="text-lg font-mono font-black text-wallstreet-text uppercase tracking-widest">Heatmap</h3>
+                                <p className="text-[11px] text-wallstreet-500 mt-2 font-mono font-bold uppercase tracking-tight">
+                                    {heatmapMode === 'CONTRIBUTION'
+                                        ? 'BPS contribution per ticker.'
+                                        : 'Monthly position performance per ticker. * marks partial MF NAV coverage.'}
+                                </p>
+                            </div>
+                            <div className="flex flex-col items-end gap-2">
+                                <div className="flex p-0.5 bg-wallstreet-900 rounded-lg border border-wallstreet-700">
+                                    {(['CONTRIBUTION', 'PERFORMANCE'] as const).map(mode => (
+                                        <button
+                                            key={mode}
+                                            onClick={() => setHeatmapMode(mode)}
+                                            className={`px-3 py-1.5 rounded text-xs font-mono font-bold transition-all ${
+                                                heatmapMode === mode
+                                                    ? 'bg-[#0A2351] text-white shadow-sm ring-1 ring-[#0A2351]/40'
+                                                    : 'text-wallstreet-500 hover:text-wallstreet-text'
+                                            }`}
+                                        >
+                                            {mode === 'CONTRIBUTION' ? 'Contribution' : 'Performance'}
+                                        </button>
+                                    ))}
+                                </div>
                             </div>
                         </div>
                         <div className="w-full">
@@ -1128,33 +1231,40 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
                                         <tr key={row.ticker} className="hover:bg-wallstreet-900/50 transition-colors group">
                                             <td className="px-3 py-0 font-mono font-bold text-wallstreet-text border-b border-wallstreet-700 truncate text-sm">{row.ticker}</td>
                                             {allMonths.map(date => {
-                                                const val = row[`${date.getFullYear()}-${date.getMonth()}`];
-                                                const intensity = val !== null ? Math.min(Math.abs(val) / 0.75, 1) : 0;
-                                                const emptyBg = tc.isDark ? '#1e293b' : '#f8fafc';
-                                                let bg = emptyBg;
-                                                if (val !== null) bg = val >= 0 ? `rgba(22, 163, 74, ${0.3 + (intensity * 0.7)})` : `rgba(220, 38, 38, ${0.3 + (intensity * 0.7)})`;
-                                                if (val !== null && Math.abs(val) < 0.0001) bg = tc.isDark ? '#1e293b' : '#ffffff';
-                                                const color = val !== null
-                                                    ? (intensity > 0.45 ? 'white' : (tc.isDark ? (val >= 0 ? '#4ade80' : '#f87171') : (val >= 0 ? '#14532d' : '#7f1d1d')))
-                                                    : tc.tickFill;
+                                                const key = `${date.getFullYear()}-${date.getMonth()}`;
+                                                const val = heatmapMode === 'PERFORMANCE' ? row[`p-${key}`] : row[key];
+                                                const isPartialMf = heatmapMode === 'PERFORMANCE' && !!row[`partial-${key}`];
+                                                const { bg, text } = getHeatmapCellStyle(val, heatmapMode);
 
                                                 return (
                                                     <td key={date.toISOString()} className="p-0 border-b border-wallstreet-700 relative group/cell">
                                                         {(() => {
-                                                            const maxW = row[`w-${date.getFullYear()}-${date.getMonth()}`];
+                                                            const maxW = row[`w-${key}`];
                                                             const isZeroVal = val !== null && Math.abs(val) < 0.0001;
                                                             const isZeroWeight = maxW !== undefined && maxW < 0.0001;
                                                             const showHyphen = val === null || (isZeroVal && isZeroWeight);
 
                                                             // Adjust bg if showing hyphen to match "no data" style
-                                                            const displayBg = showHyphen ? emptyBg : bg;
+                                                            const displayBg = showHyphen ? (tc.isDark ? '#1e293b' : '#f8fafc') : bg;
+                                                            const tooltipLabel = heatmapMode === 'PERFORMANCE' ? 'Performance' : 'Contribution';
 
                                                             return (
-                                                                <div className="w-full h-7 flex items-center justify-center font-mono font-bold cursor-default transition-transform hover:scale-110 hover:z-20 hover:shadow-sm relative text-sm" style={{ backgroundColor: displayBg, color }}>
-                                                                    {!showHyphen ? <span className="opacity-100">{val! < 0 ? `(${Math.abs(val!).toFixed(2)}%)` : `${val! > 0 ? '+' : ''}${val!.toFixed(2)}%`}</span> : <span className="text-gray-300">-</span>}
+                                                                <div
+                                                                    className="w-full h-7 flex items-center justify-center font-mono font-bold cursor-default transition-transform hover:scale-110 hover:z-20 hover:shadow-sm relative text-sm"
+                                                                    style={{ backgroundColor: displayBg, color: showHyphen ? tc.tickFill : text }}
+                                                                    title={showHyphen ? undefined : `${row.ticker} - ${date.toLocaleDateString('en-US', { month: 'short' }).toUpperCase()}`}
+                                                                >
+                                                                    {!showHyphen ? (
+                                                                        <span className="opacity-100">
+                                                                            {formatHeatmapPct(val!)}
+                                                                            {isPartialMf && <sup className="ml-0.5 text-[10px] text-amber-300">*</sup>}
+                                                                        </span>
+                                                                    ) : <span className="text-gray-300">-</span>}
                                                                     {!showHyphen && val !== null && (
                                                                         <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 px-3 py-2 bg-slate-900 text-white text-[10px] rounded opacity-0 group-hover/cell:opacity-100 pointer-events-none z-50 whitespace-nowrap shadow-xl flex flex-col items-center gap-1">
                                                                             <div className="font-bold border-b-0 pb-0 mb-0">{row.ticker} - {date.toLocaleDateString('en-US', { month: 'short' }).toUpperCase()}</div>
+                                                                            <div className="text-wallstreet-500">{tooltipLabel}: {formatHeatmapPct(val)}</div>
+                                                                            {isPartialMf && <div className="text-amber-300 font-bold">* Partial MF NAV coverage through the period</div>}
                                                                         </div>
                                                                     )}
                                                                 </div>
@@ -1165,14 +1275,15 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
                                             })}
                                             <td className="px-3 py-0 text-center font-mono font-bold border-b border-wallstreet-700 border-l border-wallstreet-300 bg-wallstreet-900/80 text-sm">
                                                 {(() => {
-                                                    const isZeroTotal = Math.abs(row.total) < 0.0001;
+                                                    const rowTotal = heatmapMode === 'PERFORMANCE' ? (row.totalPerformance ?? 0) : row.total;
+                                                    const isZeroTotal = Math.abs(rowTotal) < 0.0001;
                                                     const isZeroLatestWeight = (row.latestWeight || 0) < 0.0001; // Use latestWeight
                                                     const showTotalHyphen = isZeroTotal && isZeroLatestWeight;
 
                                                     if (showTotalHyphen) {
                                                         return <span className="text-gray-300">-</span>;
                                                     }
-                                                    return <span className={row.total >= 0 ? 'text-green-700' : 'text-red-700'}>{row.total < 0 ? `(${Math.abs(row.total).toFixed(2)}%)` : `${row.total > 0 ? '+' : ''}${row.total.toFixed(2)}%`}</span>;
+                                                    return <span className={rowTotal >= 0 ? 'text-green-700' : 'text-red-700'}>{formatHeatmapPct(rowTotal)}</span>;
                                                 })()}
                                             </td>
                                         </tr>
@@ -1180,19 +1291,19 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
                                 </tbody>
                                 <tfoot>
                                     <tr className="bg-wallstreet-100 border-t-2 border-wallstreet-700 shadow-inner">
-                                        <td className="px-3 py-1 font-mono font-bold text-wallstreet-text text-xs uppercase">Total Portfolio</td>
+                                        <td className="px-3 py-1 font-mono font-bold text-wallstreet-text text-xs uppercase">{heatmapFooterLabel}</td>
                                         {allMonths.map(date => {
                                             const key = `${date.getFullYear()}-${date.getMonth()}`;
                                             const hasData = heatmapTotals.hasDataMap[key];
                                             const val = heatmapTotals.totals[key];
                                             return (
                                                 <td key={date.toISOString()} className="px-3 py-1 text-center font-mono font-bold text-sm border-b border-wallstreet-700 border-l border-wallstreet-700">
-                                                    {hasData ? <span className={val >= 0 ? 'text-green-700' : 'text-red-700'}>{val < 0 ? `(${Math.abs(val).toFixed(2)}%)` : `${val > 0 ? '+' : ''}${val.toFixed(2)}%`}</span> : <span className="text-gray-300">-</span>}
+                                                    {hasData ? <span className={val >= 0 ? 'text-green-700' : 'text-red-700'}>{formatHeatmapPct(val)}</span> : <span className="text-gray-300">-</span>}
                                                 </td>
                                             )
                                         })}
                                         <td className="px-3 py-1 text-center font-mono font-bold text-sm border-l border-wallstreet-300 bg-wallstreet-200 text-wallstreet-text">
-                                            <span className={heatmapTotals.grandTotal >= 0 ? 'text-green-800' : 'text-red-800'}>{heatmapTotals.grandTotal < 0 ? `(${Math.abs(heatmapTotals.grandTotal).toFixed(2)}%)` : `${heatmapTotals.grandTotal > 0 ? '+' : ''}${heatmapTotals.grandTotal.toFixed(2)}%`}</span>
+                                            <span className={heatmapTotals.grandTotal >= 0 ? 'text-green-800' : 'text-red-800'}>{formatHeatmapPct(heatmapTotals.grandTotal)}</span>
                                         </td>
                                     </tr>
                                 </tfoot>
@@ -1232,7 +1343,9 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
                                         status = 'IN_PROGRESS';
                                     }
 
-                                    return <AttributionTable key={date.toISOString()} title={displayTitle} items={items} status={status} />;
+                                    const monthlyTotalReturn = getMonthlyBackcastReturn(date);
+
+                                    return <AttributionTable key={date.toISOString()} title={displayTitle} items={items} status={status} totalContribution={monthlyTotalReturn ?? undefined} totalLabel={monthlyTotalReturn !== null ? compoundedTotalLabel : 'Total Portfolio'} />;
                                 })}
                                 {(() => {
                                     const q1Data = cleanData.filter(d => {
@@ -1255,7 +1368,7 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
                                         qStatus = 'IN_PROGRESS';
                                     }
 
-                                    return <AttributionTable key="Q1" title={qTitle} items={aggregatePeriodData(q1Data)} isQuarter={true} status={qStatus} totalContribution={backcastQuarterReturns['Q1']} />;
+                                    return <AttributionTable key="Q1" title={qTitle} items={aggregatePeriodData(q1Data)} isQuarter={true} status={qStatus} totalContribution={backcastQuarterReturns['Q1']} totalLabel={compoundedTotalLabel} />;
                                 })()}
                             </div>
                         )}
@@ -1284,7 +1397,9 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
                                         status = 'IN_PROGRESS';
                                     }
 
-                                    return <AttributionTable key={date.toISOString()} title={displayTitle} items={items} status={status} />;
+                                    const monthlyTotalReturn = getMonthlyBackcastReturn(date);
+
+                                    return <AttributionTable key={date.toISOString()} title={displayTitle} items={items} status={status} totalContribution={monthlyTotalReturn ?? undefined} totalLabel={monthlyTotalReturn !== null ? compoundedTotalLabel : 'Total Portfolio'} />;
                                 })}
                                 {(() => {
                                     const q2Data = cleanData.filter(d => {
@@ -1307,7 +1422,7 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
                                         qStatus = 'IN_PROGRESS';
                                     }
 
-                                    return <AttributionTable key="Q2" title={qTitle} items={aggregatePeriodData(q2Data)} isQuarter={true} status={qStatus} totalContribution={backcastQuarterReturns['Q2']} />;
+                                    return <AttributionTable key="Q2" title={qTitle} items={aggregatePeriodData(q2Data)} isQuarter={true} status={qStatus} totalContribution={backcastQuarterReturns['Q2']} totalLabel={compoundedTotalLabel} />;
                                 })()}
                             </div>
                         )}
@@ -1340,7 +1455,9 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
                                         status = 'IN_PROGRESS';
                                     }
 
-                                    return <AttributionTable key={date.toISOString()} title={displayTitle} items={items} status={status} />;
+                                    const monthlyTotalReturn = getMonthlyBackcastReturn(date);
+
+                                    return <AttributionTable key={date.toISOString()} title={displayTitle} items={items} status={status} totalContribution={monthlyTotalReturn ?? undefined} totalLabel={monthlyTotalReturn !== null ? compoundedTotalLabel : 'Total Portfolio'} />;
                                 })}
                                 {(() => {
                                     const q3Data = cleanData.filter(d => {
@@ -1363,7 +1480,7 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
                                         qStatus = 'IN_PROGRESS';
                                     }
 
-                                    return <AttributionTable key="Q3" title={qTitle} items={aggregatePeriodData(q3Data)} isQuarter={true} status={qStatus} totalContribution={backcastQuarterReturns['Q3']} />;
+                                    return <AttributionTable key="Q3" title={qTitle} items={aggregatePeriodData(q3Data)} isQuarter={true} status={qStatus} totalContribution={backcastQuarterReturns['Q3']} totalLabel={compoundedTotalLabel} />;
                                 })()}
                             </div>
                         )}
@@ -1392,7 +1509,9 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
                                         status = 'IN_PROGRESS';
                                     }
 
-                                    return <AttributionTable key={date.toISOString()} title={displayTitle} items={items} status={status} />;
+                                    const monthlyTotalReturn = getMonthlyBackcastReturn(date);
+
+                                    return <AttributionTable key={date.toISOString()} title={displayTitle} items={items} status={status} totalContribution={monthlyTotalReturn ?? undefined} totalLabel={monthlyTotalReturn !== null ? compoundedTotalLabel : 'Total Portfolio'} />;
                                 })}
                                 {(() => {
                                     const q4Data = cleanData.filter(d => {
@@ -1415,7 +1534,7 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
                                         qStatus = 'IN_PROGRESS';
                                     }
 
-                                    return <AttributionTable key="Q4" title={qTitle} items={aggregatePeriodData(q4Data)} isQuarter={true} status={qStatus} totalContribution={backcastQuarterReturns['Q4']} />;
+                                    return <AttributionTable key="Q4" title={qTitle} items={aggregatePeriodData(q4Data)} isQuarter={true} status={qStatus} totalContribution={backcastQuarterReturns['Q4']} totalLabel={compoundedTotalLabel} />;
                                 })()}
                             </div>
                         )}

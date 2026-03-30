@@ -258,42 +258,39 @@ export const IndexPerformanceChart: React.FC<IndexPerformanceChartProps> = ({ da
             {/* Period Selector & Performance Summary */}
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-4">
                 {/* Period Selector Pills */}
-                <div className="flex bg-wallstreet-900 px-1 rounded-xl items-center h-9 overflow-x-auto max-w-full">
+                <div className="grid w-full max-w-[440px] grid-cols-7 items-center h-9 bg-wallstreet-900 px-1 rounded-xl">
                     {(['2025', 'YTD', '3M', '6M', '1Y', '3Y', '5Y'] as Period[]).map((period) => (
-                        <React.Fragment key={period}>
-                            <button
-                                onClick={() => setSelectedPeriod(period)}
-                                className={`px-3 h-7 flex items-center justify-center text-xs font-bold rounded-lg transition-all duration-200 ${selectedPeriod === period
-                                    ? 'bg-wallstreet-accent text-white shadow-sm'
-                                    : 'text-wallstreet-500 hover:text-wallstreet-text hover:bg-wallstreet-900'
-                                    }`}
-                            >
-                                {period}
-                            </button>
-                            {period === '2025' && <div className="mx-1 w-px bg-wallstreet-500 h-full" />}
-                        </React.Fragment>
+                        <button
+                            key={period}
+                            onClick={() => setSelectedPeriod(period)}
+                            className={`w-full h-7 flex items-center justify-center px-1 text-[10px] sm:text-[11px] font-bold rounded-lg transition-all duration-200 ${selectedPeriod === period
+                                ? 'bg-wallstreet-accent text-white shadow-sm'
+                                : 'text-wallstreet-500 hover:text-wallstreet-text hover:bg-wallstreet-900'
+                                } ${period === '2025' ? 'relative after:content-[""] after:absolute after:top-0 after:-right-[1px] after:h-full after:w-px after:bg-wallstreet-500/40 after:rounded-none pr-0.5' : ''}`}
+                        >
+                            {period}
+                        </button>
                     ))}
                 </div>
 
                 {/* Performance Summary Cards */}
                 {performanceMetrics && (
-                    <div className="flex items-center gap-3 text-xs font-mono">
-                        <span className="text-wallstreet-500 italic text-[15px] tracking-wider">CAGR (Annualized)</span>
-                        <div className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-950 border border-emerald-200 dark:border-emerald-700 ${getPerformanceColor(performanceMetrics.index)}`}>
-                            {getPerformanceIcon(performanceMetrics.index)}
-                            <span className="font-bold text-emerald-700 dark:text-emerald-300">75/25:</span>
-                            <span className="font-bold">{formatPercent(performanceMetrics.index)}</span>
-                        </div>
-                        <div className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-700 ${getPerformanceColor(performanceMetrics.acwi)}`}>
-                            {getPerformanceIcon(performanceMetrics.acwi)}
-                            <span className="font-bold text-blue-700 dark:text-blue-300">ACWI:</span>
-                            <span className="font-bold">{formatPercent(performanceMetrics.acwi)}</span>
-                        </div>
-                        <div className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-700 ${getPerformanceColor(performanceMetrics.xiu)}`}>
-                            {getPerformanceIcon(performanceMetrics.xiu)}
-                            <span className="font-bold text-red-700 dark:text-red-300">XIC:</span>
-                            <span className="font-bold">{formatPercent(performanceMetrics.xiu)}</span>
-                        </div>
+                    <div className="flex items-center justify-end gap-3 flex-wrap w-full text-xs font-mono">
+                            <div className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-950 border border-emerald-200 dark:border-emerald-700 ${getPerformanceColor(performanceMetrics.index)}`}>
+                                {getPerformanceIcon(performanceMetrics.index)}
+                                <span className="font-bold text-emerald-700 dark:text-emerald-300">75/25 Composite:</span>
+                                <span className="font-bold">{formatPercent(performanceMetrics.index)}</span>
+                            </div>
+                            <div className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-700 ${getPerformanceColor(performanceMetrics.acwi)}`}>
+                                {getPerformanceIcon(performanceMetrics.acwi)}
+                                <span className="font-bold text-blue-700 dark:text-blue-300">ACWI:</span>
+                                <span className="font-bold">{formatPercent(performanceMetrics.acwi)}</span>
+                            </div>
+                            <div className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-700 ${getPerformanceColor(performanceMetrics.xiu)}`}>
+                                {getPerformanceIcon(performanceMetrics.xiu)}
+                                <span className="font-bold text-red-700 dark:text-red-300">XIC.TO:</span>
+                                <span className="font-bold">{formatPercent(performanceMetrics.xiu)}</span>
+                            </div>
                     </div>
                 )}
             </div>
@@ -332,9 +329,9 @@ export const IndexPerformanceChart: React.FC<IndexPerformanceChartProps> = ({ da
                                 const sorted = [...payload].sort((a, b) => (b.value as number) - (a.value as number));
 
                                 const getDisplayName = (dataKey: string) => {
-                                    if (dataKey === 'Index') return 'Global 75/25';
-                                    if (dataKey === 'ACWI') return 'ACWI (Global)';
-                                    if (dataKey === 'XIC') return 'XIC (Canada)';
+                                    if (dataKey === 'Index') return '75/25 Composite';
+                                    if (dataKey === 'ACWI') return 'ACWI (CAD)';
+                                    if (dataKey === 'XIC') return 'XIC.TO (Canada)';
                                     return dataKey;
                                 };
 
@@ -358,9 +355,9 @@ export const IndexPerformanceChart: React.FC<IndexPerformanceChartProps> = ({ da
                         <Legend
                             wrapperStyle={{ paddingTop: '15px' }}
                             formatter={(value) => {
-                                if (value === 'Index') return 'Global 75/25 (Composite)';
-                                if (value === 'ACWI') return 'ACWI (Global Markets)';
-                                if (value === 'XIC') return 'XIC (Canada TSX)';
+                                if (value === 'Index') return '75/25 Composite';
+                                if (value === 'ACWI') return 'ACWI (CAD)';
+                                if (value === 'XIC') return 'XIC.TO (Canada)';
                                 return value;
                             }}
                         />
@@ -378,7 +375,7 @@ export const IndexPerformanceChart: React.FC<IndexPerformanceChartProps> = ({ da
                         <Line
                             type="monotone"
                             dataKey="Index"
-                            name="Index"
+                            name="75/25 Composite"
                             stroke="#10b981"
                             strokeWidth={3}
                             dot={false}
@@ -387,7 +384,7 @@ export const IndexPerformanceChart: React.FC<IndexPerformanceChartProps> = ({ da
                         <Line
                             type="monotone"
                             dataKey="ACWI"
-                            name="ACWI"
+                            name="ACWI (CAD)"
                             stroke="#2563eb"
                             strokeWidth={2}
                             dot={false}
@@ -396,7 +393,7 @@ export const IndexPerformanceChart: React.FC<IndexPerformanceChartProps> = ({ da
                         <Line
                             type="monotone"
                             dataKey="XIC"
-                            name="XIC"
+                            name="XIC.TO"
                             stroke="#dc2626"
                             strokeWidth={2}
                             dot={false}

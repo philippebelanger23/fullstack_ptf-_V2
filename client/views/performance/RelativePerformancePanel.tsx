@@ -209,7 +209,7 @@ export const RelativePerformancePanel: React.FC<RelativePerformancePanelProps> =
                         </div>
                     </div>
                     <div className="text-xs text-wallstreet-500 px-4 mt-3 pt-3 border-t border-wallstreet-700/30">
-                        <p>Benchmark: {benchmark === '75/25' ? 'Custom (75% ACWI + 25% TSX)' : benchmark === 'TSX' ? 'TSX Composite (XIC.TO)' : 'S&P 500 CAD (XUS.TO)'}</p>
+                        <p>Benchmark: {benchmark === '75/25' ? '75/25 Composite (75% ACWI (CAD) + 25% XIC.TO)' : benchmark === 'TSX' ? 'XIC.TO (S&P/TSX Composite)' : 'S&P 500 CAD (XUS.TO)'}</p>
                     </div>
                 </div>
             </div>

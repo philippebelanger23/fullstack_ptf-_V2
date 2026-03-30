@@ -308,7 +308,7 @@ export const PerformanceView: React.FC<{
                         <h1 className="text-3xl font-bold text-wallstreet-text tracking-tight">Performance Deep Dive</h1>
                         <FreshnessBadge fetchedAt={data?.fetchedAt ?? null} />
                     </div>
-                    <p className="text-wallstreet-500 mt-1">Portfolio backcast based on current holdings vs. {benchmark === '75/25' ? 'Custom Benchmark (75% ACWI in CAD + 25% XIC.TO)' : benchmark === 'TSX' ? 'TSX Composite (XIC.TO)' : 'S&P 500 CAD (XUS.TO)'}.</p>
+                    <p className="text-wallstreet-500 mt-1">Portfolio backcast based on current holdings vs. {benchmark === '75/25' ? '75/25 Composite (75% ACWI (CAD) + 25% XIC.TO)' : benchmark === 'TSX' ? 'XIC.TO (S&P/TSX Composite)' : 'S&P 500 CAD (XUS.TO)'}.</p>
                 </div>
             </div>
             <div className="flex-1 min-h-0">

@@ -149,7 +149,7 @@ async def currency_performance(request: dict):
 def get_index_history():
     """
     Fetch historical data for ACWI (global) and XIC.TO (Canada) for the comparison graph.
-    Also fetches USDCAD=X to convert ACWI to CAD, and calculates a synthetic blend (75% ACWI, 25% XIU).
+    Also fetches USDCAD=X to convert ACWI to CAD, and calculates a synthetic 75/25 composite (75% ACWI, 25% XIC.TO).
     Caches the result to avoid repeated slow yfinance calls.
     """
     cache_file = Path("data/index_history_cache.json")
@@ -204,7 +204,7 @@ def get_index_history():
             acwi_ret = acwi_cad_series.pct_change().fillna(0)
             xic_ret = xic_series.pct_change().fillna(0)
 
-            # Synthetic 75/25
+            # Synthetic 75/25 composite
             composite_ret = (acwi_ret * 0.75) + (xic_ret * 0.25)
             composite_index = (1 + composite_ret).cumprod() * 100
         else:

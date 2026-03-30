@@ -377,7 +377,7 @@ export const loadAssetGeo = async (): Promise<Record<string, string>> => {
     });
 };
 
-export const checkNavLag = async (tickers: string[], forceRefresh: boolean = false, referenceDate?: string): Promise<Record<string, any>> => {
+export const checkNavLag = async (tickers: string[], forceRefresh: boolean = false, referenceDate: string): Promise<Record<string, any>> => {
     const normalizedTickers = Array.from(new Set(tickers.map(ticker => ticker.trim()))).sort();
     const cacheKey = `POST /check-nav-lag:${normalizedTickers.join(',')}:${forceRefresh}:${referenceDate || ''}`;
     return memoizedRequest(cacheKey, async () => {

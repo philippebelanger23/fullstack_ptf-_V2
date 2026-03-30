@@ -42,21 +42,39 @@ export const UploadView: React.FC<UploadViewProps> = ({
   const [isAssetSectionOpen, setIsAssetSectionOpen] = useState(true); // Default to open if data exists
   const autoLagCheckDataRef = useRef<PortfolioItem[] | null>(null);
 
+  const getLatestRecordForTicker = useCallback((items: PortfolioItem[], ticker: string) => {
+    const tickerData = items.filter(item => item.ticker === ticker);
+    if (tickerData.length === 0) return null;
+    return tickerData.reduce((prev, curr) => (curr.date > prev.date) ? curr : prev);
+  }, []);
+
+  const getActiveMutualFunds = useCallback((items: PortfolioItem[]) => {
+    const mutualFundTickers = Array.from(new Set(
+      items.filter(item => item.isMutualFund).map(item => item.ticker)
+    ));
+
+    const active: { ticker: string; latestRecord: PortfolioItem }[] = [];
+    mutualFundTickers.forEach(ticker => {
+      const latestRecord = getLatestRecordForTicker(items, ticker);
+      if (latestRecord && latestRecord.weight > 0) {
+        active.push({ ticker, latestRecord });
+      }
+    });
+
+    return active;
+  }, [getLatestRecordForTicker]);
+
   const runLagCheck = useCallback(async (items: PortfolioItem[], forceRefresh: boolean = false) => {
     if (items.length === 0) return;
 
-    const activeMfTickers = Array.from(new Set(
-      items.filter(i => i.isMutualFund && i.weight > 0).map(i => i.ticker)
-    ));
+    const activeMfItems = getActiveMutualFunds(items);
 
-    if (activeMfTickers.length > 0) {
+    if (activeMfItems.length > 0) {
       setIsCheckingLag(true);
       try {
         const checks = new Map<string, string[]>();
 
-        activeMfTickers.forEach(ticker => {
-          const tickerData = items.filter(i => i.ticker === ticker);
-          const latestRecord = tickerData.reduce((prev, curr) => (curr.date > prev.date) ? curr : prev);
+        activeMfItems.forEach(({ ticker, latestRecord }) => {
           const latestHeldDate = latestRecord.date;
           if (!latestHeldDate) return;
 
@@ -343,7 +361,7 @@ export const UploadView: React.FC<UploadViewProps> = ({
                   <div className="p-5 bg-wallstreet-800 rounded-2xl border border-wallstreet-700 flex flex-col items-center justify-center shadow-sm hover:shadow-md transition-shadow">
                     <p className="text-xs text-wallstreet-500 uppercase font-black tracking-widest mb-2">Data Recency</p>
                     {(() => {
-                      const activeMfItems = currentData.filter(i => i.isMutualFund && i.weight > 0);
+                      const activeMfItems = getActiveMutualFunds(currentData);
                       const hasMfs = activeMfItems.length > 0;
                       const formatDateDMY = (d: string) => {
                         const [y, m, day] = d.split('-');

@@ -212,9 +212,9 @@ export const IndexView: React.FC = () => {
 
     if (loading) {
         const steps = [
-            { key: 'exposure', label: 'Index Composition', sub: 'Sectors & geography from iShares' },
+            { key: 'exposure', label: 'Benchmark Composition', sub: 'Sectors & geography from iShares' },
             { key: 'currency', label: 'Currency Rates', sub: 'FX performance vs CAD' },
-            { key: 'history', label: 'Price History', sub: 'ACWI, XIC.TO & composite index' },
+            { key: 'history', label: 'Price History', sub: 'ACWI (CAD), XIC.TO & 75/25 composite' },
         ];
         const doneCount = Object.values(loadProgress).filter(s => s === 'done').length;
 
@@ -237,7 +237,7 @@ export const IndexView: React.FC = () => {
                     </div>
 
                     <p className="text-sm font-mono text-wallstreet-500 tracking-wide uppercase">
-                        Fetching Index Data
+                        Fetching Benchmark Data
                     </p>
 
                     {/* Progress bar */}
@@ -295,8 +295,8 @@ export const IndexView: React.FC = () => {
             <div className="flex-shrink-0 border-b border-wallstreet-700 pb-4 mb-4">
                 <div className="flex justify-between items-start">
                     <div>
-                        <h2 className="text-3xl font-bold font-mono text-wallstreet-text flex items-center gap-3"><Globe className="text-wallstreet-accent" /> Global 75/25 Index</h2>
-                        <p className="text-wallstreet-500 mt-2 max-w-2xl">A custom synthetic benchmark. <span className="font-bold text-wallstreet-text ml-2">75% ACWI (USD) + 25% XIC.TO (CAD)</span></p>
+                        <h2 className="text-3xl font-bold font-mono text-wallstreet-text flex items-center gap-3"><Globe className="text-wallstreet-accent" /> Global 75/25 Composite</h2>
+                        <p className="text-wallstreet-500 mt-2 max-w-2xl">A custom synthetic benchmark. <span className="font-bold text-wallstreet-text ml-2">75% ACWI (CAD) + 25% XIC.TO</span></p>
                     </div>
                     <FreshnessBadge fetchedAt={fetchedAt} />
                 </div>
@@ -304,15 +304,18 @@ export const IndexView: React.FC = () => {
 
             <div className="flex flex-col lg:flex-row gap-6 pb-6 lg:flex-1 lg:min-h-0 lg:overflow-hidden">
 
-                {/* Left column: Index Performance + Sector Exposure (equal split) */}
+                {/* Left column: Composite Performance + Sector Exposure (equal split) */}
                 <div className="flex flex-col gap-6 lg:w-1/2 lg:min-h-0">
-                    {/* Index Performance Graph */}
+                    {/* Composite Performance Graph */}
                     <div className="bg-wallstreet-800 p-6 rounded-xl border border-wallstreet-700 shadow-sm flex flex-col min-h-[400px] lg:min-h-0 lg:flex-1">
-                        <div className="flex justify-between items-center mb-2">
+                        <div className="flex items-start justify-between gap-4 mb-3">
                             <h3 className="text-lg font-bold font-mono text-wallstreet-text flex items-center gap-2">
                                 <TrendingUp size={20} className="text-wallstreet-accent" />
-                                Index Performance
+                                Composite Performance
                             </h3>
+                            <span className="pt-0.5 text-wallstreet-500 italic text-[15px] tracking-wider whitespace-nowrap">
+                                Annualized Return (all in CAD)
+                            </span>
                         </div>
                         <div className="flex-1 w-full min-h-0">
                             <IndexPerformanceChart data={indexHistory} />

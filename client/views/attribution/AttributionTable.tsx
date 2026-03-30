@@ -2,7 +2,7 @@ import React from 'react';
 import { formatBps } from '../../utils/formatters';
 import { TableItem } from './attributionUtils';
 
-export const AttributionTable = ({ title, items, isQuarter = false, status = 'COMPLETED', contributionFormat = 'bps', compact = false, totalContribution }: { title: string, items: TableItem[], isQuarter?: boolean, status?: 'COMPLETED' | 'IN_PROGRESS', contributionFormat?: 'bps' | 'pct', compact?: boolean, totalContribution?: number }) => {
+export const AttributionTable = ({ title, items, isQuarter = false, status = 'COMPLETED', contributionFormat = 'bps', compact = false, totalContribution, totalLabel = 'Total Portfolio' }: { title: string, items: TableItem[], isQuarter?: boolean, status?: 'COMPLETED' | 'IN_PROGRESS', contributionFormat?: 'bps' | 'pct', compact?: boolean, totalContribution?: number, totalLabel?: string }) => {
     const fmtContrib = (v: number) => contributionFormat === 'pct'
         ? (v >= 0 ? `+${v.toFixed(2)}%` : `(${Math.abs(v).toFixed(2)}%)`)
         : formatBps(v);
@@ -17,11 +17,11 @@ export const AttributionTable = ({ title, items, isQuarter = false, status = 'CO
     const others = items.filter(i => !topTickerSet.has(i.ticker));
     const othersSum = others.reduce((acc, i) => ({ weight: acc.weight + i.weight, contribution: acc.contribution + i.contribution }), { weight: 0, contribution: 0 });
 
-    // User Request: Force Other Holdings Weight to be the residual so Total is always 100%
-    // Weight = 100% - Sum(TopContributors) - Sum(TopDisruptors)
+    // Residual bucket: force the non-top holdings row to absorb the leftover weight
+    // so the section total is always 100%.
     const residualOtherWeight = 100 - topContribSum.weight - topDisruptSum.weight;
 
-    // Recalculate Performance based on the Fixed Weight
+    // Recalculate performance based on the residual weight so the bucket remains explicit.
     // Formula: Return = (Contribution * 100) / Weight  (derived from Contrib = Weight/100 * Return)
     const othersReturn = residualOtherWeight > 0.001 ? (othersSum.contribution * 100) / residualOtherWeight : 0;
 
@@ -114,7 +114,7 @@ export const AttributionTable = ({ title, items, isQuarter = false, status = 'CO
                         <tr className="h-3 bg-wallstreet-800"><td colSpan={4}></td></tr>
 
                         <tr className="">
-                            <td className="p-1 px-3 text-left font-bold text-wallstreet-text">Other Holdings</td>
+                            <td className="p-1 px-3 text-left font-bold text-wallstreet-text">Residual Holdings</td>
                             <td className="p-1 px-2 text-center font-medium">{residualOtherWeight.toFixed(2)}%</td>
                             <td className={`p-1 px-2 text-center font-medium ${othersReturn < 0 ? 'text-red-700' : 'text-green-700'}`}>
                                 {othersReturn < 0 ? `(${Math.abs(othersReturn).toFixed(2)}%)` : `${othersReturn.toFixed(2)}%`}
@@ -124,12 +124,12 @@ export const AttributionTable = ({ title, items, isQuarter = false, status = 'CO
                             </td>
                         </tr>
 
-                        {/* Gap between Other Holdings and Total Portfolio */}
+                        {/* Gap between Residual Holdings and Total Portfolio */}
                         <tr className="h-3 bg-wallstreet-800"><td colSpan={4}></td></tr>
 
-                        {/* Total Portfolio - Grey Background */}
+                        {/* Total row - Grey Background */}
                         <tr className="bg-wallstreet-900">
-                            <td className="p-1.5 px-3 text-left font-extrabold text-wallstreet-text">Total Portfolio</td>
+                            <td className="p-1.5 px-3 text-left font-extrabold text-wallstreet-text">{totalLabel}</td>
                             <td className="p-1.5 px-2 text-center font-bold text-wallstreet-text">100.00%</td>
                             <td className="p-1.5 px-2 text-center font-bold text-wallstreet-500"></td>
                             <td className={`p-1.5 px-2 text-center font-extrabold ${(totalContribution ?? totalSum.contribution) < 0 ? 'text-red-700' : 'text-green-700'}`}>

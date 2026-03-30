@@ -144,8 +144,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ data, customSector
   const effectiveCustomSectors = customSectors || localCustomSectorWeights;
   const effectiveAssetGeo = assetGeo || localAssetGeo;
 
-  const [betaMap, setBetaMap] = React.useState<Record<string, number>>({});
-  const [divYieldMap, setDivYieldMap] = React.useState<Record<string, number>>({});
+  const [marketBetaMap, setMarketBetaMap] = React.useState<Record<string, number>>({});
+  const [marketDividendYieldMap, setMarketDividendYieldMap] = React.useState<Record<string, number>>({});
   const [benchmarkSectors, setBenchmarkSectors] = React.useState<any[]>([]);
   const [benchmarkGeography, setBenchmarkGeography] = React.useState<any[]>([]);
   const [portfolioBeta, setPortfolioBeta] = React.useState<number | null>(null);
@@ -157,29 +157,51 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ data, customSector
 
   // Fetch Sectors, Betas, Dividends, and Portfolio Beta effect
   React.useEffect(() => {
+    let cancelled = false;
+
+    const resetDerivedMarketState = () => {
+      setMarketBetaMap({});
+      setMarketDividendYieldMap({});
+      setBenchmarkSectors([]);
+      setBenchmarkGeography([]);
+      setPortfolioBeta(null);
+      setDataFetchError(null);
+      setFetchedAt(null);
+    };
+
     const fetchData = async () => {
-      // Get unique tickers
-      const tickersToFetch = Array.from(
+      const isCash = (item: PortfolioItem) => !!item.isCash || item.sector === 'CASH' || item.ticker.toUpperCase() === '*CASH*';
+      const isDirectStock = (item: PortfolioItem) => !isCash(item) && !item.isEtf && !item.isMutualFund;
+
+      // Get unique tickers from the latest holdings slice
+      const currentTickers = Array.from(
         new Set<string>(
-          data
+          currentHoldings
             .filter(d => d.ticker && !(d.ticker as string).includes('$'))
             .map(d => (d.ticker as string).trim())
         )
       );
 
-      if (tickersToFetch.length === 0) return;
+      if (currentTickers.length === 0) {
+        if (!cancelled) {
+          setIsLoadingMarketData(false);
+        }
+        return;
+      }
 
+      if (cancelled) return;
       setIsLoadingMarketData(true);
-      setDataFetchError(null);
 
       const errors: string[] = [];
 
       try {
         const { fetchSectors, fetchBetas, fetchDividends, loadSectorWeights, loadAssetGeo, fetchIndexExposure, fetchRiskContribution } = await import('../services/api');
+        if (cancelled) return;
 
         // Fetch Sectors with error handling
         try {
-          const sectors = await fetchSectors(tickersToFetch);
+          const sectors = await fetchSectors(currentTickers);
+          if (cancelled) return;
           if (Object.keys(sectors).length > 0) {
             setSectorMap(prev => ({ ...prev, ...sectors }));
           }
@@ -192,20 +214,25 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ data, customSector
         // NOTE: These are market betas to S&P 500, used only for individual stock display in PortfolioTable
         // Portfolio-level beta comes from risk-contribution endpoint (see below)
         try {
-          const betas = await fetchBetas(tickersToFetch);
+          const directStockTickers = currentHoldings
+            .filter(isDirectStock)
+            .map(item => item.ticker);
+          const betas = directStockTickers.length > 0 ? await fetchBetas(directStockTickers) : {};
+          if (cancelled) return;
           if (Object.keys(betas).length > 0) {
-            setBetaMap(betas);
+            setMarketBetaMap(betas);
           }
         } catch (e) {
           console.error("Failed to fetch market betas:", e);
           errors.push("market betas");
         }
 
-        // Fetch Dividends with error handling (still needed for div yield display)
+        // Fetch holding-level dividend yields with error handling
         try {
-          const dividends = await fetchDividends(tickersToFetch);
+          const dividends = await fetchDividends(currentTickers);
+          if (cancelled) return;
           if (Object.keys(dividends).length > 0) {
-            setDivYieldMap(dividends);
+            setMarketDividendYieldMap(dividends);
           }
         } catch (e) {
           console.error("Failed to fetch dividends:", e);
@@ -216,6 +243,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ data, customSector
         // This gives us the true portfolio-to-benchmark beta
         try {
           const riskData = await fetchRiskContribution(currentHoldings);
+          if (cancelled) return;
           if (riskData && !riskData.error && riskData.portfolioBeta !== undefined) {
             setPortfolioBeta(riskData.portfolioBeta);
           }
@@ -228,6 +256,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ data, customSector
         if (!customSectors) {
           try {
             const loadedWeights = await loadSectorWeights();
+            if (cancelled) return;
             if (Object.keys(loadedWeights).length > 0) {
               setLocalCustomSectorWeights(loadedWeights);
             }
@@ -239,6 +268,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ data, customSector
         if (!assetGeo) {
           try {
             const loadedGeo = await loadAssetGeo();
+            if (cancelled) return;
             if (Object.keys(loadedGeo).length > 0) {
               setLocalAssetGeo(loadedGeo);
             }
@@ -250,6 +280,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ data, customSector
         // Fetch Benchmark Data
         try {
           const exposure = await fetchIndexExposure();
+          if (cancelled) return;
           if (exposure && exposure.sectors) {
             setBenchmarkSectors(exposure.sectors);
           }
@@ -263,21 +294,28 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ data, customSector
 
         // Set error message if any fetches failed
         if (errors.length > 0) {
+          if (cancelled) return;
           setDataFetchError(`Failed to load: ${errors.join(", ")}. Some data may be incomplete.`);
         }
 
       } catch (error) {
+        if (cancelled) return;
         console.error("Critical error fetching market data:", error);
         setDataFetchError("Failed to connect to market data service. Please check your connection and try again.");
       } finally {
+        if (cancelled) return;
         setIsLoadingMarketData(false);
         setFetchedAt(new Date().toISOString());
       }
     };
 
     if (data.length > 0) {
+      resetDerivedMarketState();
       fetchData();
     }
+    return () => {
+      cancelled = true;
+    };
   }, [data, customSectors, assetGeo, currentHoldings]);
 
   // Derive enrichedCurrentHoldings by merging sectorMap at render time
@@ -473,22 +511,22 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ data, customSector
         })()}
 
         <KPICard
-          title="Risk & Income"
+          title="Portfolio Risk & Income"
           value={
             <div className="flex w-full items-center mt-1">
               <div className="flex-1 flex flex-col items-center justify-center">
                 <div className="flex items-center gap-1.5 mb-1">
-                  <span className="text-xs font-extrabold text-wallstreet-500 uppercase tracking-wider">Beta</span>
-                  <span className="text-xs text-wallstreet-500/60" title="Portfolio sensitivity to your chosen benchmark (75% ACWI + 25% XIC.TO)"></span>
+                  <span className="text-xs font-extrabold text-wallstreet-500 uppercase tracking-wider">Portfolio Beta vs Benchmark</span>
+                  <span className="text-xs text-wallstreet-500/60" title="Portfolio sensitivity to your chosen benchmark (75/25 Composite: 75% ACWI (CAD) + 25% XIC.TO)"></span>
                 </div>
                 <span className="text-xl font-bold text-wallstreet-text font-mono">
                   {portfolioBeta !== null ? portfolioBeta.toFixed(2) : "—"}
                 </span>
-                <span className="text-xs text-wallstreet-500 mt-0.5">to benchmark</span>
+                <span className="text-xs text-wallstreet-500 mt-0.5">Portfolio-level beta</span>
               </div>
               <div className="w-px h-8 bg-wallstreet-100"></div>
               <div className="flex-1 flex flex-col items-center justify-center">
-                <div className="flex items-center gap-1.5 mb-1"><span className="text-xs font-extrabold text-wallstreet-500 uppercase tracking-wider">Div Yield</span></div>
+                <div className="flex items-center gap-1.5 mb-1"><span className="text-xs font-extrabold text-wallstreet-500 uppercase tracking-wider">Portfolio Dividend Yield</span></div>
                 <span className="text-xl font-bold text-green-600 font-mono">
                   {(() => {
                     let weightedDivSum = 0;
@@ -497,7 +535,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ data, customSector
                       // Exclude Cash
                       if (item.sector === 'CASH') return;
 
-                      const divYield = divYieldMap[item.ticker] || 0;
+                      const divYield = marketDividendYieldMap[item.ticker] || 0;
                       weightedDivSum += (item.weight * divYield);
                       totalInvestedWeight += item.weight;
                     });
@@ -542,9 +580,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ data, customSector
       <PortfolioTable
         currentHoldings={enrichedCurrentHoldings}
         allData={data}
-        betaMap={betaMap}
-        divYieldMap={divYieldMap}
-        assetGeo={assetGeo}
+        marketBetaMap={marketBetaMap}
+        marketDividendYieldMap={marketDividendYieldMap}
+        assetGeo={effectiveAssetGeo}
       />
     </div>
   );

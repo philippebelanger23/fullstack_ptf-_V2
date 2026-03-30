@@ -316,7 +316,7 @@ export const ReportView: React.FC<ReportViewProps> = ({ data, customSectors, ass
                         PORTFOLIO <span className="text-wallstreet-accent">REPORT</span>
                     </h1>
                     <p className="text-wallstreet-500 text-xs mt-0.5 font-mono">
-                        {genDate} &middot; Benchmark: 75% ACWI + 25% TSX
+                        {genDate} &middot; Benchmark: 75/25 Composite (75% ACWI (CAD) + 25% XIC.TO)
                     </p>
                 </div>
                 <div className="print-hide flex items-center gap-3">

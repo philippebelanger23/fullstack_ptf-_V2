@@ -1414,8 +1414,15 @@ export function useManualEntryState(
     };
 
     const handleRemoveTicker = (tickerToRemove: string) => {
-        setTickers(tickers.filter(t => t.ticker !== tickerToRemove));
-        // Check if we need to clean up weights? Not strictly necessary but cleaner
+        setTickers(prev => prev.filter(t => t.ticker !== tickerToRemove));
+        setPeriods(prev => prev.map(period => {
+            const updatedWeights = { ...period.weights };
+            delete updatedWeights[tickerToRemove];
+            return {
+                ...period,
+                weights: updatedWeights
+            };
+        }));
     };
 
     const handleToggleMutualFund = (ticker: string) => {
@@ -1530,13 +1537,8 @@ export function useManualEntryState(
             }, 1500);
         } catch (err) {
             console.error("Failed to save portfolio config on submit:", err);
-            // Even if save fails, we might want to proceed or show error
-            // For now, let's proceed but maybe log it?
-            // Or should we block? The user wants to analyze.
-            // Let's assume we proceed after a short delay so they don't get stuck.
             setIsSaving(false);
-            onSubmit(flatItems);
-            onClose();
+            setSavedSuccess(false);
         }
     };
 

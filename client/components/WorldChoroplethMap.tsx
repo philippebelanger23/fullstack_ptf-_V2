@@ -18,7 +18,7 @@ interface WorldChoroplethMapProps {
     projectionConfig?: { rotate?: [number, number, number]; scale?: number; center?: [number, number] };
 }
 
-type ViewMode = 'Index' | 'ACWI' | 'TSX';
+type ViewMode = 'Composite' | 'ACWI' | 'TSX';
 
 const MARKET_LABELS: Record<string, string> = {
     US: 'United States',
@@ -26,6 +26,12 @@ const MARKET_LABELS: Record<string, string> = {
     DM: 'Developed Market',
     EM: 'Emerging Market',
     Other: 'Other',
+};
+
+const VIEW_LABELS: Record<ViewMode, string> = {
+    Composite: '75/25 Composite',
+    ACWI: 'ACWI',
+    TSX: 'XIC.TO',
 };
 
 // Color interpolators
@@ -50,7 +56,7 @@ const HOVER_STROKE = '#1e3a5a';
 
 export const WorldChoroplethMap: React.FC<WorldChoroplethMapProps> = ({ data, projectionConfig }) => {
     const [displayMode, setDisplayMode] = useState<'map' | 'table'>('map');
-    const [view, setView] = useState<ViewMode>('Index');
+    const [view, setView] = useState<ViewMode>('Composite');
     const [hoveredGeo, setHoveredGeo] = useState<string | null>(null);
     const [tooltipPos, setTooltipPos] = useState({ x: 0, y: 0 });
     const [tooltipData, setTooltipData] = useState<GeoEntry | null>(null);
@@ -71,7 +77,7 @@ export const WorldChoroplethMap: React.FC<WorldChoroplethMapProps> = ({ data, pr
         if (!entry) return 0;
         if (view === 'ACWI') return entry.ACWI;
         if (view === 'TSX') return entry.TSX;
-        return entry.weight; // 'Index'
+        return entry.weight; // composite benchmark
     }, [view]);
 
     // Color scale — log scale so US/Canada saturate at full dark while
@@ -122,7 +128,7 @@ export const WorldChoroplethMap: React.FC<WorldChoroplethMapProps> = ({ data, pr
         setTooltipMapName('');
     }, []);
 
-    const views: ViewMode[] = ['Index', 'ACWI', 'TSX'];
+    const views: ViewMode[] = ['Composite', 'ACWI', 'TSX'];
 
     // Table data: all countries sorted by composite weight
     const tableRows = useMemo(() => {
@@ -140,12 +146,12 @@ export const WorldChoroplethMap: React.FC<WorldChoroplethMapProps> = ({ data, pr
     return (
         <div className="flex flex-col h-full w-full" onMouseMove={handleMouseMove}>
             {/* Header row: Map/Table toggle left, ETF toggle right */}
-            <div className="flex items-center justify-between mb-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3">
                 {/* Map / Table toggle */}
                 <div className="flex items-center bg-wallstreet-50 rounded-lg p-0.5 gap-0.5">
                     <button
                         onClick={() => setDisplayMode('map')}
-                        className={`flex items-center gap-1.5 px-3 py-1 text-xs font-mono rounded-md transition-all ${displayMode === 'map'
+                        className={`flex items-center gap-1 px-2 h-7 text-[10px] sm:text-[11px] font-mono rounded-lg transition-all ${displayMode === 'map'
                             ? 'bg-wallstreet-800 text-wallstreet-text shadow-sm'
                             : 'text-wallstreet-400 hover:text-wallstreet-600'
                             }`}
@@ -155,7 +161,7 @@ export const WorldChoroplethMap: React.FC<WorldChoroplethMapProps> = ({ data, pr
                     </button>
                     <button
                         onClick={() => setDisplayMode('table')}
-                        className={`flex items-center gap-1.5 px-3 py-1 text-xs font-mono rounded-md transition-all ${displayMode === 'table'
+                        className={`flex items-center gap-1 px-2 h-7 text-[10px] sm:text-[11px] font-mono rounded-lg transition-all ${displayMode === 'table'
                             ? 'bg-wallstreet-800 text-wallstreet-text shadow-sm'
                             : 'text-wallstreet-400 hover:text-wallstreet-600'
                             }`}
@@ -167,17 +173,17 @@ export const WorldChoroplethMap: React.FC<WorldChoroplethMapProps> = ({ data, pr
 
                 {/* ETF view toggle (map only) */}
                 {displayMode === 'map' && (
-                    <div className="flex items-center gap-1">
+                    <div className="ml-auto flex items-center gap-1.5 flex-wrap justify-end">
                         {views.map(v => (
                             <button
                                 key={v}
                                 onClick={() => setView(v)}
-                                className={`px-3 py-1 text-xs font-mono rounded-md transition-all ${view === v
+                                className={`px-3.5 h-8 text-[11px] sm:text-xs font-mono rounded-lg transition-all ${view === v
                                     ? 'bg-wallstreet-accent text-white shadow-sm'
                                     : 'bg-wallstreet-50 text-wallstreet-500 hover:bg-wallstreet-100'
                                     }`}
                             >
-                                {v}
+                                {VIEW_LABELS[v]}
                             </button>
                         ))}
                     </div>
@@ -192,7 +198,7 @@ export const WorldChoroplethMap: React.FC<WorldChoroplethMapProps> = ({ data, pr
                             <tr>
                                 <th className="p-2 text-left w-[34%]">Country</th>
                                 <th className="p-2 text-left w-[16%]">Type</th>
-                                <th className="p-2 text-right w-[12%]">75/25</th>
+                                <th className="p-2 text-right w-[12%]">75/25 Composite</th>
                                 <th className="p-2 text-right w-[13%]">ACWI</th>
                                 <th className="p-2 text-right w-[13%]">XIC.TO</th>
                                 <th className="p-2 text-right w-[12%]">Cumul.</th>
@@ -294,7 +300,7 @@ export const WorldChoroplethMap: React.FC<WorldChoroplethMapProps> = ({ data, pr
                             <>
                                 <div className="border-t border-wallstreet-700 pt-1.5 space-y-0.5">
                                     <div className="flex justify-between gap-4">
-                                        <span className="text-wallstreet-500 text-xs">Index</span>
+                                        <span className="text-wallstreet-500 text-xs">75/25 Composite</span>
                                         <span className="font-bold text-blue-700">{tooltipData.weight.toFixed(2)}%</span>
                                     </div>
                                     <div className="flex justify-between gap-4">
@@ -313,7 +319,7 @@ export const WorldChoroplethMap: React.FC<WorldChoroplethMapProps> = ({ data, pr
                                 </div>
                             </>
                         ) : (
-                            <p className="text-xs text-wallstreet-500">Not in index</p>
+                            <p className="text-xs text-wallstreet-500">Not in benchmark</p>
                         )}
                     </div>
                 )}

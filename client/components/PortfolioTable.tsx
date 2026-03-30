@@ -4,8 +4,8 @@ import { PortfolioItem } from '../types';
 interface PortfolioTableProps {
   currentHoldings: PortfolioItem[];
   allData: PortfolioItem[];
-  betaMap?: Record<string, number>;
-  divYieldMap?: Record<string, number>;
+  marketBetaMap?: Record<string, number>;
+  marketDividendYieldMap?: Record<string, number>;
   assetGeo?: Record<string, string>;
 }
 
@@ -56,7 +56,7 @@ const GEO_SECTIONS = [
   { key: 'CA', label: 'Canada', color: 'bg-red-100 text-red-700 border-red-300 dark:bg-red-900/30 dark:text-red-300 dark:border-red-700', bg: 'bg-red-100 dark:bg-red-900/30' },
 ] as const;
 
-export const PortfolioTable: React.FC<PortfolioTableProps> = ({ currentHoldings: rawHoldings, betaMap, divYieldMap, assetGeo }) => {
+export const PortfolioTable: React.FC<PortfolioTableProps> = ({ currentHoldings: rawHoldings, marketBetaMap, marketDividendYieldMap, assetGeo }) => {
   // Pin cash items to the front before any grouping/sorting
   const currentHoldings = useMemo(() => {
     const cashItems = rawHoldings.filter(i => i.isCash || i.sector === 'CASH' || i.ticker.toUpperCase() === '*CASH*');
@@ -260,8 +260,8 @@ export const PortfolioTable: React.FC<PortfolioTableProps> = ({ currentHoldings:
               <th className="min-w-[60px]"></th>
               <th className="px-3 py-1.5 text-right min-w-[80px]">Weight</th>
               <th className="px-3 py-1.5 text-center min-w-[60px]">Loc</th>
-              <th className="px-3 py-1.5 text-center min-w-[50px]">Beta</th>
-              <th className="px-3 py-1.5 text-center min-w-[60px]">Div %</th>
+              <th className="px-3 py-1.5 text-center min-w-[50px]">Market Beta</th>
+              <th className="px-3 py-1.5 text-center min-w-[60px]">Market Div %</th>
               {/* Gap 2 - Equal spacing */}
               <th className="min-w-[60px]"></th>
               {GICS_SECTORS.map(sector => (
@@ -310,7 +310,10 @@ export const PortfolioTable: React.FC<PortfolioTableProps> = ({ currentHoldings:
                   {(!isCollapsed || isCashSection) && items.map((item) => {
                     globalIndex++;
                     const region = getRegion(item);
-                    const beta = betaMap && betaMap[item.ticker] !== undefined ? betaMap[item.ticker] : (isCash(item) ? 0 : 1);
+                    const isDirectEquity = !isCash(item) && !isETFOrMF(item);
+                    const beta = isDirectEquity && marketBetaMap && marketBetaMap[item.ticker] !== undefined
+                      ? marketBetaMap[item.ticker]
+                      : null;
                     const sectorExposure = getSectorExposure(item);
 
                     const rowTotal = isCash(item)
@@ -344,15 +347,17 @@ export const PortfolioTable: React.FC<PortfolioTableProps> = ({ currentHoldings:
                         </td>
                         <td
                           className="px-3 py-1.5 text-center font-mono text-wallstreet-text"
-                          title="Beta to S&P 500 (market beta). See Risk Contribution view for portfolio-level beta analysis."
+                          title="Market beta to S&P 500 for direct equities. See Risk Contribution view for portfolio-level beta analysis."
                         >
-                          <span className={`font-bold text-xs ${isCash(item) ? 'text-wallstreet-500' : 'text-wallstreet-text'}`}>
-                            {isCash(item) ? '-' : beta.toFixed(2)}
+                          <span className={`font-bold text-xs ${beta !== null ? 'text-wallstreet-text' : 'text-wallstreet-500'}`}>
+                            {beta !== null ? beta.toFixed(2) : '-'}
                           </span>
                         </td>
                         <td className="px-3 py-1.5 text-center font-mono text-wallstreet-text">
                           {(() => {
-                            const divYield = divYieldMap && divYieldMap[item.ticker] !== undefined ? divYieldMap[item.ticker] : 0;
+                            const divYield = marketDividendYieldMap && marketDividendYieldMap[item.ticker] !== undefined
+                              ? marketDividendYieldMap[item.ticker]
+                              : 0;
                             return (
                               <span className={`font-bold text-xs ${divYield > 0 ? 'text-wallstreet-text' : 'text-wallstreet-500'}`}>
                                 {divYield > 0 ? divYield.toFixed(2) + '%' : '-'}

@@ -132,11 +132,13 @@ async def save_manual_nav(request: dict):
 async def check_nav_lag(request: dict):
     """
     Compare last NAV date on file with a supplied reference date for a set of tickers.
-    If no reference date is provided, fall back to market freshness vs SPY.
+    The reference date is required so the lag check is driven by each fund's
+    own latest held date rather than a shared market freshness fallback.
 
     Args:
         request.tickers: List of ticker symbols to check
         request.force_refresh: If true, ignore internal caches
+        request.reference_date: Required YYYY-MM-DD reference date
     """
     tickers = request.get("tickers", [])
     force_refresh = request.get("force_refresh", False)
@@ -144,6 +146,9 @@ async def check_nav_lag(request: dict):
 
     if not tickers:
         return {}
+
+    if not reference_date_str or not str(reference_date_str).strip():
+        raise HTTPException(status_code=400, detail="reference_date is required in YYYY-MM-DD format")
 
     results = {}
 
@@ -154,38 +159,11 @@ async def check_nav_lag(request: dict):
         f"force_refresh={force_refresh}, ref_date={reference_date_str}"
     )
 
-    def get_last_business_day(reference_date=None):
-        if reference_date is None:
-            reference_date = datetime.datetime.now().date()
-        while reference_date.weekday() >= 5:
-            reference_date -= datetime.timedelta(days=1)
-        return reference_date
-
-    # 2. Get comparison date
-    comparison_date = None
-    if reference_date_str:
-        try:
-            comparison_date = datetime.datetime.strptime(reference_date_str, "%Y-%m-%d").date()
-            logger.info(f"check-nav-lag: Using provided reference date: {comparison_date}")
-        except Exception as e:
-            logger.warning(f"Invalid reference_date {reference_date_str}, falling back to today. Error: {e}")
-            comparison_date = get_last_business_day()
-    else:
-        try:
-            spy_hist = yf.download("SPY", period="5d", progress=False, threads=False)
-            if not spy_hist.empty:
-                last_market_date = spy_hist.index[-1].date()
-                logger.info(f"check-nav-lag: Latest market date from SPY: {last_market_date}")
-            else:
-                raise ValueError("SPY history empty")
-        except Exception as market_err:
-            logger.warning(
-                f"check-nav-lag: Failed to fetch market date ({market_err}). "
-                "Falling back to business day logic."
-            )
-            last_market_date = get_last_business_day()
-
-        comparison_date = get_last_business_day(last_market_date)
+    try:
+        comparison_date = datetime.datetime.strptime(reference_date_str, "%Y-%m-%d").date()
+        logger.info(f"check-nav-lag: Using provided reference date: {comparison_date}")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail="reference_date must be in YYYY-MM-DD format") from e
 
     for ticker in tickers:
         try:

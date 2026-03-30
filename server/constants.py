@@ -25,7 +25,7 @@ FX_TICKER = "CAD=X"
 INDICES = {"^GSPC", "^DJI", "^IXIC", "ACWI", "^GSPTSE"}
 FX_TICKERS = {"CAD=X"}
 
-# Benchmark blend composition (75% ACWI in CAD + 25% XIC.TO)
+# Benchmark blend composition (75/25 composite: 75% ACWI in CAD + 25% XIC.TO)
 BENCHMARK_BLEND_WEIGHTS = {"ACWI": 0.75, "XIC": 0.25}
 BENCHMARK_BLEND_TICKERS = ["ACWI", "XIC.TO", "XUS.TO", "USDCAD=X"]
 

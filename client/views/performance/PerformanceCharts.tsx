@@ -6,8 +6,8 @@ import { UnifiedPerformancePanel } from './UnifiedPerformancePanel';
 export type ChartView = 'absolute' | 'relative' | 'drawdowns';
 
 const BENCHMARKS = [
-    { key: '75/25', label: 'Custom', title: '75% ACWI + 25% TSX (CAD)' },
-    { key: 'TSX', label: 'TSX', title: 'S&P/TSX Composite — XIC.TO' },
+    { key: '75/25', label: '75/25 Composite', title: '75% ACWI (CAD) + 25% XIC.TO' },
+    { key: 'TSX', label: 'XIC.TO', title: 'S&P/TSX Composite — XIC.TO' },
     { key: 'SP500', label: 'S&P 500', title: 'S&P 500 CAD — XUS.TO' },
 ] as const;
 
