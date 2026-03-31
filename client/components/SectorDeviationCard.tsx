@@ -22,12 +22,21 @@ interface Props {
     benchmarkGeography?: GeoEntry[];
     assetGeo?: Record<string, string>;
     noWrapper?: boolean;
+    titleActions?: React.ReactNode;
+    isActive?: boolean;
 }
 
-export const SectorDeviationCard: React.FC<Props> = ({ currentHoldings, benchmarkData, benchmarkGeography, assetGeo, noWrapper }) => {
+export const SectorDeviationCard: React.FC<Props> = ({ currentHoldings, benchmarkData, benchmarkGeography, assetGeo, noWrapper, titleActions, isActive }) => {
     const [deviationView, setDeviationView] = useState<'SECTOR' | 'GEOGRAPHY'>('SECTOR');
     const [hoveredSector, setHoveredSector] = useState<string | null>(null);
     const [tooltipPos, setTooltipPos] = useState<{ x: number; y: number } | null>(null);
+
+    React.useEffect(() => {
+        if (isActive === false) {
+            setHoveredSector(null);
+            setTooltipPos(null);
+        }
+    }, [isActive]);
 
     // The 11 GICS Sectors
     const GICS_SECTORS = [
@@ -246,8 +255,9 @@ export const SectorDeviationCard: React.FC<Props> = ({ currentHoldings, benchmar
         <>
         <div className={noWrapper ? "flex flex-col h-full" : "lg:col-span-1 bg-wallstreet-800 p-6 rounded-xl border border-wallstreet-700 shadow-sm flex flex-col h-full"}>
             <div className="flex items-center justify-between mb-4">
-                <h3 className="font-mono font-bold text-wallstreet-text uppercase tracking-wider text-sm">
+                <h3 className="flex items-center gap-1.5 font-mono font-bold text-wallstreet-text uppercase tracking-wider text-sm">
                     Benchmark Deviation
+                    {titleActions}
                 </h3>
                 <div className="flex gap-0.5 bg-wallstreet-50 rounded-lg p-0.5">
                     <button

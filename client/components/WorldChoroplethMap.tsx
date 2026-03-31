@@ -58,7 +58,7 @@ export const WorldChoroplethMap: React.FC<WorldChoroplethMapProps> = ({ data, pr
     const [displayMode, setDisplayMode] = useState<'map' | 'table'>('map');
     const [view, setView] = useState<ViewMode>('Composite');
     const [hoveredGeo, setHoveredGeo] = useState<string | null>(null);
-    const [tooltipPos, setTooltipPos] = useState({ x: 0, y: 0 });
+    const [tooltipPos, setTooltipPos] = useState({ x: 0, y: 0, cw: 0, ch: 0 });
     const [tooltipData, setTooltipData] = useState<GeoEntry | null>(null);
     const [tooltipMapName, setTooltipMapName] = useState('');
 
@@ -107,6 +107,8 @@ export const WorldChoroplethMap: React.FC<WorldChoroplethMapProps> = ({ data, pr
         setTooltipPos({
             x: e.clientX - rect.left,
             y: e.clientY - rect.top,
+            cw: rect.width,
+            ch: rect.height,
         });
     }, []);
 
@@ -148,25 +150,25 @@ export const WorldChoroplethMap: React.FC<WorldChoroplethMapProps> = ({ data, pr
             {/* Header row: Map/Table toggle left, ETF toggle right */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3">
                 {/* Map / Table toggle */}
-                <div className="flex items-center bg-wallstreet-50 rounded-lg p-0.5 gap-0.5">
+                <div className="flex items-center gap-1.5">
                     <button
                         onClick={() => setDisplayMode('map')}
-                        className={`flex items-center gap-1 px-2 h-7 text-[10px] sm:text-[11px] font-mono rounded-lg transition-all ${displayMode === 'map'
+                        className={`flex items-center gap-1.5 px-3.5 h-8 text-[11px] sm:text-xs font-mono rounded-lg transition-all ${displayMode === 'map'
                             ? 'bg-wallstreet-800 text-wallstreet-text shadow-sm'
-                            : 'text-wallstreet-400 hover:text-wallstreet-600'
+                            : 'bg-wallstreet-50 text-wallstreet-500 hover:bg-wallstreet-100'
                             }`}
                     >
-                        <MapIcon size={12} />
+                        <MapIcon size={14} />
                         Map
                     </button>
                     <button
                         onClick={() => setDisplayMode('table')}
-                        className={`flex items-center gap-1 px-2 h-7 text-[10px] sm:text-[11px] font-mono rounded-lg transition-all ${displayMode === 'table'
+                        className={`flex items-center gap-1.5 px-3.5 h-8 text-[11px] sm:text-xs font-mono rounded-lg transition-all ${displayMode === 'table'
                             ? 'bg-wallstreet-800 text-wallstreet-text shadow-sm'
-                            : 'text-wallstreet-400 hover:text-wallstreet-600'
+                            : 'bg-wallstreet-50 text-wallstreet-500 hover:bg-wallstreet-100'
                             }`}
                     >
-                        <Table2 size={12} />
+                        <Table2 size={14} />
                         Table
                     </button>
                 </div>
@@ -288,9 +290,9 @@ export const WorldChoroplethMap: React.FC<WorldChoroplethMapProps> = ({ data, pr
                     <div
                         className="absolute pointer-events-none z-50 bg-wallstreet-800 p-3 border border-wallstreet-700 rounded-lg shadow-lg font-mono text-sm"
                         style={{
-                            left: Math.min(tooltipPos.x + 12, (typeof window !== 'undefined' ? 400 : 400)),
-                            top: tooltipPos.y - 10,
-                            maxWidth: 220,
+                            left: tooltipPos.x + 240 > tooltipPos.cw ? Math.max(0, tooltipPos.x - 230) : tooltipPos.x + 12,
+                            top: tooltipPos.y + 160 > tooltipPos.ch ? Math.max(0, tooltipPos.y - 160) : tooltipPos.y - 10,
+                            width: 220,
                         }}
                     >
                         <p className="font-bold text-wallstreet-text mb-1.5">

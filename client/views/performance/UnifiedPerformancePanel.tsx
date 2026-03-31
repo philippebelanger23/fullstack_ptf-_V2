@@ -182,13 +182,13 @@ export const UnifiedPerformancePanel: React.FC<UnifiedPerformancePanelProps> = (
                                 {/* Ghost portfolio line */}
                                 <polyline
                                     points="52,158 105,144 165,130 220,136 275,118 330,108 385,92 440,98 490,80"
-                                    fill="none" stroke="#f59e0b" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" strokeOpacity="0.25">
+                                    fill="none" stroke="#10b981" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" strokeOpacity="0.25">
                                     <animate attributeName="stroke-opacity" values="0.25;0.10;0.25" dur="2s" repeatCount="indefinite" />
                                 </polyline>
                                 {/* Ghost benchmark line */}
                                 <polyline
                                     points="52,165 105,153 165,141 220,147 275,130 330,120 385,106 440,112 490,96"
-                                    fill="none" stroke={benchmarkColor} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" strokeDasharray="8 5" strokeOpacity="0.2">
+                                    fill="none" stroke="#000000" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" strokeDasharray="8 5" strokeOpacity="0.2">
                                     <animate attributeName="stroke-opacity" values="0.2;0.07;0.2" dur="2s" begin="0.4s" repeatCount="indefinite" />
                                 </polyline>
                                 {/* X-axis label placeholders */}
@@ -292,10 +292,11 @@ export const UnifiedPerformancePanel: React.FC<UnifiedPerformancePanelProps> = (
                                     <Tooltip
                                         content={({ active, payload, label }) => {
                                             if (!active || !payload || payload.length === 0) return null;
+                                            const sorted = [...payload].sort((a, b) => (b.value as number) - (a.value as number));
                                             return (
                                                 <div className="bg-wallstreet-800 border border-wallstreet-700 rounded-xl shadow-lg p-3 font-mono text-sm">
                                                     <p className="font-bold text-wallstreet-500 mb-2 border-b border-wallstreet-700 pb-1">{formatTooltipDate(String(label))}</p>
-                                                    {payload.map((entry) => {
+                                                    {sorted.map((entry) => {
                                                         const val = entry.value as number;
                                                         return (
                                                             <div key={entry.dataKey as string} className="flex justify-between items-center gap-4 py-0.5">
@@ -312,8 +313,8 @@ export const UnifiedPerformancePanel: React.FC<UnifiedPerformancePanelProps> = (
                                     />
                                     <Legend wrapperStyle={{ paddingTop: '15px' }} />
                                     <ReferenceLine y={0} stroke={tc.referenceLine} strokeWidth={2} />
-                                    <Area type="monotone" dataKey="Portfolio" stroke="#f59e0b" strokeWidth={2.5} fill="url(#drawdownGradient)" dot={false} activeDot={{ r: 6, strokeWidth: 2, stroke: '#fff', fill: '#f59e0b' }} />
-                                    <Area type="monotone" dataKey="Benchmark" name={benchmarkLabel} stroke={benchmarkColor} strokeWidth={1.5} fill="none" fillOpacity={0} strokeDasharray="5 5" dot={false} activeDot={{ r: 4, strokeWidth: 2, stroke: '#fff', fill: benchmarkColor }} />
+                                    <Area type="monotone" dataKey="Portfolio" stroke="#10b981" strokeWidth={2.5} fill="url(#drawdownGradient)" dot={false} activeDot={{ r: 6, strokeWidth: 2, stroke: '#fff', fill: '#10b981' }} />
+                                    <Area type="monotone" dataKey="Benchmark" name={benchmarkLabel} stroke="#000000" strokeWidth={1.5} fill="none" fillOpacity={0} strokeDasharray="5 5" dot={false} activeDot={{ r: 4, strokeWidth: 2, stroke: '#fff', fill: '#000000' }} />
                                 </AreaChart>
                             ) : (
                                 <LineChart data={chartData} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
@@ -337,10 +338,11 @@ export const UnifiedPerformancePanel: React.FC<UnifiedPerformancePanelProps> = (
                                     <Tooltip
                                         content={({ active, payload, label }) => {
                                             if (!active || !payload || payload.length === 0) return null;
+                                            const sorted = [...payload].sort((a, b) => (b.value as number) - (a.value as number));
                                             return (
                                                 <div className="bg-wallstreet-800 border border-wallstreet-700 rounded-xl shadow-lg p-3 font-mono text-sm">
                                                     <p className="font-bold text-wallstreet-500 mb-2 border-b border-wallstreet-700 pb-1">{formatTooltipDate(String(label))}</p>
-                                                    {payload.map((entry) => (
+                                                    {sorted.map((entry) => (
                                                         <div key={entry.dataKey as string} className="flex justify-between items-center gap-4 py-0.5">
                                                             <span style={{ color: entry.color }} className="font-medium">{entry.name}:</span>
                                                             <span style={{ color: entry.color }} className="font-bold">
@@ -354,8 +356,8 @@ export const UnifiedPerformancePanel: React.FC<UnifiedPerformancePanelProps> = (
                                     />
                                     <Legend wrapperStyle={{ paddingTop: '15px' }} />
                                     <ReferenceLine y={0} stroke={tc.referenceLine} strokeDasharray="4 4" />
-                                    <Line type="monotone" dataKey="Portfolio" stroke="#f59e0b" strokeWidth={3} dot={false} activeDot={{ r: 6, strokeWidth: 2, stroke: '#fff' }} />
-                                    <Line type="monotone" dataKey="Benchmark" name={benchmarkLabel} stroke={benchmarkColor} strokeWidth={2} dot={false} activeDot={{ r: 5, strokeWidth: 2, stroke: '#fff' }} />
+                                    <Line type="monotone" dataKey="Portfolio" stroke="#10b981" strokeWidth={3} dot={false} activeDot={{ r: 6, strokeWidth: 2, stroke: '#fff' }} />
+                                    <Line type="monotone" dataKey="Benchmark" name={benchmarkLabel} stroke="#000000" strokeWidth={2} dot={false} activeDot={{ r: 5, strokeWidth: 2, stroke: '#fff' }} />
                                 </LineChart>
                             )}
                         </ResponsiveContainer>

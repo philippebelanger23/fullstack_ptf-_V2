@@ -22,6 +22,7 @@ interface Props {
     benchmarkGeography: GeoEntry[];
     assetGeo?: Record<string, string>;
     noWrapper?: boolean;
+    titleActions?: React.ReactNode;
 }
 
 const SECTOR_ORDER = [
@@ -138,6 +139,7 @@ export const SectorGeographyDeviationCard: React.FC<Props> = ({
     benchmarkGeography,
     assetGeo,
     noWrapper,
+    titleActions,
 }) => {
     const { isDark } = useThemeColors();
     const [viewMode, setViewMode] = useState<'RELATIVE' | 'ABSOLUTE'>('RELATIVE');
@@ -154,7 +156,7 @@ export const SectorGeographyDeviationCard: React.FC<Props> = ({
             if (item.sectorWeights) {
                 Object.entries(item.sectorWeights).forEach(([rawSector, pct]) => {
                     const normalized = SECTOR_MAP[rawSector] || (SECTOR_ORDER.includes(rawSector as any) ? rawSector : null);
-                    if (normalized && portfolioGrid[normalized]) {
+                    if (normalized && portfolioGrid[normalized] && typeof pct === 'number') {
                         portfolioGrid[normalized][geo] += item.weight * (pct / 100);
                     }
                 });
@@ -232,7 +234,7 @@ export const SectorGeographyDeviationCard: React.FC<Props> = ({
         return { deltaGrid, totalDelta, portfolioGrid, portfolioGeoTotal, minDelta, maxDelta, maxPortfolioWeight };
     }, [currentHoldings, benchmarkSectors, benchmarkGeography, assetGeo]);
 
-    const DataCell = ({ val, isRelative, bgColor, noBg, isBold }: { val: number; isRelative: boolean; bgColor?: string; noBg?: boolean; isBold?: boolean }) => {
+    const DataCell: React.FC<{ val: number; isRelative: boolean; bgColor?: string; noBg?: boolean; isBold?: boolean }> = ({ val, isRelative, bgColor, noBg, isBold }) => {
         const cellBgColor = noBg 
             ? 'transparent' 
             : (isRelative ? getDeltaBg(val, minDelta, maxDelta) : getAbsoluteBg(val, maxPortfolioWeight));
@@ -275,8 +277,9 @@ export const SectorGeographyDeviationCard: React.FC<Props> = ({
     return (
         <div className={noWrapper ? "flex flex-col h-full" : "lg:col-span-1 bg-wallstreet-800 p-6 rounded-xl border border-wallstreet-700 shadow-sm flex flex-col h-full"}>
             <div className="flex items-center justify-between mb-4">
-                <h3 className="font-mono font-bold text-wallstreet-text uppercase tracking-wider text-sm">
+                <h3 className="flex items-center gap-1.5 font-mono font-bold text-wallstreet-text uppercase tracking-wider text-sm">
                     Regional Sector Tilt
+                    {titleActions}
                 </h3>
                 <div className="flex gap-0.5 bg-wallstreet-50 rounded-lg p-0.5">
                     <button

@@ -285,7 +285,7 @@ function App() {
 
           {/* Mount once visited, then keep alive */}
           {visited.has(ViewState.DASHBOARD) && viewPane(ViewState.DASHBOARD,
-            <DashboardView data={mergedPortfolioData} customSectors={customSectors} assetGeo={assetGeo} />
+            <DashboardView data={mergedPortfolioData} customSectors={customSectors} assetGeo={assetGeo} isActive={currentView === ViewState.DASHBOARD} />
           )}
           {visited.has(ViewState.INDEX) && viewPane(ViewState.INDEX,
             <IndexView />
@@ -316,9 +316,9 @@ function App() {
               isActive={currentView === ViewState.ANALYSIS}
               sharedBackcast={backcastData}
               sharedBackcastLoading={backcastLoading}
-              onViewAttribution={() => {
-                setAttributionTablesRequest(r => r + 1);
-                setCurrentView(ViewState.ATTRIBUTION);
+              onNavigate={(view) => {
+                if (view === ViewState.ATTRIBUTION) setAttributionTablesRequest(r => r + 1);
+                setCurrentView(view);
               }}
             />
           )}

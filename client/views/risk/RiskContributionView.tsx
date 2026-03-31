@@ -18,14 +18,28 @@ export const RiskContributionView: React.FC = () => {
     const [error, setError] = useState<string | null>(null);
     const [data, setData] = useState<RiskContributionResponse | null>(null);
     const [positionMode, setPositionMode] = useState<PositionMode>('actual');
+    const [loadProgress, setLoadProgress] = useState<Record<string, 'pending' | 'done' | 'error'>>({
+        holdings: 'pending', risk: 'pending',
+    });
 
     useEffect(() => {
         let cancelled = false;
         const fetchData = async () => {
             setLoading(true);
             setError(null);
+            setLoadProgress({ holdings: 'pending', risk: 'pending' });
+            const trackFetch = async <T,>(key: string, fn: () => Promise<T>): Promise<T> => {
+                try {
+                    const result = await fn();
+                    if (!cancelled) setLoadProgress(prev => ({ ...prev, [key]: 'done' }));
+                    return result;
+                } catch (err) {
+                    if (!cancelled) setLoadProgress(prev => ({ ...prev, [key]: 'error' }));
+                    throw err;
+                }
+            };
             try {
-                const config = await loadPortfolioConfig();
+                const config = await trackFetch('holdings', loadPortfolioConfig);
                 if (cancelled) return;
                 if (!config.tickers || config.tickers.length === 0) {
                     setError("No portfolio configured. Go to Upload to configure your portfolio.");
@@ -55,7 +69,7 @@ export const RiskContributionView: React.FC = () => {
                     return;
                 }
 
-                const result = await fetchRiskContribution(items);
+                const result = await trackFetch('risk', () => fetchRiskContribution(items));
                 if (cancelled) return;
                 if (result.error) {
                     setError(result.error);
@@ -78,26 +92,90 @@ export const RiskContributionView: React.FC = () => {
 
     /* ── Loading state ── */
     if (loading) {
+        const steps = [
+            { key: 'holdings', label: 'Portfolio Holdings', sub: 'Loading positions & weights' },
+            { key: 'risk',     label: 'Risk Analysis',      sub: 'Volatility, beta & correlations' },
+        ];
+        const doneCount = Object.values(loadProgress).filter(s => s === 'done').length;
         return (
-            <div className="max-w-[100vw] mx-auto p-4 md:p-6 overflow-x-hidden min-h-screen flex flex-col items-center justify-center">
-                <div className="flex flex-col items-center gap-6">
-                    <div className="flex items-end gap-1.5 h-12">
-                        {[0, 1, 2, 3, 4].map(i => (
-                            <div
-                                key={i}
-                                className="w-2 bg-wallstreet-accent rounded-t"
-                                style={{ animation: `barPulse 1s ease-in-out ${i * 0.15}s infinite`, height: '30%' }}
-                            />
-                        ))}
-                    </div>
-                    <p className="text-sm font-mono text-wallstreet-500 tracking-wide uppercase">Loading Risk Data</p>
-                </div>
+            <div className="max-w-[100vw] mx-auto p-4 md:p-6 overflow-x-hidden min-h-screen flex flex-col items-center justify-center select-none">
                 <style>{`
-                    @keyframes barPulse {
-                        0%, 100% { height: 30%; opacity: 0.4; }
-                        50% { height: 100%; opacity: 1; }
+                    @keyframes riskBarPulse {
+                        0%, 100% { transform: scaleY(0.12); opacity: 0.1; }
+                        50%      { transform: scaleY(1);    opacity: 1;   }
+                    }
+                    @keyframes riskScanLine {
+                        0%   { left: -2px; }
+                        100% { left: calc(100% + 2px); }
                     }
                 `}</style>
+                <div className="flex flex-col items-center gap-8 w-full max-w-sm">
+                    {/* Animated bar chart */}
+                    <div className="relative overflow-hidden rounded" style={{ width: '176px', height: '60px' }}>
+                        <div className="flex items-end h-full gap-1.5">
+                            {[28, 50, 36, 66, 42, 78, 54, 92, 46, 72, 58, 88, 64].map((h, i) => (
+                                <div
+                                    key={i}
+                                    className="flex-1 rounded-t-sm origin-bottom"
+                                    style={{
+                                        height: `${h}%`,
+                                        background: i === 12 ? '#3b82f6' : '#374151',
+                                        animation: `riskBarPulse 2.2s ease-in-out ${i * 0.14}s infinite`,
+                                    }}
+                                />
+                            ))}
+                        </div>
+                        <div
+                            className="absolute top-0 bottom-0 w-px"
+                            style={{
+                                background: 'linear-gradient(to bottom, transparent, rgba(59,130,246,0.65), transparent)',
+                                animation: 'riskScanLine 2.2s linear infinite',
+                            }}
+                        />
+                    </div>
+
+                    <p className="text-[11px] font-mono text-wallstreet-500 tracking-[0.25em] uppercase">
+                        Loading Risk Data
+                    </p>
+
+                    {/* Progress bar */}
+                    <div className="w-full bg-wallstreet-700 rounded-full h-1.5 overflow-hidden">
+                        <div
+                            className="bg-wallstreet-accent h-full rounded-full transition-all duration-500 ease-out"
+                            style={{ width: `${(doneCount / steps.length) * 100}%` }}
+                        />
+                    </div>
+
+                    {/* Step checklist */}
+                    <div className="w-full space-y-3">
+                        {steps.map(({ key, label, sub }) => {
+                            const status = loadProgress[key];
+                            return (
+                                <div key={key} className="flex items-center gap-3">
+                                    <div className="w-5 h-5 flex items-center justify-center flex-shrink-0">
+                                        {status === 'done' ? (
+                                            <svg className="w-5 h-5 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                                                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                                            </svg>
+                                        ) : status === 'error' ? (
+                                            <svg className="w-5 h-5 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                                                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                                            </svg>
+                                        ) : (
+                                            <div className="w-3.5 h-3.5 border-2 border-wallstreet-600 border-t-wallstreet-accent rounded-full animate-spin" />
+                                        )}
+                                    </div>
+                                    <div className="min-w-0">
+                                        <p className={`text-sm font-mono font-medium ${status === 'done' ? 'text-wallstreet-text' : status === 'error' ? 'text-red-500' : 'text-wallstreet-500'}`}>
+                                            {label}
+                                        </p>
+                                        <p className="text-xs text-wallstreet-500 truncate">{sub}</p>
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
             </div>
         );
     }

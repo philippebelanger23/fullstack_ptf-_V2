@@ -134,10 +134,11 @@ export const RelativePerformancePanel: React.FC<RelativePerformancePanelProps> =
                                     <Tooltip
                                         content={({ active, payload, label }) => {
                                             if (!active || !payload || payload.length === 0) return null;
+                                            const sorted = [...payload].sort((a, b) => (b.value as number) - (a.value as number));
                                             return (
                                                 <div className="bg-wallstreet-800 border border-wallstreet-700 rounded-xl shadow-lg p-3 font-mono text-sm">
                                                     <p className="font-bold text-wallstreet-500 mb-2 border-b border-wallstreet-700 pb-1">{formatTooltipDate(String(label))}</p>
-                                                    {payload.map((entry) => (
+                                                    {sorted.map((entry) => (
                                                         <div key={entry.dataKey as string} className="flex justify-between items-center gap-4 py-0.5">
                                                             <span style={{ color: entry.color }} className="font-medium">{entry.dataKey}:</span>
                                                             <span style={{ color: entry.color }} className="font-bold">
@@ -151,7 +152,7 @@ export const RelativePerformancePanel: React.FC<RelativePerformancePanelProps> =
                                     />
                                     <ReferenceLine y={0} stroke={tc.referenceLine} strokeDasharray="4 4" />
                                     <Line type="monotone" dataKey="Portfolio" stroke="#10b981" strokeWidth={3} dot={false} activeDot={{ r: 6, strokeWidth: 2, stroke: '#fff' }} />
-                                    <Line type="monotone" dataKey="Benchmark" stroke="#2563eb" strokeWidth={2} dot={false} activeDot={{ r: 5, strokeWidth: 2, stroke: '#fff' }} />
+                                    <Line type="monotone" dataKey="Benchmark" stroke="#000000" strokeWidth={2} dot={false} activeDot={{ r: 5, strokeWidth: 2, stroke: '#fff' }} />
                                 </LineChart>
                             </ResponsiveContainer>
                         )}

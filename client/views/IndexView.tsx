@@ -222,21 +222,31 @@ export const IndexView: React.FC = () => {
             <div className="max-w-[100vw] mx-auto p-4 md:p-6 overflow-x-hidden min-h-screen flex flex-col items-center justify-center">
                 <div className="flex flex-col items-center gap-8 w-full max-w-sm">
 
-                    {/* Animated bars */}
-                    <div className="flex items-end gap-1.5 h-12">
-                        {[0, 1, 2, 3, 4].map(i => (
-                            <div
-                                key={i}
-                                className="w-2 bg-wallstreet-accent rounded-t"
-                                style={{
-                                    animation: `barPulse 1s ease-in-out ${i * 0.15}s infinite`,
-                                    height: '30%',
-                                }}
-                            />
-                        ))}
+                    {/* Animated bar chart */}
+                    <div className="relative overflow-hidden rounded" style={{ width: '176px', height: '60px' }}>
+                        <div className="flex items-end h-full gap-1.5">
+                            {[28, 50, 36, 66, 42, 78, 54, 92, 46, 72, 58, 88, 64].map((h, i) => (
+                                <div
+                                    key={i}
+                                    className="flex-1 rounded-t-sm origin-bottom"
+                                    style={{
+                                        height: `${h}%`,
+                                        background: i === 12 ? '#3b82f6' : '#374151',
+                                        animation: `idxBarPulse 2.2s ease-in-out ${i * 0.14}s infinite`,
+                                    }}
+                                />
+                            ))}
+                        </div>
+                        <div
+                            className="absolute top-0 bottom-0 w-px"
+                            style={{
+                                background: 'linear-gradient(to bottom, transparent, rgba(59,130,246,0.65), transparent)',
+                                animation: 'idxScanLine 2.2s linear infinite',
+                            }}
+                        />
                     </div>
 
-                    <p className="text-sm font-mono text-wallstreet-500 tracking-wide uppercase">
+                    <p className="text-[11px] font-mono text-wallstreet-500 tracking-[0.25em] uppercase">
                         Fetching Benchmark Data
                     </p>
 
@@ -280,9 +290,13 @@ export const IndexView: React.FC = () => {
 
                 </div>
                 <style>{`
-                    @keyframes barPulse {
-                        0%, 100% { height: 30%; opacity: 0.4; }
-                        50% { height: 100%; opacity: 1; }
+                    @keyframes idxBarPulse {
+                        0%, 100% { transform: scaleY(0.12); opacity: 0.1; }
+                        50%      { transform: scaleY(1);    opacity: 1;   }
+                    }
+                    @keyframes idxScanLine {
+                        0%   { left: -2px; }
+                        100% { left: calc(100% + 2px); }
                     }
                 `}</style>
             </div>
