@@ -516,17 +516,16 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ data, customSector
             <div className="flex w-full items-center mt-1">
               <div className="flex-1 flex flex-col items-center justify-center">
                 <div className="flex items-center gap-1.5 mb-1">
-                  <span className="text-xs font-extrabold text-wallstreet-500 uppercase tracking-wider">Portfolio Beta vs Benchmark</span>
+                  <span className="text-xs font-extrabold text-wallstreet-500 uppercase tracking-wider">Beta vs Benchmark</span>
                   <span className="text-xs text-wallstreet-500/60" title="Portfolio sensitivity to your chosen benchmark (75/25 Composite: 75% ACWI (CAD) + 25% XIC.TO)"></span>
                 </div>
                 <span className="text-xl font-bold text-wallstreet-text font-mono">
                   {portfolioBeta !== null ? portfolioBeta.toFixed(2) : "—"}
                 </span>
-                <span className="text-xs text-wallstreet-500 mt-0.5">Portfolio-level beta</span>
               </div>
               <div className="w-px h-8 bg-wallstreet-100"></div>
               <div className="flex-1 flex flex-col items-center justify-center">
-                <div className="flex items-center gap-1.5 mb-1"><span className="text-xs font-extrabold text-wallstreet-500 uppercase tracking-wider">Portfolio Dividend Yield</span></div>
+                <div className="flex items-center gap-1.5 mb-1"><span className="text-xs font-extrabold text-wallstreet-500 uppercase tracking-wider">Dividend Yield</span></div>
                 <span className="text-xl font-bold text-green-600 font-mono">
                   {(() => {
                     let weightedDivSum = 0;

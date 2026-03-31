@@ -288,7 +288,7 @@ export const IndexPerformanceChart: React.FC<IndexPerformanceChartProps> = ({ da
                             </div>
                             <div className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-700 ${getPerformanceColor(performanceMetrics.xiu)}`}>
                                 {getPerformanceIcon(performanceMetrics.xiu)}
-                                <span className="font-bold text-red-700 dark:text-red-300">XIC.TO:</span>
+                                <span className="font-bold text-red-700 dark:text-red-300">TSX:</span>
                                 <span className="font-bold">{formatPercent(performanceMetrics.xiu)}</span>
                             </div>
                     </div>

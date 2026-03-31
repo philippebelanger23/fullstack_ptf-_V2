@@ -29,8 +29,7 @@ export const CorrelationHeatmap: React.FC<CorrelationHeatmapProps> = ({ correlat
     const inner = (
         <>
             <div className="mb-5">
-                <h3 className="text-sm font-bold text-wallstreet-text uppercase tracking-wider">Correlation Matrix</h3>
-                <p className="text-[11px] text-wallstreet-500 mt-0.5">EWMA pairwise correlations (63-day halflife) — top {maxShow} by risk contribution</p>
+                <h3 className="text-[22px] font-bold font-mono text-wallstreet-text uppercase tracking-wider">Correlation Matrix</h3>
             </div>
 
             <div className="flex justify-center overflow-x-auto">
@@ -99,7 +98,7 @@ export const CorrelationHeatmap: React.FC<CorrelationHeatmapProps> = ({ correlat
                                         onMouseEnter={() => setHovered({ i, j })}
                                         onMouseLeave={() => setHovered(null)}
                                     >
-                                        <span className={`text-[12px] font-mono font-semibold select-none ${
+                                        <span className={`text-[13px] font-mono font-semibold select-none ${
                                             isDiag
                                                 ? 'text-wallstreet-500'
                                                 : Math.abs(value) > 0.55

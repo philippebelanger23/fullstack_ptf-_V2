@@ -1,5 +1,5 @@
-import React, { useMemo, useState } from 'react';
-import { Loader2, Info } from 'lucide-react';
+import React, { useMemo, useState, useId } from 'react';
+import { Info } from 'lucide-react';
 import { LineChart, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, Legend } from 'recharts';
 import { formatPercent, formatTooltipDate } from '../../utils/formatters';
 import type { PeriodMetrics } from './PerformanceKPIs';
@@ -40,7 +40,16 @@ export const UnifiedPerformancePanel: React.FC<UnifiedPerformancePanelProps> = (
     noWrapper = false,
 }) => {
     const tc = useThemeColors();
+    const uid = useId();
     const [hoveredMetric, setHoveredMetric] = useState<string | null>(null);
+    const benchmarkLabel = benchmark === '75/25' ? '75/25 Composite'
+        : benchmark === 'ACWI' ? 'ACWI (CAD)'
+        : benchmark === 'TSX' ? 'TSX'
+        : 'S&P 500';
+    const benchmarkColor = benchmark === '75/25' ? '#10b981'
+        : benchmark === 'ACWI' ? '#2563eb'
+        : benchmark === 'TSX' ? '#dc2626'
+        : '#8b5cf6'; // SP500 = violet
 
     const formatXAxis = (str: string) => {
         if (!str) return '';
@@ -151,14 +160,55 @@ export const UnifiedPerformancePanel: React.FC<UnifiedPerformancePanelProps> = (
             <div className={`${hideKPIs ? 'w-full' : 'lg:w-[70%]'} w-full flex-1 flex flex-col`}>
                 <div className="w-full h-full">
                     {loading ? (
-                        <div className="flex items-center justify-center h-full">
-                            <Loader2 className="animate-spin text-wallstreet-500" size={40} />
+                        <div className="w-full h-full relative overflow-hidden">
+                            <svg className="w-full h-full" viewBox="0 0 500 190" preserveAspectRatio="none">
+                                <defs>
+                                    <linearGradient id={`${uid}-shimmer`} x1="0%" y1="0%" x2="100%" y2="0%">
+                                        <stop offset="0%" stopColor="transparent" />
+                                        <stop offset="50%" stopColor="rgba(148,163,184,0.09)" />
+                                        <stop offset="100%" stopColor="transparent" />
+                                    </linearGradient>
+                                </defs>
+                                {/* Grid lines */}
+                                {[38, 76, 114, 152].map(y => (
+                                    <line key={y} x1="48" y1={y} x2="492" y2={y} stroke="#1e293b" strokeWidth="1" />
+                                ))}
+                                {/* Y-axis label placeholders */}
+                                {[34, 72, 110, 148].map(y => (
+                                    <rect key={y} x="2" y={y} width="36" height="9" rx="3" fill="#1e293b">
+                                        <animate attributeName="opacity" values="1;0.45;1" dur="1.8s" repeatCount="indefinite" />
+                                    </rect>
+                                ))}
+                                {/* Ghost portfolio line */}
+                                <polyline
+                                    points="52,158 105,144 165,130 220,136 275,118 330,108 385,92 440,98 490,80"
+                                    fill="none" stroke="#f59e0b" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" strokeOpacity="0.25">
+                                    <animate attributeName="stroke-opacity" values="0.25;0.10;0.25" dur="2s" repeatCount="indefinite" />
+                                </polyline>
+                                {/* Ghost benchmark line */}
+                                <polyline
+                                    points="52,165 105,153 165,141 220,147 275,130 330,120 385,106 440,112 490,96"
+                                    fill="none" stroke={benchmarkColor} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" strokeDasharray="8 5" strokeOpacity="0.2">
+                                    <animate attributeName="stroke-opacity" values="0.2;0.07;0.2" dur="2s" begin="0.4s" repeatCount="indefinite" />
+                                </polyline>
+                                {/* X-axis label placeholders */}
+                                {[85, 175, 265, 355, 445].map(x => (
+                                    <rect key={x} x={x - 25} y="178" width="50" height="9" rx="3" fill="#1e293b">
+                                        <animate attributeName="opacity" values="1;0.45;1" dur="1.8s" repeatCount="indefinite" />
+                                    </rect>
+                                ))}
+                                {/* Shimmer sweep */}
+                                <rect fill={`url(#${uid}-shimmer)`} x="0" y="0" width="200" height="190">
+                                    <animateTransform attributeName="transform" type="translate" from="-200 0" to="700 0" dur="2.2s" repeatCount="indefinite" />
+                                </rect>
+                            </svg>
                         </div>
                     ) : chartData.length === 0 ? (
                         <div className="flex items-center justify-center h-full text-wallstreet-500 font-mono text-sm">
                             Insufficient data for selected period
                         </div>
                     ) : (
+                        <div key={chartView} className="w-full h-full">
                         <ResponsiveContainer width="100%" height="100%">
                             {chartView === 'relative' ? (
                                 <AreaChart data={chartData} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
@@ -208,18 +258,18 @@ export const UnifiedPerformancePanel: React.FC<UnifiedPerformancePanelProps> = (
                                     <Area
                                         type="monotone"
                                         dataKey="Excess Return"
-                                        stroke="#64748b"
+                                        stroke="#94a3b8"
                                         strokeWidth={2}
                                         fill="url(#splitColor)"
-                                        activeDot={{ r: 6, strokeWidth: 2, stroke: '#fff', fill: '#64748b' }}
-                                    />
+                                        activeDot={{ r: 6, strokeWidth: 2, stroke: '#fff', fill: '#94a3b8' }}
+                                                                           />
                                 </AreaChart>
                             ) : chartView === 'drawdowns' ? (
                                 <AreaChart data={chartData} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
                                     <defs>
                                         <linearGradient id="drawdownGradient" x1="0" y1="0" x2="0" y2="1">
-                                            <stop offset="0%" stopColor="#ef4444" stopOpacity={0.04} />
-                                            <stop offset="100%" stopColor="#ef4444" stopOpacity={0.55} />
+                                            <stop offset="0%" stopColor="#f59e0b" stopOpacity={0.04} />
+                                            <stop offset="100%" stopColor="#f59e0b" stopOpacity={0.45} />
                                         </linearGradient>
                                     </defs>
                                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={tc.gridStroke} />
@@ -249,7 +299,7 @@ export const UnifiedPerformancePanel: React.FC<UnifiedPerformancePanelProps> = (
                                                         const val = entry.value as number;
                                                         return (
                                                             <div key={entry.dataKey as string} className="flex justify-between items-center gap-4 py-0.5">
-                                                                <span style={{ color: entry.color }} className="font-medium">{entry.dataKey}:</span>
+                                                                <span style={{ color: entry.color }} className="font-medium">{entry.name}:</span>
                                                                 <span style={{ color: entry.color }} className="font-bold">
                                                                     {val < 0 ? `(${Math.abs(val).toFixed(2)}%)` : '0.00%'}
                                                                 </span>
@@ -262,8 +312,8 @@ export const UnifiedPerformancePanel: React.FC<UnifiedPerformancePanelProps> = (
                                     />
                                     <Legend wrapperStyle={{ paddingTop: '15px' }} />
                                     <ReferenceLine y={0} stroke={tc.referenceLine} strokeWidth={2} />
-                                    <Area type="monotone" dataKey="Portfolio" stroke="#ef4444" strokeWidth={2.5} fill="url(#drawdownGradient)" dot={false} activeDot={{ r: 6, strokeWidth: 2, stroke: '#fff', fill: '#ef4444' }} />
-                                    <Area type="monotone" dataKey="Benchmark" stroke="#94a3b8" strokeWidth={1.5} fill="none" fillOpacity={0} strokeDasharray="5 5" dot={false} activeDot={{ r: 4, strokeWidth: 2, stroke: '#fff', fill: '#94a3b8' }} />
+                                    <Area type="monotone" dataKey="Portfolio" stroke="#f59e0b" strokeWidth={2.5} fill="url(#drawdownGradient)" dot={false} activeDot={{ r: 6, strokeWidth: 2, stroke: '#fff', fill: '#f59e0b' }} />
+                                    <Area type="monotone" dataKey="Benchmark" name={benchmarkLabel} stroke={benchmarkColor} strokeWidth={1.5} fill="none" fillOpacity={0} strokeDasharray="5 5" dot={false} activeDot={{ r: 4, strokeWidth: 2, stroke: '#fff', fill: benchmarkColor }} />
                                 </AreaChart>
                             ) : (
                                 <LineChart data={chartData} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
@@ -292,7 +342,7 @@ export const UnifiedPerformancePanel: React.FC<UnifiedPerformancePanelProps> = (
                                                     <p className="font-bold text-wallstreet-500 mb-2 border-b border-wallstreet-700 pb-1">{formatTooltipDate(String(label))}</p>
                                                     {payload.map((entry) => (
                                                         <div key={entry.dataKey as string} className="flex justify-between items-center gap-4 py-0.5">
-                                                            <span style={{ color: entry.color }} className="font-medium">{entry.dataKey}:</span>
+                                                            <span style={{ color: entry.color }} className="font-medium">{entry.name}:</span>
                                                             <span style={{ color: entry.color }} className="font-bold">
                                                                 {(entry.value as number) < 0 ? `(${Math.abs(entry.value as number).toFixed(2)}%)` : `${(entry.value as number) > 0 ? '+' : ''}${(entry.value as number).toFixed(2)}%`}
                                                             </span>
@@ -304,11 +354,12 @@ export const UnifiedPerformancePanel: React.FC<UnifiedPerformancePanelProps> = (
                                     />
                                     <Legend wrapperStyle={{ paddingTop: '15px' }} />
                                     <ReferenceLine y={0} stroke={tc.referenceLine} strokeDasharray="4 4" />
-                                    <Line type="monotone" dataKey="Portfolio" stroke="#10b981" strokeWidth={3} dot={false} activeDot={{ r: 6, strokeWidth: 2, stroke: '#fff' }} />
-                                    <Line type="monotone" dataKey="Benchmark" stroke="#2563eb" strokeWidth={2} dot={false} activeDot={{ r: 5, strokeWidth: 2, stroke: '#fff' }} />
+                                    <Line type="monotone" dataKey="Portfolio" stroke="#f59e0b" strokeWidth={3} dot={false} activeDot={{ r: 6, strokeWidth: 2, stroke: '#fff' }} />
+                                    <Line type="monotone" dataKey="Benchmark" name={benchmarkLabel} stroke={benchmarkColor} strokeWidth={2} dot={false} activeDot={{ r: 5, strokeWidth: 2, stroke: '#fff' }} />
                                 </LineChart>
                             )}
                         </ResponsiveContainer>
+                        </div>
                     )}
                 </div>
             </div>
@@ -374,7 +425,7 @@ export const UnifiedPerformancePanel: React.FC<UnifiedPerformancePanelProps> = (
                     </div>
                 </div>
                 <div className="text-xs text-wallstreet-500 px-4 mt-3 pt-3 border-t border-wallstreet-700/30">
-                    <p>Benchmark: {benchmark === '75/25' ? '75/25 Composite (75% ACWI (CAD) + 25% XIC.TO)' : benchmark === 'TSX' ? 'XIC.TO (S&P/TSX Composite)' : 'S&P 500 CAD (XUS.TO)'}</p>
+                    <p>Benchmark: {benchmark === '75/25' ? '75/25 Composite (75% ACWI CAD + 25% XIC.TO)' : benchmark === 'ACWI' ? 'ACWI (CAD-converted)' : benchmark === 'TSX' ? 'XIC.TO (S&P/TSX Composite)' : 'S&P 500 CAD (XUS.TO)'}</p>
                 </div>
             </div>}
         </div>

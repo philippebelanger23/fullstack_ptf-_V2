@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, useRef } from 'react';
 import { AlertCircle } from 'lucide-react';
 import { loadPortfolioConfig, convertConfigToItems, fetchPortfolioBackcast, fetchIndexExposure, loadAssetGeo, fetchSectors } from '../../services/api';
 import { BackcastResponse, BackcastSeriesPoint, PortfolioItem } from '../../types';
@@ -89,10 +89,13 @@ export const PerformanceView: React.FC<{
     isActive?: boolean;
     sharedBackcast?: BackcastResponse | null;
     sharedBackcastLoading?: boolean;
-}> = ({ isActive, sharedBackcast, sharedBackcastLoading }) => {
+    prefetchedBackcasts?: Record<string, BackcastResponse>;
+}> = ({ isActive, sharedBackcast, sharedBackcastLoading, prefetchedBackcasts }) => {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [data, setData] = useState<BackcastResponse | null>(null);
+    // Per-benchmark cache so switching back is instant. Cleared when portfolio changes.
+    const backcastCache = useRef<Map<string, BackcastResponse>>(new Map());
     const [selectedPeriod, setSelectedPeriod] = useState<Period>('YTD');
     const [chartView, setChartView] = useState<ChartView>('absolute');
     const [isFullscreen, setIsFullscreen] = useState(false);
@@ -112,7 +115,23 @@ export const PerformanceView: React.FC<{
         }
     }, [isFullscreen]);
 
-    // When shared backcast updates (e.g. portfolio reloaded) and we're on default benchmark, sync it in
+    // Populate cache from app-level prefetched benchmarks (TSX, SP500).
+    // Runs whenever the prefetched map changes (e.g. portfolio reloaded).
+    useEffect(() => {
+        if (!prefetchedBackcasts) return;
+        Object.entries(prefetchedBackcasts).forEach(([bm, result]) => {
+            backcastCache.current.set(bm, result);
+        });
+    }, [prefetchedBackcasts]);
+
+    // Keep the 75/25 cache entry in sync with the shared backcast.
+    useEffect(() => {
+        if (sharedBackcast == null) return;
+        backcastCache.current.set('75/25', sharedBackcast);
+    }, [sharedBackcast]);
+
+    // Data sync: update displayed data and loading state when the shared backcast
+    // arrives or when the user switches to/from the default benchmark.
     useEffect(() => {
         if (benchmark === '75/25' && sharedBackcast != null) {
             setData(sharedBackcast);
@@ -126,6 +145,15 @@ export const PerformanceView: React.FC<{
         // Skip the fetch when the tab is not active (isActive=false).
         // On first mount isActive is undefined (no prop passed) — fetch anyway.
         if (isActive === false) return;
+
+        // Cache hit — apply immediately with no loading state.
+        const cached = backcastCache.current.get(benchmark);
+        if (cached) {
+            setData(cached);
+            setLoading(false);
+            return;
+        }
+
         const fetchData = async () => {
             setLoading(true);
             setError(null);
@@ -155,6 +183,7 @@ export const PerformanceView: React.FC<{
                 if (result?.error) {
                     setError(result.error);
                 } else if (result) {
+                    backcastCache.current.set(benchmark, result);
                     setData(result);
                 }
                 setBenchmarkSectors(exposure.sectors || []);
@@ -180,10 +209,14 @@ export const PerformanceView: React.FC<{
                 setError(String(e));
                 setLoading(false);
             } finally {
-                // For the default benchmark, the sync useEffect manages loading state
-                // (it sets loading=false when sharedBackcast arrives). Only clear loading
-                // here for non-default benchmarks where we fetched our own backcast.
-                if (benchmark !== '75/25') {
+                // Clear loading unless we explicitly deferred to a shared backcast that is
+                // still in-flight (sharedBackcastLoading=true, sharedBackcast=null).
+                // In that case Effect 1 will set loading=false when the data arrives.
+                // All other cases — shared backcast already available, fetch failed, or a
+                // non-default benchmark — must clear loading here because Effect 1 won't
+                // re-fire (its deps haven't changed since it last ran).
+                const waitingForShared = benchmark === '75/25' && sharedBackcast == null && sharedBackcastLoading;
+                if (!waitingForShared) {
                     setLoading(false);
                 }
             }
@@ -260,7 +293,10 @@ export const PerformanceView: React.FC<{
         return computeMetricsFromSeries(filteredSeries);
     }, [filteredSeries, selectedPeriod, data]);
 
-    if (loading) {
+    // Only show full-screen spinner on the very first load (no data yet).
+    // Subsequent loads (e.g. benchmark switch) keep the existing UI visible
+    // and show the inline chart spinner instead, avoiding a full-page flash.
+    if (loading && !data) {
         return (
             <div className="max-w-[100vw] mx-auto p-4 md:p-6 overflow-x-hidden min-h-screen flex flex-col items-center justify-center">
                 <div className="flex flex-col items-center gap-6">
@@ -308,7 +344,7 @@ export const PerformanceView: React.FC<{
                         <h1 className="text-3xl font-bold text-wallstreet-text tracking-tight">Performance Deep Dive</h1>
                         <FreshnessBadge fetchedAt={data?.fetchedAt ?? null} />
                     </div>
-                    <p className="text-wallstreet-500 mt-1">Portfolio backcast based on current holdings vs. {benchmark === '75/25' ? '75/25 Composite (75% ACWI (CAD) + 25% XIC.TO)' : benchmark === 'TSX' ? 'XIC.TO (S&P/TSX Composite)' : 'S&P 500 CAD (XUS.TO)'}.</p>
+                    <p className="text-wallstreet-500 mt-1">Portfolio backcast based on current holdings vs. {benchmark === '75/25' ? '75/25 Composite (75% ACWI CAD + 25% XIC.TO)' : benchmark === 'ACWI' ? 'ACWI (CAD-converted)' : benchmark === 'TSX' ? 'XIC.TO (S&P/TSX Composite)' : 'S&P 500 CAD (XUS.TO)'}.</p>
                 </div>
             </div>
             <div className="flex-1 min-h-0">

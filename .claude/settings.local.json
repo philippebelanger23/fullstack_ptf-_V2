@@ -46,7 +46,8 @@
       "Bash(ls \"c:/Users/Phili/Desktop/Local_GitHub/fullstack-ptf-V2/server/data/\"*cache*)",
       "Bash(python -c \"from services.backcast_service import aggregate_period_weights, build_period_weighted_portfolio_returns; print\\(''OK''\\)\")",
       "Bash(python -c \"from routes.risk import router; print\\(''OK''\\)\")",
-      "Bash(find /c/Users/Phili/Desktop/Local_GitHub/fullstack-ptf-V2/client/views/risk -type f -name *.js -o -name *.jsx -o -name *.ts -o -name *.tsx)"
+      "Bash(find /c/Users/Phili/Desktop/Local_GitHub/fullstack-ptf-V2/client/views/risk -type f -name *.js -o -name *.jsx -o -name *.ts -o -name *.tsx)",
+      "Bash(find /c/Users/Phili/Desktop/Local_GitHub/fullstack-ptf-V2/client/src -type f \\\\\\(-name *.tsx -o -name *.ts -o -name *.jsx -o -name *.js \\\\\\))"
     ]
   }
 }

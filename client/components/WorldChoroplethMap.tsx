@@ -308,7 +308,7 @@ export const WorldChoroplethMap: React.FC<WorldChoroplethMapProps> = ({ data, pr
                                         <span className="text-wallstreet-text">{tooltipData.ACWI.toFixed(2)}%</span>
                                     </div>
                                     <div className="flex justify-between gap-4">
-                                        <span className="text-wallstreet-500 text-xs">XIC.TO (25%)</span>
+                                        <span className="text-wallstreet-500 text-xs">TSX (25%)</span>
                                         <span className="text-wallstreet-text">{tooltipData.TSX.toFixed(2)}%</span>
                                     </div>
                                 </div>

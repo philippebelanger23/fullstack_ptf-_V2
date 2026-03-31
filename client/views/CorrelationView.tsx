@@ -110,7 +110,7 @@ export const CorrelationView: React.FC<CorrelationViewProps> = ({ data, result, 
     <div className="w-full max-w-[1800px] mx-auto p-6 h-full flex flex-col">
       <header className="flex justify-between items-center mb-6">
         <div>
-          <h2 className="text-3xl font-bold font-mono text-wallstreet-text">Correlation Matrix</h2>
+          <h2 className="text-[14px] font-bold font-mono text-wallstreet-text">Correlation Matrix</h2>
           <p className="text-wallstreet-500 text-sm mt-1">Implied Historical Correlations & Diversification Check</p>
         </div>
         <button onClick={runAnalysis} disabled={status === 'analyzing'} className={`flex items-center gap-2 px-4 py-2 rounded text-sm font-bold transition-colors shadow-sm ${status === 'analyzing' ? 'bg-wallstreet-700 text-wallstreet-500 cursor-not-allowed' : 'bg-wallstreet-accent text-white hover:bg-sky-600'}`}>

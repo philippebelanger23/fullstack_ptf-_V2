@@ -338,7 +338,7 @@ export const ReportView: React.FC<ReportViewProps> = ({ data, customSectors, ass
                 {/* ── ROW 1, COL 1-2: Performance Chart ───────────────────── */}
                 <div style={{ gridColumn: '1 / 3' }} className="bg-wallstreet-800 border border-wallstreet-700 rounded-2xl p-5 shadow-sm flex flex-col h-full">
                     <div className="flex items-center justify-between mb-3 flex-shrink-0">
-                        <h3 className="text-xs font-bold font-mono text-wallstreet-text uppercase tracking-wider">Performance</h3>
+                        <h3 className="text-[16px] font-bold font-mono text-wallstreet-text uppercase tracking-wider mb-1 flex-shrink-0">Performance</h3>
                         <div className="flex items-center gap-1">
                             {(['absolute', 'relative', 'drawdowns'] as ChartView[]).map(v => (
                                 <button
@@ -408,7 +408,7 @@ export const ReportView: React.FC<ReportViewProps> = ({ data, customSectors, ass
                 {/* ── ROW 2, COL 1: Top 10 Holdings ────────────────────────── */}
                 <div className="bg-wallstreet-800 border border-wallstreet-700 rounded-2xl p-4 shadow-sm flex flex-col h-full overflow-hidden">
                     <div className="flex items-center justify-between mb-2 flex-shrink-0">
-                        <h3 className="text-xs font-bold font-mono text-wallstreet-text uppercase tracking-wider">
+                        <h3 className="text-[16px] font-bold font-mono text-wallstreet-text uppercase tracking-wider mb-1 flex-shrink-0">
                             Holdings
                         </h3>
                     </div>
@@ -440,7 +440,7 @@ export const ReportView: React.FC<ReportViewProps> = ({ data, customSectors, ass
 
                 {/* ── ROW 2, COL 2: Geographic Breakdown ───────────────────── */}
                 <div className="bg-wallstreet-800 border border-wallstreet-700 rounded-xl p-4 shadow-sm flex flex-col overflow-hidden">
-                    <p className="text-[10px] font-bold font-mono text-wallstreet-text uppercase tracking-wider mb-1 flex-shrink-0">Geographic Breakdown</p>
+                    <p className="text-[16px] font-bold font-mono text-wallstreet-text uppercase tracking-wider mb-1 flex-shrink-0">Geographic Breakdown</p>
                     <div className="flex-1 min-h-0">
                         <WorldChoroplethMap
                             data={benchmarkGeography}
@@ -460,7 +460,7 @@ export const ReportView: React.FC<ReportViewProps> = ({ data, customSectors, ass
 
                 {/* ── ROW 2, COL 4: Correlation Matrix ─────────────────────── */}
                 <div style={{ gridColumn: '4 / 5' }} className="bg-wallstreet-800 border border-wallstreet-700 rounded-2xl shadow-sm overflow-hidden relative">
-                    <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%) scale(0.75)' }}>
+                    <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%) scale(0.756' }}>
                         <CorrelationHeatmap
                             correlationMatrix={riskData.correlationMatrix ?? { tickers: [], matrix: [] }}
                             loading={false}

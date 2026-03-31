@@ -142,7 +142,7 @@ export const ClevelandDotPlot: React.FC<DotPlotProps> = ({ data }) => {
                 <Scatter name="ACWI (75%)" dataKey="ACWI" fill="#2563eb" shape="circle" />
 
                 {/* TSX Dot */}
-                <Scatter name="XIC.TO (25%)" dataKey="TSX" fill="#dc2626" shape="circle" />
+                <Scatter name="TSX (25%)" dataKey="TSX" fill="#dc2626" shape="circle" />
 
                 {/* Index Triangle */}
                 <Scatter name="75/25 Composite" dataKey="Index" fill="#10b981" shape="triangle" />

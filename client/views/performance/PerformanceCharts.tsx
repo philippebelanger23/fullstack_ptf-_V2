@@ -6,9 +6,10 @@ import { UnifiedPerformancePanel } from './UnifiedPerformancePanel';
 export type ChartView = 'absolute' | 'relative' | 'drawdowns';
 
 const BENCHMARKS = [
-    { key: '75/25', label: '75/25 Composite', title: '75% ACWI (CAD) + 25% XIC.TO' },
-    { key: 'TSX', label: 'XIC.TO', title: 'S&P/TSX Composite — XIC.TO' },
-    { key: 'SP500', label: 'S&P 500', title: 'S&P 500 CAD — XUS.TO' },
+    { key: '75/25', label: '75/25', title: '75% ACWI (CAD) + 25% XIC.TO', color: '#10b981' },
+    { key: 'ACWI',  label: 'ACWI',  title: 'ACWI CAD-converted — 100% ACWI (USD→CAD)', color: '#2563eb' },
+    { key: 'TSX',   label: 'TSX',   title: 'S&P/TSX Composite — XIC.TO', color: '#dc2626' },
+    { key: 'SP500', label: 'S&P 500', title: 'S&P 500 CAD — XUS.TO', color: '#8b5cf6' },
 ] as const;
 
 interface PerformanceChartsProps {
@@ -70,15 +71,16 @@ export const PerformanceCharts: React.FC<PerformanceChartsProps> = ({
                         {!hideBenchmarkSelector && (<>
                             <div className="w-px h-5 bg-wallstreet-700 mx-1" />
                             <span className="text-xs text-wallstreet-500 font-mono uppercase tracking-wider">vs.</span>
-                            {BENCHMARKS.map(({ key, label, title }) => (
+                            {BENCHMARKS.map(({ key, label, title, color }) => (
                                 <button
                                     key={key}
                                     onClick={() => setBenchmark(key)}
                                     title={title}
                                     className={`px-3 py-2 text-xs font-bold rounded-lg transition-all duration-200 ${benchmark === key
-                                        ? 'bg-blue-600 text-white shadow-sm'
+                                        ? 'text-white shadow-sm'
                                         : 'text-wallstreet-500 hover:text-wallstreet-text hover:bg-wallstreet-900'
                                         }`}
+                                    style={benchmark === key ? { backgroundColor: color } : undefined}
                                 >
                                     {label}
                                 </button>
@@ -115,12 +117,6 @@ export const PerformanceCharts: React.FC<PerformanceChartsProps> = ({
                 noWrapper={noWrapper}
             />
 
-            {/* Missing Tickers Warning */}
-            {data?.missingTickers && data.missingTickers.length > 0 && (
-                <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-amber-800 text-sm mt-6">
-                    <strong>Note:</strong> The following tickers could not be included in the backcast (no price data found): {data.missingTickers.join(', ')}
-                </div>
-            )}
         </>
     );
 

@@ -381,6 +381,9 @@ def build_benchmark_returns(
     elif benchmark == "SP500":
         if "XUS.TO" in returns_df.columns:
             benchmark_returns = returns_df["XUS.TO"]
+    elif benchmark == "ACWI":
+        if "ACWI" in returns_df.columns and "USDCAD=X" in returns_df.columns:
+            benchmark_returns = (1 + returns_df["ACWI"]) * (1 + returns_df["USDCAD=X"]) - 1
     else:  # default "75/25"
         if (
             "ACWI" in returns_df.columns

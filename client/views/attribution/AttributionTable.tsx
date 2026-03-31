@@ -114,7 +114,7 @@ export const AttributionTable = ({ title, items, isQuarter = false, status = 'CO
                         <tr className="h-3 bg-wallstreet-800"><td colSpan={4}></td></tr>
 
                         <tr className="">
-                            <td className="p-1 px-3 text-left font-bold text-wallstreet-text">Residual Holdings</td>
+                            <td className="p-1 px-3 text-left font-bold text-wallstreet-text">Others</td>
                             <td className="p-1 px-2 text-center font-medium">{residualOtherWeight.toFixed(2)}%</td>
                             <td className={`p-1 px-2 text-center font-medium ${othersReturn < 0 ? 'text-red-700' : 'text-green-700'}`}>
                                 {othersReturn < 0 ? `(${Math.abs(othersReturn).toFixed(2)}%)` : `${othersReturn.toFixed(2)}%`}

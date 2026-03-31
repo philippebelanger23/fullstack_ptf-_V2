@@ -87,18 +87,32 @@ function App() {
   // series, ensuring all views (waterfall, performance graph, one pager) are consistent.
   const [backcastData, setBackcastData] = useState<BackcastResponse | null>(null);
   const [backcastLoading, setBackcastLoading] = useState(false);
+  // Pre-fetched non-default benchmarks so the Performance tab switches are instant.
+  const [prefetchedBackcasts, setPrefetchedBackcasts] = useState<Record<string, BackcastResponse>>({});
 
   useEffect(() => {
     if (portfolioData.length === 0) {
       setBackcastData(null);
+      setPrefetchedBackcasts({});
       return;
     }
     let cancelled = false;
     setBackcastLoading(true);
-    fetchPortfolioBackcast(portfolioData, '75/25', true)
-      .then(res => {
+    // Fetch 75/25 (with attribution for waterfall) plus all benchmark variants in parallel.
+    Promise.all([
+      fetchPortfolioBackcast(portfolioData, '75/25', true),
+      fetchPortfolioBackcast(portfolioData, 'TSX'),
+      fetchPortfolioBackcast(portfolioData, 'SP500'),
+      fetchPortfolioBackcast(portfolioData, 'ACWI'),
+    ])
+      .then(([r7525, rTSX, rSP500, rACWI]) => {
         if (cancelled) return;
-        if (!res.error) setBackcastData(res);
+        if (!r7525.error) setBackcastData(r7525);
+        const pre: Record<string, BackcastResponse> = {};
+        if (!rTSX.error) pre['TSX'] = rTSX;
+        if (!rSP500.error) pre['SP500'] = rSP500;
+        if (!rACWI.error) pre['ACWI'] = rACWI;
+        setPrefetchedBackcasts(pre);
       })
       .catch(e => console.error('Backcast prefetch failed:', e))
       .finally(() => { if (!cancelled) setBackcastLoading(false); });
@@ -280,7 +294,7 @@ function App() {
             <AttributionView data={mergedPortfolioData} selectedYear={selectedYear} setSelectedYear={setSelectedYear} customSectors={customSectors} tablesRequest={attributionTablesRequest} sharedBackcast={backcastData} />
           )}
           {visited.has(ViewState.PERFORMANCE) && viewPane(ViewState.PERFORMANCE,
-            <PerformanceView isActive={currentView === ViewState.PERFORMANCE} sharedBackcast={backcastData} sharedBackcastLoading={backcastLoading} />
+            <PerformanceView isActive={currentView === ViewState.PERFORMANCE} sharedBackcast={backcastData} sharedBackcastLoading={backcastLoading} prefetchedBackcasts={prefetchedBackcasts} />
           )}
           {visited.has(ViewState.RISK_CONTRIBUTION) && viewPane(ViewState.RISK_CONTRIBUTION,
             <RiskContributionView />
