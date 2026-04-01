@@ -198,6 +198,12 @@ export const analyzeManualPortfolio = async (items: PortfolioItem[]): Promise<Po
     }
 };
 
+export const triggerIndexRefresh = async (): Promise<{ exposure: string; history_cache: string }> => {
+    const response = await fetch(`${API_Base_URL}/index-refresh`, { method: 'POST' });
+    if (!response.ok) throw new Error("Index refresh failed");
+    return response.json();
+};
+
 export const fetchIndexExposure = async (): Promise<{ sectors: any[], geography: any[], last_scraped?: string }> => {
     return memoizedRequest('GET /index-exposure', async () => {
         try {

@@ -42,11 +42,11 @@ const SECTOR_COLORS: Record<string, { bg: string; text: string }> = {
 };
 const defaultSectorColor = { bg: '#f1f5f9', text: '#334155' };
 
-export const SectorBadge: React.FC<{ sector: string }> = ({ sector }) => {
+export const SectorBadge: React.FC<{ sector: string; className?: string }> = ({ sector, className }) => {
     const c = SECTOR_COLORS[sector] ?? defaultSectorColor;
     return (
         <span
-            className="inline-block px-2 py-0.5 rounded text-[10px] font-semibold leading-tight whitespace-nowrap"
+            className={`inline-block px-2 py-0.5 rounded text-[10px] font-semibold leading-tight whitespace-nowrap${className ? ` ${className}` : ''}`}
             style={{ backgroundColor: c.bg, color: c.text }}
         >
             {sector}

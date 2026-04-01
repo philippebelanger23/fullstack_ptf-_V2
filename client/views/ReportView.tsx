@@ -116,7 +116,7 @@ const PanelActions: React.FC<{
 // ── Main Component ─────────────────────────────────────────────────────────────
 
 export const ReportView: React.FC<ReportViewProps> = ({ data, customSectors, assetGeo, onNavigate, isActive, sharedBackcast, sharedBackcastLoading }) => {
-    const [loading, setLoading] = useState(false);
+    const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [backcast, setBackcast] = useState<BackcastResponse | null>(null);
     const [riskData, setRiskData] = useState<RiskContributionResponse | null>(null);
@@ -516,12 +516,12 @@ export const ReportView: React.FC<ReportViewProps> = ({ data, customSectors, ass
                 );
             case 'holdings':
                 return (
-                    <div className="flex flex-col h-full">
+                    <div className="flex flex-col">
                         <h3 className="text-[16px] font-bold font-mono text-wallstreet-text uppercase tracking-wider mb-3 flex-shrink-0">Holdings</h3>
-                        <div className="flex-1 overflow-y-auto">
+                        <div>
                             <table className="w-full text-sm font-mono table-fixed">
                                 <thead className="sticky top-0 bg-wallstreet-800 z-10">
-                                    <tr className="text-wallstreet-500 uppercase text-[11px] tracking-wide border-b border-wallstreet-700">
+                                    <tr className="text-wallstreet-500 uppercase text-xs tracking-wide border-b border-wallstreet-700">
                                         <th className="text-left pb-2.5 w-[20%]">Ticker</th>
                                         <th className="text-left pb-2.5 w-[40%]">Sector</th>
                                         <th className="text-right pb-2.5 pr-8 w-[20%]">Weight</th>
@@ -531,10 +531,10 @@ export const ReportView: React.FC<ReportViewProps> = ({ data, customSectors, ass
                                 <tbody>
                                     {sortedHoldings.map((item, i) => (
                                         <tr key={item.ticker} className={i % 2 === 0 ? '' : 'bg-wallstreet-900/40'}>
-                                            <td className="py-2 font-bold text-wallstreet-text">{item.ticker}</td>
-                                            <td className="py-2"><SectorBadge sector={item.sector ?? '—'} /></td>
-                                            <td className="py-2 text-right pr-8 text-wallstreet-text">{formatPct(item.weight)}</td>
-                                            <td className="py-2 text-right pr-8 text-wallstreet-500 font-bold">{formatPct(item.cumulative)}</td>
+                                            <td className="py-1 font-bold text-wallstreet-text">{item.ticker}</td>
+                                            <td className="py-1"><SectorBadge sector={item.sector ?? '—'} className="!text-xs" /></td>
+                                            <td className="py-1 text-right pr-8 text-wallstreet-text">{formatPct(item.weight)}</td>
+                                            <td className="py-1 text-right pr-8 text-wallstreet-500 font-bold">{formatPct(item.cumulative)}</td>
                                         </tr>
                                     ))}
                                 </tbody>
@@ -553,7 +553,7 @@ export const ReportView: React.FC<ReportViewProps> = ({ data, customSectors, ass
                 );
             case 'attribution':
                 return (
-                    <div className="h-full overflow-auto">
+                    <div style={{ zoom: 2 }}>
                         <AttributionTable title={getPeriodTitle(selectedPeriod)} items={periodAttribution} contributionFormat="pct" />
                     </div>
                 );
@@ -687,10 +687,10 @@ export const ReportView: React.FC<ReportViewProps> = ({ data, customSectors, ass
                         </h3>
                     </div>
                     <div className="flex-1 flex flex-col min-h-0">
-                        <div className="flex-1 overflow-y-auto">
-                            <table className="w-full text-xs font-mono table-fixed">
+                        <div className="flex-1 overflow-y-auto no-scrollbar">
+                            <table className="w-full text-sm font-mono table-fixed">
                                 <thead className="sticky top-0 bg-wallstreet-800 z-10">
-                                    <tr className="text-wallstreet-500 uppercase text-[11px] tracking-wide border-b border-wallstreet-700">
+                                    <tr className="text-wallstreet-500 uppercase text-xs tracking-wide border-b border-wallstreet-700">
                                         <th className="text-left pb-2.5 w-[22%]">Ticker</th>
                                         <th className="text-left pb-2.5 w-[38%]">Sector</th>
                                         <th className="text-right pb-2.5 pr-8 w-[20%]">Weight</th>
@@ -700,10 +700,10 @@ export const ReportView: React.FC<ReportViewProps> = ({ data, customSectors, ass
                                 <tbody>
                                     {sortedHoldings.map((item, i) => (
                                         <tr key={item.ticker} className={i % 2 === 0 ? '' : 'bg-wallstreet-900/40'}>
-                                            <td className="py-1.5 font-bold text-wallstreet-text">{item.ticker}</td>
-                                            <td className="py-1.5"><SectorBadge sector={item.sector ?? '—'} /></td>
-                                            <td className="py-1.5 text-right pr-8 text-wallstreet-text">{formatPct(item.weight)}</td>
-                                            <td className="py-1.5 text-right pr-8 text-wallstreet-500 font-bold">{formatPct(item.cumulative)}</td>
+                                            <td className="py-1 font-bold text-wallstreet-text">{item.ticker}</td>
+                                            <td className="py-1"><SectorBadge sector={item.sector ?? '—'} className="!text-xs" /></td>
+                                            <td className="py-1 text-right pr-8 text-wallstreet-text">{formatPct(item.weight)}</td>
+                                            <td className="py-1 text-right pr-8 text-wallstreet-500 font-bold">{formatPct(item.cumulative)}</td>
                                         </tr>
                                     ))}
                                 </tbody>
@@ -734,19 +734,18 @@ export const ReportView: React.FC<ReportViewProps> = ({ data, customSectors, ass
                         contributionFormat="pct"
                     />
                     {/* Action buttons overlay the component's own dark title bar — always visible */}
-                    <span className="print-hide absolute top-[3px] right-1 inline-flex items-center gap-0.5">
+                    <span className="print-hide absolute top-[10px] right-3 inline-flex items-center gap-0.5">
                         <button onClick={() => onNavigate?.(ViewState.ATTRIBUTION)} title="Go to tab" className="p-1 text-wallstreet-400 hover:text-white rounded transition-colors"><ArrowUpRight size={12} /></button>
                         <button onClick={() => setExpandedPanel('attribution')} title="Expand" className="p-1 text-wallstreet-400 hover:text-white rounded transition-colors"><Maximize2 size={12} /></button>
                     </span>
                 </PanelWrapper>
 
                 {/* ── ROW 2, COL 4: Correlation Matrix ─────────────────────── */}
-                <PanelWrapper style={{ gridColumn: '4 / 5' }} className="bg-wallstreet-800 border border-wallstreet-700 rounded-2xl shadow-sm overflow-hidden relative">
-                    {/* Title badge tucked in the top-left corner of the panel */}
-                    <div className="absolute top-3 left-3 z-10 flex items-center gap-1.5">
-                        <p className="text-[11px] font-bold font-mono text-wallstreet-500 uppercase tracking-wider">Correlation</p>
+                <PanelWrapper style={{ gridColumn: '4 / 5' }} className="bg-wallstreet-800 border border-wallstreet-700 rounded-2xl shadow-sm overflow-hidden relative p-4 flex flex-col">
+                    <p className="flex items-center gap-1.5 text-[16px] font-bold font-mono text-wallstreet-text uppercase tracking-wider mb-1 flex-shrink-0">
+                        Correlation
                         <PanelActions panelId="correlation" targetView={ViewState.RISK_CONTRIBUTION} onNavigate={onNavigate} onExpand={setExpandedPanel} />
-                    </div>
+                    </p>
                     <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%) scale(0.756)' }}>
                         <CorrelationHeatmap
                             correlationMatrix={riskData.correlationMatrix ?? { tickers: [], matrix: [] }}
@@ -778,12 +777,14 @@ export const ReportView: React.FC<ReportViewProps> = ({ data, customSectors, ass
                         <div
                             className={`bg-wallstreet-800 border border-wallstreet-700 rounded-2xl shadow-2xl p-6 flex flex-col overflow-hidden max-w-[95vw] max-h-[95vh] ${expandedPanel === 'correlation' ? 'aspect-square w-auto h-[85vh] max-h-[90vw]' :
                                 expandedPanel === 'deviation' ? 'w-[95vw] xl:w-[1400px] h-[85vh] xl:max-h-[900px]' :
-                                    expandedPanel === 'performance' ? 'w-[90vw] xl:w-[1200px] h-[85vh] xl:max-h-[800px]' :
+                                    expandedPanel === 'performance' ? 'w-[98vw] xl:w-[1700px] h-[93vh] xl:max-h-[1050px]' :
                                         expandedPanel === 'geography' ? 'aspect-[4/3] w-auto h-[85vh] max-h-[90vw] max-w-[90vw]' :
-                                            'w-[80vw] lg:w-[1000px] h-[85vh] lg:max-h-[800px]' // holdings, attribution
+                                            expandedPanel === 'holdings' ? 'w-[80vw] lg:w-[700px] h-auto max-h-[95vh]' :
+                                            expandedPanel === 'attribution' ? 'w-[80vw] lg:w-[900px] h-auto max-h-[95vh] overflow-auto' :
+                                            'w-[80vw] lg:w-[1000px] h-[85vh] lg:max-h-[800px]'
                                 }`}
                         >
-                            <div className="flex-1 min-h-0 overflow-hidden">
+                            <div className={expandedPanel === 'attribution' || expandedPanel === 'holdings' ? '' : 'flex-1 min-h-0 overflow-hidden'}>
                                 {renderExpandedContent(expandedPanel)}
                             </div>
                         </div>

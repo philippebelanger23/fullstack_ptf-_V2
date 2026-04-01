@@ -332,6 +332,15 @@
   background-clip: content-box;
 }
 
+/* Hide scrollbar utility */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
 /* Smooth transitions for interactive elements */
 button,
 select,

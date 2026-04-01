@@ -255,7 +255,7 @@ export const SectorDeviationCard: React.FC<Props> = ({ currentHoldings, benchmar
         <>
         <div className={noWrapper ? "flex flex-col h-full" : "lg:col-span-1 bg-wallstreet-800 p-6 rounded-xl border border-wallstreet-700 shadow-sm flex flex-col h-full"}>
             <div className="flex items-center justify-between mb-4">
-                <h3 className="flex items-center gap-1.5 font-mono font-bold text-wallstreet-text uppercase tracking-wider text-sm">
+                <h3 className="flex items-center gap-1.5 font-mono font-bold text-wallstreet-text uppercase tracking-wider text-[16px]">
                     Benchmark Deviation
                     {titleActions}
                 </h3>

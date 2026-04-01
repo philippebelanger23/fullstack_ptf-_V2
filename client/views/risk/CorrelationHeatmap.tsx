@@ -28,9 +28,11 @@ export const CorrelationHeatmap: React.FC<CorrelationHeatmapProps> = ({ correlat
 
     const inner = (
         <>
-            <div className="mb-5">
-                <h3 className="text-[22px] font-bold font-mono text-wallstreet-text uppercase tracking-wider">Correlation Matrix</h3>
-            </div>
+            {!noWrapper && (
+                <div className="mb-5">
+                    <h3 className="text-[22px] font-bold font-mono text-wallstreet-text uppercase tracking-wider">Correlation Matrix</h3>
+                </div>
+            )}
 
             <div className="flex justify-center overflow-x-auto">
                 <div style={{ width: labelWidth + gridWidth }} className="relative">

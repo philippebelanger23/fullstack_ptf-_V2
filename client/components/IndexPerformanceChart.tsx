@@ -74,10 +74,10 @@ export const IndexPerformanceChart: React.FC<IndexPerformanceChartProps> = ({ da
 
     const chartData = useMemo(() => {
         const acwi = data['ACWI'] || [];
-        const xiu = data['XIC.TO'] || [];
+        const xic = data['XIC.TO'] || [];
         const index = data['Index'] || [];
 
-        if (acwi.length === 0 || xiu.length === 0) return [];
+        if (acwi.length === 0 || xic.length === 0) return [];
 
         // Filter by period
         const { start, end } = getDateRangeForPeriod(selectedPeriod);
@@ -93,7 +93,7 @@ export const IndexPerformanceChart: React.FC<IndexPerformanceChartProps> = ({ da
             }
         });
 
-        xiu.forEach(item => {
+        xic.forEach(item => {
             if (item.date >= startDateStr && item.date <= endDateStr) {
                 const existing = dateMap.get(item.date) || { date: item.date };
                 dateMap.set(item.date, { ...existing, XIC: item.value });
@@ -175,7 +175,7 @@ export const IndexPerformanceChart: React.FC<IndexPerformanceChartProps> = ({ da
 
         return {
             acwi: calcCAGR(lastPoint.ACWI),
-            xiu: calcCAGR(lastPoint.XIC),
+            xic: calcCAGR(lastPoint.XIC),
             index: calcCAGR(lastPoint.Index),
             isCAGR: years >= 1, // Only label as CAGR if period >= 1 year
         };
@@ -286,10 +286,10 @@ export const IndexPerformanceChart: React.FC<IndexPerformanceChartProps> = ({ da
                                 <span className="font-bold text-blue-700 dark:text-blue-300">ACWI:</span>
                                 <span className="font-bold">{formatPercent(performanceMetrics.acwi)}</span>
                             </div>
-                            <div className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-700 ${getPerformanceColor(performanceMetrics.xiu)}`}>
-                                {getPerformanceIcon(performanceMetrics.xiu)}
+                            <div className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-700 ${getPerformanceColor(performanceMetrics.xic)}`}>
+                                {getPerformanceIcon(performanceMetrics.xic)}
                                 <span className="font-bold text-red-700 dark:text-red-300">TSX:</span>
-                                <span className="font-bold">{formatPercent(performanceMetrics.xiu)}</span>
+                                <span className="font-bold">{formatPercent(performanceMetrics.xic)}</span>
                             </div>
                     </div>
                 )}

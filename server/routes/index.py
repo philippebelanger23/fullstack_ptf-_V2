@@ -43,6 +43,35 @@ def _exposure_is_stale(data_path: Path) -> bool:
         return True
 
 
+@router.post("/index-refresh")
+def refresh_index_data():
+    """Force re-scrape index exposure and clear the history cache so next fetch is fresh."""
+    results = {}
+
+    # 1. Re-scrape exposure data
+    try:
+        from index_scraper import scrape_index_data
+        scrape_index_data()
+        results["exposure"] = "ok"
+    except Exception as e:
+        logger.error(f"index-refresh: scrape failed: {e}")
+        results["exposure"] = f"error: {e}"
+
+    # 2. Delete history cache so it is regenerated on next request
+    history_cache = Path("data/index_history_cache.json")
+    if not history_cache.exists():
+        history_cache = Path(__file__).parent.parent / "data" / "index_history_cache.json"
+    try:
+        if history_cache.exists():
+            history_cache.unlink()
+        results["history_cache"] = "cleared"
+    except Exception as e:
+        logger.error(f"index-refresh: failed to delete history cache: {e}")
+        results["history_cache"] = f"error: {e}"
+
+    return results
+
+
 @router.get("/index-exposure")
 def get_index_exposure():
     try:
@@ -211,15 +240,15 @@ def get_index_history():
             composite_index = pd.Series(dtype=float)
 
         acwi_list = acwi_cad_series.tolist() if not acwi_cad_series.empty else []
-        xiu_list = xic_series.tolist() if not xic_series.empty else []
+        xic_list = xic_series.tolist() if not xic_series.empty else []
         comp_list = composite_index.tolist() if not composite_index.empty else []
 
         for i, date_str in enumerate(dates):
             if i < len(acwi_list) and pd.notna(acwi_list[i]):
                 result_data["ACWI"].append({"date": date_str, "value": acwi_list[i]})
 
-            if i < len(xiu_list) and pd.notna(xiu_list[i]):
-                result_data["XIC.TO"].append({"date": date_str, "value": xiu_list[i]})
+            if i < len(xic_list) and pd.notna(xic_list[i]):
+                result_data["XIC.TO"].append({"date": date_str, "value": xic_list[i]})
 
             if i < len(comp_list) and pd.notna(comp_list[i]):
                 result_data["Index"].append({"date": date_str, "value": comp_list[i]})

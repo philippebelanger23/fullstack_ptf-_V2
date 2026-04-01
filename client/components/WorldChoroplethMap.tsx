@@ -194,7 +194,7 @@ export const WorldChoroplethMap: React.FC<WorldChoroplethMapProps> = ({ data, pr
 
             {/* Table view */}
             {displayMode === 'table' && (
-                <div className="flex-1 overflow-y-auto min-h-0">
+                <div className="flex-1 overflow-y-auto min-h-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                     <table className="w-full text-sm font-mono table-fixed">
                         <thead className="sticky top-0 bg-wallstreet-50 text-wallstreet-500 text-xs uppercase">
                             <tr>

@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { Globe, DollarSign, TrendingUp, PieChart } from 'lucide-react';
-import { fetchIndexExposure, fetchCurrencyPerformance, fetchIndexHistory } from '../services/api';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { Globe, DollarSign, TrendingUp, PieChart, RefreshCw } from 'lucide-react';
+import { fetchIndexExposure, fetchCurrencyPerformance, fetchIndexHistory, triggerIndexRefresh } from '../services/api';
 import { FreshnessBadge } from '../components/ui/FreshnessBadge';
 import { WorldChoroplethMap } from '../components/WorldChoroplethMap';
 import { ClevelandDotPlot } from '../components/ClevelandDotPlot';
@@ -93,6 +93,7 @@ export const IndexView: React.FC = () => {
     const [currencyPerf, setCurrencyPerf] = useState<Record<string, Record<string, number>>>({});
     const [indexHistory, setIndexHistory] = useState<Record<string, { date: string, value: number }[]>>({});
     const [loading, setLoading] = useState(true);
+    const [refreshing, setRefreshing] = useState(false);
     const [fetchedAt, setFetchedAt] = useState<string | null>(null);
     const [loadProgress, setLoadProgress] = useState<Record<string, 'pending' | 'done' | 'error'>>({
         exposure: 'pending',
@@ -100,44 +101,55 @@ export const IndexView: React.FC = () => {
         history: 'pending',
     });
 
-    useEffect(() => {
-        const load = async () => {
-            setLoading(true);
-            setLoadProgress({ exposure: 'pending', currency: 'pending', history: 'pending' });
+    const load = useCallback(async () => {
+        setLoading(true);
+        setLoadProgress({ exposure: 'pending', currency: 'pending', history: 'pending' });
 
-            const trackFetch = async <T,>(
-                key: string,
-                fn: () => Promise<T>,
-            ): Promise<T> => {
-                try {
-                    const result = await fn();
-                    setLoadProgress(prev => ({ ...prev, [key]: 'done' }));
-                    return result;
-                } catch (err) {
-                    setLoadProgress(prev => ({ ...prev, [key]: 'error' }));
-                    throw err;
-                }
-            };
-
+        const trackFetch = async <T,>(
+            key: string,
+            fn: () => Promise<T>,
+        ): Promise<T> => {
             try {
-                const [res, perf, history] = await Promise.all([
-                    trackFetch('exposure', fetchIndexExposure),
-                    trackFetch('currency', () => fetchCurrencyPerformance(CURRENCY_TICKERS)),
-                    trackFetch('history', fetchIndexHistory),
-                ]);
-
-                setExposure(res);
-                setCurrencyPerf(perf);
-                setIndexHistory(history);
+                const result = await fn();
+                setLoadProgress(prev => ({ ...prev, [key]: 'done' }));
+                return result;
             } catch (err) {
-                console.error("Failed to load index data:", err);
-            } finally {
-                setLoading(false);
-                setFetchedAt(new Date().toISOString());
+                setLoadProgress(prev => ({ ...prev, [key]: 'error' }));
+                throw err;
             }
         };
-        load();
+
+        try {
+            const [res, perf, history] = await Promise.all([
+                trackFetch('exposure', fetchIndexExposure),
+                trackFetch('currency', () => fetchCurrencyPerformance(CURRENCY_TICKERS)),
+                trackFetch('history', fetchIndexHistory),
+            ]);
+
+            setExposure(res);
+            setCurrencyPerf(perf);
+            setIndexHistory(history);
+        } catch (err) {
+            console.error("Failed to load index data:", err);
+        } finally {
+            setLoading(false);
+            setFetchedAt(new Date().toISOString());
+        }
     }, []);
+
+    useEffect(() => { load(); }, [load]);
+
+    const handleRefresh = useCallback(async () => {
+        if (refreshing) return;
+        setRefreshing(true);
+        try {
+            await triggerIndexRefresh();
+        } catch (err) {
+            console.error("Refresh trigger failed:", err);
+        }
+        await load();
+        setRefreshing(false);
+    }, [refreshing, load]);
 
 
 
@@ -312,7 +324,18 @@ export const IndexView: React.FC = () => {
                         <h2 className="text-3xl font-bold font-mono text-wallstreet-text flex items-center gap-3"><Globe className="text-wallstreet-accent" /> Global 75/25 Composite</h2>
                         <p className="text-wallstreet-500 mt-2 max-w-2xl">A custom synthetic benchmark. <span className="font-bold text-wallstreet-text ml-2">75% ACWI (CAD) + 25% XIC.TO</span></p>
                     </div>
-                    <FreshnessBadge fetchedAt={fetchedAt} />
+                    <div className="flex items-center gap-3">
+                        <button
+                            onClick={handleRefresh}
+                            disabled={refreshing}
+                            title="Refresh benchmark data"
+                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-wallstreet-700 bg-wallstreet-800 text-wallstreet-400 hover:text-wallstreet-text hover:border-wallstreet-accent hover:bg-wallstreet-700 text-xs font-mono transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                            <RefreshCw size={13} className={refreshing ? 'animate-spin' : ''} />
+                            {refreshing ? 'Refreshing…' : 'Refresh Data'}
+                        </button>
+                        <FreshnessBadge fetchedAt={fetchedAt} />
+                    </div>
                 </div>
             </div>
 

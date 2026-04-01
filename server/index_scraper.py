@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 # URLs from research
 ACWI_URL = "https://www.ishares.com/us/products/239600/ishares-msci-acwi-etf/1521942788811.ajax?fileType=xls&fileName=iShares-MSCI-ACWI-ETF_fund&dataType=fund"
-XIU_URL = "https://www.blackrock.com/ca/investors/en/products/239832/ishares-sptsx-60-index-etf/1515395013957.ajax?fileType=xls&fileName=iShares-SPTSX-60-Index-ETF_fund&dataType=fund"
+XIC_URL = "https://www.blackrock.com/ca/investors/en/products/239837/ishares-sptsx-capped-composite-index-etf/1515395013957.ajax?fileType=xls&fileName=iShares-SPTSX-Capped-Composite-Index-ETF_fund&dataType=fund"
 
 OUTPUT_FILE = Path(__file__).parent / "data" / "index_exposure.json"
 
@@ -228,25 +228,25 @@ def scrape_index_data():
         data_acwi["Sectors"] = sec
         data_acwi["Geography"] = geo
 
-    # --- XIU ---
-    logger.info("Processing XIU...")
-    df_xiu, _ = fetch_and_parse_ishares(XIU_URL, "XIU")
-    
-    data_xiu = {
+    # --- XIC ---
+    logger.info("Processing XIC...")
+    df_xic, _ = fetch_and_parse_ishares(XIC_URL, "XIC")
+
+    data_xic = {
         "Sectors": {},
         "Geography": {"Canada": 100.0},
         "as_of_date": datetime.now().strftime("%Y-%m-%d")
     }
-    
-    if df_xiu is not None:
-        data_xiu["as_of_date"] = extract_date(df_xiu)
-        sec, _ = aggregate_holdings(df_xiu)
-        data_xiu["Sectors"] = sec
+
+    if df_xic is not None:
+        data_xic["as_of_date"] = extract_date(df_xic)
+        sec, _ = aggregate_holdings(df_xic)
+        data_xic["Sectors"] = sec
 
     # Combine
     combined_data = {
         "ACWI": data_acwi,
-        "TSX": data_xiu,
+        "TSX": data_xic,
         "scraped_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     }
     
