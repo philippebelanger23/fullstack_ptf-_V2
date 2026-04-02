@@ -48,7 +48,12 @@
       "Bash(python -c \"from routes.risk import router; print\\(''OK''\\)\")",
       "Bash(find /c/Users/Phili/Desktop/Local_GitHub/fullstack-ptf-V2/client/views/risk -type f -name *.js -o -name *.jsx -o -name *.ts -o -name *.tsx)",
       "Bash(find /c/Users/Phili/Desktop/Local_GitHub/fullstack-ptf-V2/client/src -type f \\\\\\(-name *.tsx -o -name *.ts -o -name *.jsx -o -name *.js \\\\\\))",
-      "Bash(ls /c/Users/Phili/Desktop/Local_GitHub/fullstack-ptf-V2/client/components/*.tsx)"
+      "Bash(ls /c/Users/Phili/Desktop/Local_GitHub/fullstack-ptf-V2/client/components/*.tsx)",
+      "Bash(find client:*)",
+      "Bash(grep -E \"\\\\.\\(ts|tsx\\)$\")",
+      "Bash(grep -l \"portfolio-backcast\\\\|risk-contribution\\\\|attribution\" /c/Users/Phili/Desktop/Local_GitHub/fullstack-ptf-V2/server/*.py)",
+      "Bash(grep -n \"^const API_BASE\\\\|^const BASE\\\\|fetch\\('/api\\\\|fetch\\(\\\\`/api\" \"c:/Users/Phili/Desktop/Local_GitHub/fullstack-ptf-V2/client/services/api.ts\")",
+      "Bash(wc -l c:/Users/Phili/Desktop/Local_GitHub/fullstack-ptf-V2/Return_Contribution_Python/*.py)"
     ]
   }
 }

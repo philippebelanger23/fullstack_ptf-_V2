@@ -1,17 +1,17 @@
-import React, { useMemo, useState, useRef, useCallback, Component, ErrorInfo } from 'react';
+﻿import React, { useMemo, useState, useRef, useCallback, Component, ErrorInfo } from 'react';
 import { useThemeColors } from '../../hooks/useThemeColors';
 import { KPICard } from '../../components/KPICard';
 import { Dropdown } from '../../components/Dropdown';
 import { TrendingUp, Target, AlertTriangle, Calendar, Grid, Activity, Percent, Layers, Zap, Scale, Info, Printer, Download, Loader2, ArrowUpRight, ArrowDownRight, Briefcase } from 'lucide-react';
 import { fetchSectorHistory, fetchSectors, fetchIndexExposure, SectorHistoryData } from '../../services/api';
-import { PortfolioItem, BackcastResponse } from '../../types';
+import { PortfolioItem, BackcastResponse, PortfolioAnalysisResponse } from '../../types';
 import { FreshnessBadge } from '../../components/ui/FreshnessBadge';
 import { formatPct, formatBps } from '../../utils/formatters';
-import { aggregatePeriodData, forwardCompoundedContribution } from './attributionUtils';
+import { buildCanonicalMonthlyHistory, buildTableItemsFromHistory, compoundContribution, compoundReturnPct } from './canonicalAttribution';
 import { AttributionTable } from './AttributionTable';
 import { WaterfallChart, SectorAttributionCharts } from './AttributionCharts';
 
-// ── ErrorBoundary ────────────────────────────────────────────────────────────
+// â”€â”€ ErrorBoundary â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 class ErrorBoundary extends Component<{ children: React.ReactNode }, { hasError: boolean, error: Error | null, errorInfo: ErrorInfo | null }> {
     constructor(props: any) {
@@ -45,7 +45,7 @@ class ErrorBoundary extends Component<{ children: React.ReactNode }, { hasError:
     }
 }
 
-// ── Types ────────────────────────────────────────────────────────────────────
+// â”€â”€ Types â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 interface AttributionViewProps {
     data: PortfolioItem[];
@@ -54,9 +54,10 @@ interface AttributionViewProps {
     customSectors?: Record<string, Record<string, number>>;
     tablesRequest?: number;
     sharedBackcast?: BackcastResponse | null;
+    analysisResponse?: PortfolioAnalysisResponse | null;
 }
 
-// ── FuturePeriodMessage ──────────────────────────────────────────────────────
+// â”€â”€ FuturePeriodMessage â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 const FuturePeriodMessage = () => (
     <div className="flex flex-col items-center justify-center min-h-[400px] p-12 text-center animate-in fade-in zoom-in duration-500">
@@ -86,16 +87,326 @@ const FuturePeriodMessage = () => (
     </div>
 );
 
-// ── AttributionViewContent ───────────────────────────────────────────────────
+// â”€â”€ HeatmapSection â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selectedYear, setSelectedYear, customSectors, tablesRequest, sharedBackcast }) => {
+interface HeatmapSectionProps {
+    matrixData: any[];
+    allMonths: Date[];
+    tc: ReturnType<typeof useThemeColors>;
+}
+
+const HeatmapSection: React.FC<HeatmapSectionProps> = ({ matrixData, allMonths, tc }) => {
+    const [heatmapMode, setHeatmapMode] = useState<'CONTRIBUTION' | 'PERFORMANCE'>('CONTRIBUTION');
+
+    const formatHeatmapPct = useCallback((value: number) => {
+        return value < 0 ? `(${Math.abs(value).toFixed(2)}%)` : `${value > 0 ? '+' : ''}${value.toFixed(2)}%`;
+    }, []);
+
+    const getHeatmapCellStyle = useCallback((value: number | null, mode: 'CONTRIBUTION' | 'PERFORMANCE') => {
+        const emptyBg = tc.isDark ? '#1e293b' : '#f8fafc';
+        if (value === null) {
+            return {
+                bg: emptyBg,
+                text: tc.tickFill,
+                showNeutral: true,
+            };
+        }
+
+        const isPerformanceMode = mode === 'PERFORMANCE';
+        const scale = isPerformanceMode ? 8 : 0.75;
+        const minAlpha = isPerformanceMode ? 0.18 : 0.3;
+        const maxAlpha = isPerformanceMode ? 0.9 : 1;
+        const intensity = Math.min(Math.abs(value) / scale, 1);
+        const alpha = minAlpha + (intensity * (maxAlpha - minAlpha));
+        const rgb = value >= 0 ? '22, 163, 74' : '220, 38, 38';
+
+        let bg = `rgba(${rgb}, ${alpha})`;
+        if (Math.abs(value) < 0.0001) {
+            bg = tc.isDark ? '#1e293b' : '#ffffff';
+        }
+
+        const text = intensity > (isPerformanceMode ? 0.55 : 0.45)
+            ? 'white'
+            : (tc.isDark ? (value >= 0 ? '#4ade80' : '#f87171') : (value >= 0 ? '#14532d' : '#7f1d1d'));
+
+        return { bg, text, showNeutral: false };
+    }, [tc.isDark, tc.tickFill]);
+
+    const heatmapTotals = useMemo(() => {
+        const totals: Record<string, number> = {};
+        const hasDataMap: Record<string, boolean> = {};
+        let grandTotal = 0;
+
+        allMonths.forEach(month => {
+            const key = `${month.getFullYear()}-${month.getMonth()}`;
+            totals[key] = 0;
+            hasDataMap[key] = false;
+        });
+
+        matrixData.forEach(row => {
+            allMonths.forEach(month => {
+                const key = `${month.getFullYear()}-${month.getMonth()}`;
+                const val = heatmapMode === 'PERFORMANCE' ? row[`p-${key}`] : row[key];
+                if (val !== null && !hasDataMap[key]) {
+                    hasDataMap[key] = true;
+                }
+                totals[key] += val ?? 0;
+
+                if (heatmapMode === 'PERFORMANCE' && row[`partial-${key}`]) {
+                    // Mark as partial
+                }
+            });
+            grandTotal += heatmapMode === 'PERFORMANCE'
+                ? (row.totalPerformance ?? 0)
+                : row.total;
+        });
+
+        const selectedTotal = heatmapMode === 'PERFORMANCE'
+            ? (matrixData.reduce((sum, row) => sum + (row.totalPerformance ?? 0), 0))
+            : (matrixData.reduce((sum, row) => sum + row.total, 0));
+
+        return { totals, hasDataMap, grandTotal: selectedTotal };
+    }, [matrixData, allMonths, heatmapMode]);
+
+    const heatmapFooterLabel = heatmapMode === 'PERFORMANCE' ? 'YTD Performance' : 'Compounded Total';
+
+    return (
+        <div className="bg-wallstreet-800 rounded-xl border border-wallstreet-700 shadow-lg flex flex-col mt-6">
+            <div className="flex justify-between items-start gap-4 p-6 border-b border-wallstreet-700 bg-wallstreet-900/50">
+                <div>
+                    <h3 className="text-lg font-mono font-black text-wallstreet-text uppercase tracking-widest">Heatmap</h3>
+                    <p className="text-[11px] text-wallstreet-500 mt-2 font-mono font-bold uppercase tracking-tight">
+                        {heatmapMode === 'CONTRIBUTION'
+                            ? 'BPS contribution per ticker.'
+                            : 'Monthly position performance per ticker. * marks partial MF NAV coverage.'}
+                    </p>
+                </div>
+                <div className="flex flex-col items-end gap-2">
+                    <div className="flex p-0.5 bg-wallstreet-900 rounded-lg border border-wallstreet-700">
+                        {(['CONTRIBUTION', 'PERFORMANCE'] as const).map(mode => (
+                            <button
+                                key={mode}
+                                onClick={() => setHeatmapMode(mode)}
+                                className={`px-3 py-1.5 rounded text-xs font-mono font-bold transition-all ${
+                                    heatmapMode === mode
+                                        ? 'bg-[#0A2351] text-white shadow-sm ring-1 ring-[#0A2351]/40'
+                                        : 'text-wallstreet-500 hover:text-wallstreet-text'
+                                }`}
+                            >
+                                {mode === 'CONTRIBUTION' ? 'Contribution' : 'Performance'}
+                            </button>
+                        ))}
+                    </div>
+                </div>
+            </div>
+            <div className="w-full">
+                <table className="w-full text-[12px] border-collapse table-fixed">
+                    <thead>
+                        <tr>
+                            <th className="px-3 py-2 text-center font-mono font-bold uppercase text-wallstreet-400 bg-wallstreet-900 border-b border-wallstreet-700 w-44 tracking-widest sticky top-0 z-30 text-sm">Ticker</th>
+                            {allMonths.map(date => (
+                                <th key={date.toISOString()} className="py-2 text-center font-mono font-bold uppercase text-wallstreet-400 bg-wallstreet-900 border-b border-wallstreet-700 tracking-tighter sticky top-0 z-30 text-sm">
+                                    {date.toLocaleDateString('en-US', { month: 'short' }).toUpperCase()}
+                                </th>
+                            ))}
+                            <th className="px-3 py-2 text-center font-mono font-bold uppercase text-wallstreet-text bg-wallstreet-900 border-b border-wallstreet-700 border-l border-wallstreet-300 w-24 sticky top-0 z-30 text-sm">Total</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {matrixData.map((row) => (
+                            <tr key={row.ticker} className="hover:bg-wallstreet-900/50 transition-colors group">
+                                <td className="px-3 py-0 font-mono font-bold text-wallstreet-text border-b border-wallstreet-700 truncate text-base">{row.ticker}</td>
+                                {allMonths.map(date => {
+                                    const key = `${date.getFullYear()}-${date.getMonth()}`;
+                                    const val = heatmapMode === 'PERFORMANCE' ? row[`p-${key}`] : row[key];
+                                    const isPartialMf = heatmapMode === 'PERFORMANCE' && !!row[`partial-${key}`];
+                                    const { bg, text } = getHeatmapCellStyle(val, heatmapMode);
+
+                                    return (
+                                        <td key={date.toISOString()} className="p-0 border-b border-wallstreet-700 relative group/cell">
+                                            {(() => {
+                                                const maxW = row[`w-${key}`];
+                                                const isZeroVal = val !== null && Math.abs(val) < 0.0001;
+                                                const isZeroWeight = maxW !== undefined && maxW < 0.0001;
+                                                const showHyphen = val === null || (isZeroVal && isZeroWeight);
+
+                                                const displayBg = showHyphen ? (tc.isDark ? '#1e293b' : '#f8fafc') : bg;
+                                                const tooltipLabel = heatmapMode === 'PERFORMANCE' ? 'Performance' : 'Contribution';
+
+                                                return (
+                                                    <div
+                                                        className="w-full h-7 flex items-center justify-center font-mono font-bold cursor-default transition-transform hover:scale-110 hover:z-20 hover:shadow-sm relative text-sm"
+                                                        style={{ backgroundColor: displayBg, color: showHyphen ? tc.tickFill : text }}
+                                                        title={showHyphen ? undefined : `${row.ticker} - ${date.toLocaleDateString('en-US', { month: 'short' }).toUpperCase()}`}
+                                                    >
+                                                        {!showHyphen ? (
+                                                            <span className="opacity-100">
+                                                                {formatHeatmapPct(val!)}
+                                                                {isPartialMf && <sup className="ml-0.5 text-[10px] text-amber-300">*</sup>}
+                                                            </span>
+                                                        ) : <span className="text-gray-300">-</span>}
+                                                        {!showHyphen && val !== null && (
+                                                            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 px-3 py-2 bg-slate-900 text-white text-[10px] rounded opacity-0 group-hover/cell:opacity-100 pointer-events-none z-50 whitespace-nowrap shadow-xl flex flex-col items-center gap-1">
+                                                                <div className="font-bold border-b-0 pb-0 mb-0">{row.ticker} - {date.toLocaleDateString('en-US', { month: 'short' }).toUpperCase()}</div>
+                                                                <div className="text-wallstreet-500">{tooltipLabel}: {formatHeatmapPct(val)}</div>
+                                                                {isPartialMf && <div className="text-amber-300 font-bold">* Partial MF NAV coverage through the period</div>}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                );
+                                            })()}
+                                        </td>
+                                    );
+                                })}
+                                <td className="px-3 py-0 text-center font-mono font-bold border-b border-wallstreet-700 border-l border-wallstreet-300 bg-wallstreet-900/80 text-sm">
+                                    {(() => {
+                                        const rowTotal = heatmapMode === 'PERFORMANCE' ? (row.totalPerformance ?? 0) : row.total;
+                                        const isZeroTotal = Math.abs(rowTotal) < 0.0001;
+                                        const isZeroLatestWeight = (row.latestWeight || 0) < 0.0001;
+                                        const showTotalHyphen = isZeroTotal && isZeroLatestWeight;
+
+                                        if (showTotalHyphen) {
+                                            return <span className="text-gray-300">-</span>;
+                                        }
+                                        return <span className={rowTotal >= 0 ? 'text-green-700' : 'text-red-700'}>{formatHeatmapPct(rowTotal)}</span>;
+                                    })()}
+                                </td>
+                            </tr>
+                        ))}
+                    </tbody>
+                    <tfoot>
+                        <tr className="bg-wallstreet-100 border-t-2 border-wallstreet-700 shadow-inner">
+                            <td className="px-3 py-1 font-mono font-bold text-wallstreet-text text-xs uppercase">{heatmapFooterLabel}</td>
+                            {allMonths.map(date => {
+                                const key = `${date.getFullYear()}-${date.getMonth()}`;
+                                const hasData = heatmapTotals.hasDataMap[key];
+                                const val = heatmapTotals.totals[key];
+                                return (
+                                    <td key={date.toISOString()} className="px-3 py-1 text-center font-mono font-bold text-sm border-b border-wallstreet-700 border-l border-wallstreet-700">
+                                        {hasData ? <span className={val >= 0 ? 'text-green-700' : 'text-red-700'}>{formatHeatmapPct(val)}</span> : <span className="text-gray-300">-</span>}
+                                    </td>
+                                )
+                            })}
+                            <td className="px-3 py-1 text-center font-mono font-bold text-sm border-l border-wallstreet-300 bg-wallstreet-200 text-wallstreet-text">
+                                <span className={heatmapTotals.grandTotal >= 0 ? 'text-green-800' : 'text-red-800'}>{formatHeatmapPct(heatmapTotals.grandTotal)}</span>
+                            </td>
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>
+        </div>
+    );
+};
+
+// â”€â”€ AttributionHeader â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+interface AttributionHeaderProps {
+    selectedYear: number;
+    setSelectedYear: (year: number) => void;
+    fetchedAt: string | null;
+    onPrint: () => void;
+    timeRange: 'YTD' | 'Q1' | 'Q2' | 'Q3' | 'Q4';
+    setTimeRange: (range: 'YTD' | 'Q1' | 'Q2' | 'Q3' | 'Q4') => void;
+    currentViewMode: 'OVERVIEW' | 'TABLES';
+    onViewModeChange: (mode: 'OVERVIEW' | 'TABLES') => void;
+}
+
+const AttributionHeader: React.FC<AttributionHeaderProps> = ({ selectedYear, setSelectedYear, fetchedAt, onPrint, timeRange, setTimeRange, currentViewMode, onViewModeChange }) => {
+    const [viewMode, setViewMode] = useState<'OVERVIEW' | 'TABLES'>('OVERVIEW');
+
+    const handleViewModeChange = useCallback((mode: 'OVERVIEW' | 'TABLES') => {
+        setViewMode(mode);
+        onViewModeChange(mode);
+    }, [onViewModeChange]);
+
+    const handleTimeRange = useCallback((period: 'YTD' | 'Q1' | 'Q2' | 'Q3' | 'Q4') => {
+        setTimeRange(period);
+    }, [setTimeRange]);
+
+    const handleYearChange = useCallback((val: number) => {
+        setSelectedYear(val);
+    }, [setSelectedYear]);
+
+    return (
+        <header className="border-b border-wallstreet-700 pb-4 flex flex-col md:flex-row justify-between items-start md:items-end gap-4 print:hidden">
+            <div>
+                <div className="flex items-center gap-3">
+                    <h2 className="text-3xl font-bold font-mono text-wallstreet-text">Performance Attribution</h2>
+                    <FreshnessBadge fetchedAt={fetchedAt} />
+                </div>
+                <p className="text-wallstreet-500 mt-1 text-sm">Allocation vs. Selection Effect Analysis (Excl. Cash)</p>
+            </div>
+            <div className="flex items-center gap-4">
+                {/* Time Range Selector - Only visible in Overview */}
+                {viewMode === 'OVERVIEW' && (
+                    <div className="flex items-center bg-wallstreet-800 border border-wallstreet-700 rounded-lg p-1 shadow-sm">
+                        {['YTD', 'Q1', 'Q2', 'Q3', 'Q4'].map((period) => (
+                            <button key={period} onClick={() => handleTimeRange(period as any)} className={`px-3 py-1.5 text-xs font-mono font-bold rounded transition-all ${timeRange === period ? 'bg-wallstreet-accent text-white shadow-md' : 'text-wallstreet-500 hover:bg-wallstreet-900'}`}>{period}</button>
+                        ))}
+                    </div>
+                )}
+
+                {/* Print PDF Button - Only visible in Tables view */}
+                {viewMode === 'TABLES' && (
+                    <button
+                        onClick={onPrint}
+                        className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 transition-colors shadow-sm"
+                    >
+                        <Printer size={18} /> Print PDF
+                    </button>
+                )}
+
+                {/* Year Selector */}
+                <Dropdown
+                    value={selectedYear}
+                    onChange={(val) => handleYearChange(Number(val))}
+                    options={[
+                        { value: new Date().getFullYear() - 1, label: new Date().getFullYear() - 1 },
+                        { value: new Date().getFullYear(), label: new Date().getFullYear() }
+                    ]}
+                    className="min-w-[100px]"
+                />
+
+                {/* View Mode Toggle */}
+                <div className="flex p-1 bg-wallstreet-200 rounded-xl">
+                    <button onClick={() => handleViewModeChange('OVERVIEW')} className={`px-4 py-2 rounded-lg text-xs font-bold font-mono transition-all flex items-center gap-2 ${viewMode === 'OVERVIEW' ? 'bg-wallstreet-800 text-wallstreet-accent shadow-sm' : 'text-wallstreet-500 hover:text-wallstreet-text'}`}><Grid size={14} /> Overview</button>
+                    <button onClick={() => handleViewModeChange('TABLES')} className={`px-4 py-2 rounded-lg text-xs font-bold font-mono transition-all flex items-center gap-2 ${viewMode === 'TABLES' ? 'bg-wallstreet-800 text-wallstreet-accent shadow-sm' : 'text-wallstreet-500 hover:text-wallstreet-text'}`}><Layers size={14} /> Tables</button>
+                </div>
+            </div>
+        </header>
+    );
+};
+
+// â”€â”€ AttributionViewContent â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selectedYear, setSelectedYear, customSectors, tablesRequest, sharedBackcast, analysisResponse }) => {
     const tc = useThemeColors();
     const [viewMode, setViewMode] = useState<'OVERVIEW' | 'TABLES'>('OVERVIEW');
+    const [tableMode, setTableMode] = useState<'monthly' | 'month' | 'period'>('monthly');
 
     // Deep-link from Portfolio Report: switch to TABLES mode when requested
     React.useEffect(() => {
         if ((tablesRequest ?? 0) > 0) setViewMode('TABLES');
     }, [tablesRequest]);
+
+    // Part 4 â€” Dev-only invariant check: monthly YTD â‰ˆ period YTD per ticker
+    React.useEffect(() => {
+        if (process.env.NODE_ENV !== 'development') return;
+        if (!analysisResponse) return;
+        const { periodSheet, monthlySheet } = analysisResponse;
+        periodSheet.forEach(pRow => {
+            const mRow = monthlySheet.find(r => r.ticker === pRow.ticker);
+            if (mRow) {
+                const diff = Math.abs(pRow.ytdContrib - mRow.ytdContrib);
+                if (diff > 0.0001) {
+                    console.warn(
+                        `[Attribution] YTD invariant broken for ${pRow.ticker}: ` +
+                        `period=${pRow.ytdContrib.toFixed(6)}, monthly=${mRow.ytdContrib.toFixed(6)}, diff=${diff.toFixed(6)}`
+                    );
+                }
+            }
+        });
+    }, [analysisResponse]);
     const [timeRange, setTimeRange] = useState<'YTD' | 'Q1' | 'Q2' | 'Q3' | 'Q4'>('YTD');
     const [sectorHistory, setSectorHistory] = useState<{ US: SectorHistoryData, CA: SectorHistoryData, OVERALL: SectorHistoryData }>({ US: {}, CA: {}, OVERALL: {} });
     const [tickerSectors, setTickerSectors] = useState<Record<string, string>>({});
@@ -105,11 +416,10 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
     });
     const [regionFilter, setRegionFilter] = useState<'ALL' | 'US' | 'CA'>('ALL');
     const [benchmarkMode, setBenchmarkMode] = useState<'SECTOR' | 'SP500' | 'TSX'>('SECTOR');
-    const [heatmapMode, setHeatmapMode] = useState<'CONTRIBUTION' | 'PERFORMANCE'>('CONTRIBUTION');
     const [benchmarkExposure, setBenchmarkExposure] = useState<any[]>([]);
     const [fetchedAt, setFetchedAt] = useState<string | null>(null);
 
-    // Stable ticker key — only changes when actual ticker set changes, not on every data reference swap
+    // Stable ticker key â€” only changes when actual ticker set changes, not on every data reference swap
     const tickerKey = useMemo(() => {
         return Array.from(new Set(data.map(d => d.ticker))).filter(t => t !== 'CASH').sort().join(',');
     }, [data]);
@@ -193,78 +503,33 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
         window.print();
     };
 
-    const cleanData = useMemo(() => {
-        // Filter by year
-        const yearFiltered = data.filter(d => new Date(d.date).getFullYear() === selectedYear);
-        const currentYear = new Date().getFullYear();
-        // Carry-over logic for Jan 1st of current year
-        if (selectedYear === currentYear) {
-            const hasJan1 = yearFiltered.some(d => d.date.startsWith(`${currentYear}-01-01`));
-            if (!hasJan1) {
-                // Find last data point from previous year
-                const prevYear = currentYear - 1;
-                const dataPrevYear = data.filter(d => new Date(d.date).getFullYear() === prevYear);
-                if (dataPrevYear.length > 0) {
-                    // Sort to find the latest
-                    dataPrevYear.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-                    const lastDatePrevYear = dataPrevYear[0].date;
-                    const latestPrevSnapshot = dataPrevYear.filter(d => d.date === lastDatePrevYear);
+    const canonicalMonthlyHistory = useMemo(() => buildCanonicalMonthlyHistory(analysisResponse, data), [analysisResponse, data]);
 
-                    // Create simulated entries for Jan 1st using last year weights
-                    const carryOver = latestPrevSnapshot.map(item => ({
-                        ...item,
-                        date: `${currentYear}-01-01`,
-                        contribution: 0, // Reset contribution for the start of the year
-                        returnPct: 0    // Reset performance for the start of the year
-                    }));
-                    return [...carryOver, ...yearFiltered];
-                }
-            }
-        }
+    const cleanData = useMemo(() => canonicalMonthlyHistory.rows, [canonicalMonthlyHistory]);
 
-
-        return yearFiltered;
-    }, [data, selectedYear]);
-
-    const { allMonths, primaryYear } = useMemo(() => {
-        if (cleanData.length === 0) return { allMonths: [], primaryYear: new Date().getFullYear() };
-        const dates = cleanData.map(d => new Date(d.date).getTime());
-        const maxDate = new Date(Math.max(...dates));
-        const year = maxDate.getFullYear();
-        const months = Array.from({ length: 12 }, (_, i) => new Date(year, i, 1));
-        return { allMonths: months, primaryYear: year };
-    }, [cleanData]);
+    const { allMonths, primaryYear } = useMemo(() => ({
+        allMonths: Array.from({ length: 12 }, (_, monthIndex) => new Date(selectedYear, monthIndex, 1)),
+        primaryYear: selectedYear,
+    }), [selectedYear]);
 
     const filteredOverviewData = useMemo(() => {
-        if (timeRange === 'YTD') return cleanData;
+        const yearFiltered = cleanData.filter(d => new Date(d.date).getFullYear() === selectedYear);
+        if (timeRange === 'YTD') return yearFiltered;
         const quarters: Record<string, number[]> = { 'Q1': [0, 1, 2], 'Q2': [3, 4, 5], 'Q3': [6, 7, 8], 'Q4': [9, 10, 11] };
         const allowedMonths = quarters[timeRange];
-        return cleanData.filter(d => allowedMonths.includes(new Date(d.date).getMonth()));
-    }, [cleanData, timeRange]);
+        return yearFiltered.filter(d => allowedMonths.includes(new Date(d.date).getMonth()));
+    }, [cleanData, timeRange, selectedYear]);
 
     const uniqueTickers = useMemo(() => Array.from(new Set(filteredOverviewData.map(d => d.ticker))), [filteredOverviewData]);
 
     const tickerStats = useMemo(() => {
-        // 1. First, calculate Portfolio Monthly Returns for Beta calculation
-        const portfolioMonthlyReturns: Record<string, number> = {};
-        allMonths.forEach(m => {
-            const key = `${m.getFullYear()}-${m.getMonth()}`;
-            portfolioMonthlyReturns[key] = 0;
-        });
-
-        // We need to aggregate contributions by month across all tickers first to get the "Market/Portfolio" return series
-        // Actually we can use heatmapTotals logic, but that is calculated AFTER. Let's pull it up or duplicate simple logic.
         const portRetSeries: number[] = [];
-
         allMonths.forEach(month => {
-            const key = `${month.getFullYear()}-${month.getMonth()}`;
-            // Filter data for this month
             const monthData = filteredOverviewData.filter(d => {
                 const dDate = new Date(d.date);
                 return dDate.getFullYear() === month.getFullYear() && dDate.getMonth() === month.getMonth();
             });
             const sumContrib = monthData.reduce((sum, d) => sum + (d.contribution || 0), 0);
-            portfolioMonthlyReturns[key] = sumContrib;
             portRetSeries.push(sumContrib);
         });
 
@@ -273,20 +538,13 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
 
         return uniqueTickers.map(ticker => {
             const history = filteredOverviewData.filter(d => d.ticker === ticker);
-            const yearHistory = cleanData.filter(d => d.ticker === ticker);
-            // Forward-compounded contribution (ATTRIBUTION_LOGIC.md §4)
-            const sortedHistory = [...history].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-            const totalContrib = forwardCompoundedContribution(sortedHistory);
-            // Removed avgWeight calculation as per user request
+            const yearHistory = cleanData.filter(d => d.ticker === ticker && new Date(d.date).getFullYear() === selectedYear);
 
-            // Calculate StdDev of *Contribution* (Risk Contribution Proxy) and *Return* (Standalone Risk)
-            // Ideally we need Returns for Beta.
-            // Let's build the monthly return series for this ticker
+            const totalContrib = compoundContribution(history);
             const tickerRetSeries: number[] = [];
             const tickerContribSeries: number[] = [];
 
             allMonths.forEach(month => {
-                const key = `${month.getFullYear()}-${month.getMonth()}`;
                 const entry = history.find(d => {
                     const dDate = new Date(d.date);
                     return dDate.getFullYear() === month.getFullYear() && dDate.getMonth() === month.getMonth();
@@ -295,13 +553,10 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
                 tickerContribSeries.push(entry ? (entry.contribution || 0) : 0);
             });
 
-            // Volatility of Contribution (How much it shakes the boat)
             const meanContrib = tickerContribSeries.reduce((a, b) => a + b, 0) / (tickerContribSeries.length || 1);
             const varianceContrib = tickerContribSeries.reduce((a, b) => a + Math.pow(b - meanContrib, 2), 0) / (tickerContribSeries.length || 1);
             const stdDevContrib = Math.sqrt(varianceContrib);
 
-            // Beta Calculation (Covariance(TickerContrib, PortContrib) / Var(PortContrib))
-            // using Contribution series for Beta to see "contribution to portfolio swing"
             let covariance = 0;
             for (let i = 0; i < portRetSeries.length; i++) {
                 covariance += (tickerContribSeries[i] - meanContrib) * (portRetSeries[i] - portMean);
@@ -310,73 +565,23 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
 
             const beta = portVariance !== 0 ? covariance / portVariance : 0;
 
-            // Risk Contribution = Beta * Portfolio StdDev (Since we are using contribution series, this is direct)
-            // Or simply use stdDevContrib as "Marginal Risk Contribution" proxy for display
-
-            // Get latest weight for "Current Exposure" sorting logic
-            // Find the entry with the max date in the history
             const latestEntry = history.reduce((latest, current) => {
                 return new Date(current.date).getTime() > new Date(latest.date).getTime() ? current : latest;
             }, history[0]);
             const latestWeight = latestEntry ? latestEntry.weight : 0;
 
-            const totalReturn = (history.reduce(
-                (product: number, item: PortfolioItem) => product * (1 + (item.returnPct || 0)),
-                1
-            ) - 1) * 100;
-            const ytdReturn = (yearHistory.reduce(
-                (product: number, item: PortfolioItem) => product * (1 + (item.returnPct || 0)),
-                1
-            ) - 1) * 100;
+            const totalReturn = compoundReturnPct(history);
+            const ytdReturn = compoundReturnPct(yearHistory);
 
             return { ticker, totalContrib, totalReturn, ytdReturn, history, latestWeight, stdDevContrib, beta, riskScore: stdDevContrib };
         }).filter(t => t.latestWeight > 0.001 || Math.abs(t.totalContrib) > 0.0001);
-    }, [uniqueTickers, filteredOverviewData, allMonths]);
+    }, [uniqueTickers, filteredOverviewData, allMonths, cleanData, selectedYear]);
 
     const sortedByContrib = useMemo(() => [...tickerStats].sort((a, b) => b.totalContrib - a.totalContrib), [tickerStats]);
     // Update: Sort by latestWeight instead of avgWeight to match Dashboard logic
     const sortedByWeight = useMemo(() => [...tickerStats].sort((a, b) => b.latestWeight - a.latestWeight), [tickerStats]);
 
-    const chainReturnPct = useCallback((items: { returnPct?: number | null | undefined }[]) => {
-        if (items.length === 0) return 0;
-        return (items.reduce((product, item) => product * (1 + (item.returnPct || 0)), 1) - 1) * 100;
-    }, []);
-
-    const formatHeatmapPct = useCallback((value: number) => {
-        return value < 0 ? `(${Math.abs(value).toFixed(2)}%)` : `${value > 0 ? '+' : ''}${value.toFixed(2)}%`;
-    }, []);
-
-    const getHeatmapCellStyle = useCallback((value: number | null, mode: 'CONTRIBUTION' | 'PERFORMANCE') => {
-        const emptyBg = tc.isDark ? '#1e293b' : '#f8fafc';
-        if (value === null) {
-            return {
-                bg: emptyBg,
-                text: tc.tickFill,
-                showNeutral: true,
-            };
-        }
-
-        const isPerformanceMode = mode === 'PERFORMANCE';
-        const scale = isPerformanceMode ? 8 : 0.75;
-        const minAlpha = isPerformanceMode ? 0.18 : 0.3;
-        const maxAlpha = isPerformanceMode ? 0.9 : 1;
-        const intensity = Math.min(Math.abs(value) / scale, 1);
-        const alpha = minAlpha + (intensity * (maxAlpha - minAlpha));
-        const rgb = value >= 0 ? '22, 163, 74' : '220, 38, 38';
-
-        let bg = `rgba(${rgb}, ${alpha})`;
-        if (Math.abs(value) < 0.0001) {
-            bg = tc.isDark ? '#1e293b' : '#ffffff';
-        }
-
-        const text = intensity > (isPerformanceMode ? 0.55 : 0.45)
-            ? 'white'
-            : (tc.isDark ? (value >= 0 ? '#4ade80' : '#f87171') : (value >= 0 ? '#14532d' : '#7f1d1d'));
-
-        return { bg, text, showNeutral: false };
-    }, [tc.isDark, tc.tickFill]);
-
-    const matrixData = sortedByContrib.map(stat => {
+    const matrixData = useMemo(() => sortedByContrib.map(stat => {
         const row: any = {
             ticker: stat.ticker,
             total: stat.totalContrib,
@@ -387,24 +592,22 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
         allMonths.forEach(monthDate => {
             const m = monthDate.getMonth();
             const y = monthDate.getFullYear();
-            const monthlyEntries = stat.history.filter(h => {
+            const key = `${y}-${m}`;
+            const monthlyEntry = stat.history.find(h => {
                 const d = new Date(h.date);
                 return d.getMonth() === m && d.getFullYear() === y;
             });
-            const key = `${y}-${m}`;
-            // Forward-compounded contribution per month (ATTRIBUTION_LOGIC.md §4)
-            if (monthlyEntries.length > 0) {
-                const sorted = [...monthlyEntries].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-                row[key] = forwardCompoundedContribution(sorted);
-                row[`p-${key}`] = chainReturnPct(sorted);
-                row[`partial-${key}`] = sorted.some(item => item.isMutualFund && (item.startPrice == null || item.endPrice == null));
+            if (monthlyEntry) {
+                row[key] = monthlyEntry.contribution;
+                row[`p-${key}`] = monthlyEntry.returnPct * 100;
+                row[`partial-${key}`] = !!monthlyEntry.partial;
+                row[`w-${key}`] = monthlyEntry.weight;
             } else {
                 row[key] = null;
                 row[`p-${key}`] = null;
                 row[`partial-${key}`] = false;
+                row[`w-${key}`] = 0;
             }
-            // Capture max weight for this month to determine if 0.00% is due to strict 0 position
-            row[`w-${key}`] = monthlyEntries.length > 0 ? Math.max(...monthlyEntries.map(e => e.weight)) : 0;
         });
         return row;
     }).filter(row => {
@@ -419,7 +622,7 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
         const isNotCash = tickerUpper !== 'CASH' && tickerUpper !== '*CASH*';
 
         return hasAnyNonNullContrib && isNotCash;
-    });
+    }), [sortedByContrib, allMonths]);
 
     const toBackcastDateKey = (date: Date) => {
         const year = date.getFullYear();
@@ -427,6 +630,35 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
         const day = String(date.getDate()).padStart(2, '0');
         return `${year}-${month}-${day}`;
     };
+
+    const fallbackMonthlyPeriods = useMemo(() => (
+        allMonths.map((_, monthIndex) => {
+            const startDate = monthIndex === 0
+                ? new Date(selectedYear - 1, 11, 31)
+                : new Date(selectedYear, monthIndex, 0);
+            const endDate = new Date(selectedYear, monthIndex + 1, 0);
+
+            return {
+                start: toBackcastDateKey(startDate),
+                end: toBackcastDateKey(endDate),
+            };
+        })
+    ), [allMonths, selectedYear]);
+
+    const monthlyPeriods = useMemo(() => {
+        if (!analysisResponse?.monthlyPeriods?.length) return fallbackMonthlyPeriods;
+
+        const periodsByMonth = new Map<number, typeof analysisResponse.monthlyPeriods[number]>();
+        analysisResponse.monthlyPeriods.forEach(period => {
+            const endDate = new Date(`${period.end}T00:00:00`);
+            if (endDate.getFullYear() !== selectedYear) return;
+            periodsByMonth.set(endDate.getMonth(), period);
+        });
+
+        return fallbackMonthlyPeriods.map((fallbackPeriod, monthIndex) => (
+            periodsByMonth.get(monthIndex) ?? fallbackPeriod
+        ));
+    }, [analysisResponse, fallbackMonthlyPeriods, selectedYear]);
 
     const getBackcastReturnForRange = useCallback((startDateKey: string, endDateKey: string): number | null => {
         if (!sharedBackcast?.series || sharedBackcast.series.length === 0) return null;
@@ -442,13 +674,6 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
         return ((endValue - startValue) / startValue) * 100;
     }, [sharedBackcast]);
 
-    const getMonthlyBackcastReturn = useCallback((date: Date): number | null => {
-        const start = new Date(date.getFullYear(), date.getMonth(), 0);
-        const end = new Date(date.getFullYear(), date.getMonth() + 1, 0);
-        return getBackcastReturnForRange(toBackcastDateKey(start), toBackcastDateKey(end));
-    }, [getBackcastReturnForRange]);
-
-    const heatmapFooterLabel = heatmapMode === 'PERFORMANCE' ? 'YTD Performance' : 'Compounded Total';
     const compoundedTotalLabel = 'Total';
 
     // Geometric portfolio total return from the backcast series for the current time window.
@@ -478,66 +703,16 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
         return getBackcastReturnForRange(startStr, endStr);
     }, [getBackcastReturnForRange, selectedYear, sharedBackcast]);
 
-    // Per-period geometric returns from the backcast series, used to override the
-    // compounded total row in each monthly and quarterly AttributionTable.
+    const portfolioYtdReturnDenominator = useMemo(() => (
+        portfolioYtdReturn !== null && Math.abs(portfolioYtdReturn) > 1e-9
+            ? portfolioYtdReturn
+            : null
+    ), [portfolioYtdReturn]);
+
+    // (backcastQuarterReturns removed â€” total row now uses sum of contributions for internal consistency)
     const backcastQuarterReturns = useMemo((): Record<string, number> => {
-        const result: Record<string, number> = {};
-        const quarters: Record<string, [number, number]> = { Q1: [0, 2], Q2: [3, 5], Q3: [6, 8], Q4: [9, 11] };
-        Object.entries(quarters).forEach(([q, [startM, endM]]) => {
-            // prevEnd = last day before quarter start (i.e. end of prior quarter)
-            const prevEnd = toBackcastDateKey(new Date(primaryYear, startM, 0));
-            const qEnd = toBackcastDateKey(new Date(primaryYear, endM + 1, 0));
-            const quarterReturn = getBackcastReturnForRange(prevEnd, qEnd);
-            if (quarterReturn !== null) result[q] = quarterReturn;
-        });
-        return result;
+        return {};
     }, [getBackcastReturnForRange, primaryYear]);
-
-    const heatmapTotals = useMemo(() => {
-        const totals: Record<string, number> = {};
-        const hasDataMap: Record<string, boolean> = {};
-        const monthlyReturns: number[] = [];
-        const partialMap: Record<string, boolean> = {};
-        let grandTotal = 0;
-
-        allMonths.forEach(date => {
-            const key = `${date.getFullYear()}-${date.getMonth()}`;
-            totals[key] = 0;
-            hasDataMap[key] = false;
-            partialMap[key] = false;
-        });
-
-        matrixData.forEach(row => {
-            grandTotal += heatmapMode === 'PERFORMANCE' ? (row.totalPerformance ?? 0) : row.total;
-            allMonths.forEach(date => {
-                const key = `${date.getFullYear()}-${date.getMonth()}`;
-                const val = heatmapMode === 'PERFORMANCE' ? row[`p-${key}`] : row[key];
-                if (val !== null && val !== undefined) {
-                    totals[key] += val;
-                    hasDataMap[key] = true;
-                    if (heatmapMode === 'PERFORMANCE' && row[`partial-${key}`]) {
-                        partialMap[key] = true;
-                    }
-                }
-            });
-        });
-
-        // Override only the grand total with the geometric portfolio return from the backcast
-        // series (same source as the performance graph). Monthly cells remain as contribution
-        // sums — only the YTD/period total needs to match the graph exactly.
-        const selectedTotal = heatmapMode === 'PERFORMANCE'
-            ? (portfolioYtdReturn ?? portfolioTotalReturn)
-            : portfolioTotalReturn;
-
-        if (selectedTotal !== null) grandTotal = selectedTotal;
-
-        allMonths.forEach(date => {
-            const key = `${date.getFullYear()}-${date.getMonth()}`;
-            if (hasDataMap[key]) monthlyReturns.push(totals[key]);
-        });
-
-        return { totals, grandTotal, hasDataMap, monthlyReturns, partialMap };
-    }, [matrixData, allMonths, portfolioTotalReturn, portfolioYtdReturn, heatmapMode]);
 
     const waterfallData = useMemo(() => {
         if (sortedByWeight.length === 0) return [];
@@ -779,8 +954,8 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
             "Real Estate": "XRE.TO",
             "Consumer Staples": "XST.TO",
             "Consumer Discretionary": "XCD.TO",
-            "Health Care": "XIC.TO",           // No pure CA healthcare ETF → TSX fallback
-            "Communication Services": "XIC.TO", // No CA comm services ETF → TSX fallback
+            "Health Care": "XIC.TO",           // No pure CA healthcare ETF â†’ TSX fallback
+            "Communication Services": "XIC.TO", // No CA comm services ETF â†’ TSX fallback
         };
 
         const activeBenchmarkETFs = regionFilter === 'CA' ? CA_SECTOR_BENCHMARK_ETF : US_SECTOR_BENCHMARK_ETF;
@@ -906,7 +1081,7 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
                 const totalW = regionW.usWeight + regionW.caWeight;
 
                 if (totalW < 0.001) {
-                    // No portfolio holdings — fall back to US benchmark return
+                    // No portfolio holdings â€” fall back to US benchmark return
                     if (usReturn !== undefined) effectiveBenchmarkReturns[sector] = usReturn;
                     return;
                 }
@@ -918,7 +1093,7 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
                 const caETF = CA_SECTOR_BENCHMARK_ETF[sector];
 
                 if (usReturn !== undefined && caReturn !== undefined && usFrac > 0.001 && caFrac > 0.001) {
-                    // Both regions present — blend
+                    // Both regions present â€” blend
                     effectiveBenchmarkReturns[sector] = usFrac * usReturn + caFrac * caReturn;
                     const usPct = Math.round(usFrac * 100);
                     const caPct = Math.round(caFrac * 100);
@@ -981,7 +1156,7 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
                     : 0;
 
                 // Allocation Effect = (W_p - W_b) * (R_b - R_total_b)
-                // Always valid — uses total weight (stocks + ETF-distributed) to capture full sector exposure.
+                // Always valid â€” uses total weight (stocks + ETF-distributed) to capture full sector exposure.
                 const allocationEffect = ((group.sumWeight - benchWeight) * (benchReturn - totalBenchmarkReturn)) / 100;
 
                 // Interaction Effect = (W_p - W_b) * (R_p - R_b)
@@ -996,7 +1171,7 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
                 return {
                     sector,
                     displayName: CANONICAL_TO_DISPLAY[sector] || sector,
-                    benchmarkETF: overallBenchmarkETF ?? (blendedBenchmarkETFLabels[sector] || activeBenchmarkETFs[sector] || '—'),
+                    benchmarkETF: overallBenchmarkETF ?? (blendedBenchmarkETFLabels[sector] || activeBenchmarkETFs[sector] || 'â€”'),
                     selectionEffect,
                     allocationEffect,
                     interactionEffect,
@@ -1170,52 +1345,16 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
 
     return (
         <div className="max-w-[100vw] mx-auto p-4 md:p-6 space-y-6">
-            <header className="border-b border-wallstreet-700 pb-4 flex flex-col md:flex-row justify-between items-start md:items-end gap-4 print:hidden">
-                <div>
-                    <div className="flex items-center gap-3">
-                        <h2 className="text-3xl font-bold font-mono text-wallstreet-text">Performance Attribution</h2>
-                        <FreshnessBadge fetchedAt={fetchedAt} />
-                    </div>
-                    <p className="text-wallstreet-500 mt-1 text-sm">Allocation vs. Selection Effect Analysis (Excl. Cash)</p>
-                </div>
-                <div className="flex items-center gap-4">
-                    {/* Time Range Selector - Only visible in Overview */}
-                    {viewMode === 'OVERVIEW' && (
-                        <div className="flex items-center bg-wallstreet-800 border border-wallstreet-700 rounded-lg p-1 shadow-sm">
-                            {['YTD', 'Q1', 'Q2', 'Q3', 'Q4'].map((period) => (
-                                <button key={period} onClick={() => setTimeRange(period as any)} className={`px-3 py-1.5 text-xs font-mono font-bold rounded transition-all ${timeRange === period ? 'bg-wallstreet-accent text-white shadow-md' : 'text-wallstreet-500 hover:bg-wallstreet-900'}`}>{period}</button>
-                            ))}
-                        </div>
-                    )}
-
-                    {/* Print PDF Button - Only visible in Tables view */}
-                    {viewMode === 'TABLES' && (
-                        <button
-                            onClick={handlePrint}
-                            className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 transition-colors shadow-sm"
-                        >
-                            <Printer size={18} /> Print PDF
-                        </button>
-                    )}
-
-                    {/* Year Selector */}
-                    <Dropdown
-                        value={selectedYear}
-                        onChange={(val) => setSelectedYear(Number(val))}
-                        options={[
-                            { value: new Date().getFullYear() - 1, label: new Date().getFullYear() - 1 },
-                            { value: new Date().getFullYear(), label: new Date().getFullYear() }
-                        ]}
-                        className="min-w-[100px]"
-                    />
-
-                    {/* View Mode Toggle */}
-                    <div className="flex p-1 bg-wallstreet-200 rounded-xl">
-                        <button onClick={() => setViewMode('OVERVIEW')} className={`px-4 py-2 rounded-lg text-xs font-bold font-mono transition-all flex items-center gap-2 ${viewMode === 'OVERVIEW' ? 'bg-wallstreet-800 text-wallstreet-accent shadow-sm' : 'text-wallstreet-500 hover:text-wallstreet-text'}`}><Grid size={14} /> Overview</button>
-                        <button onClick={() => setViewMode('TABLES')} className={`px-4 py-2 rounded-lg text-xs font-bold font-mono transition-all flex items-center gap-2 ${viewMode === 'TABLES' ? 'bg-wallstreet-800 text-wallstreet-accent shadow-sm' : 'text-wallstreet-500 hover:text-wallstreet-text'}`}><Layers size={14} /> Tables</button>
-                    </div>
-                </div>
-            </header>
+            <AttributionHeader
+                selectedYear={selectedYear}
+                setSelectedYear={setSelectedYear}
+                fetchedAt={fetchedAt}
+                currentViewMode={viewMode}
+                onViewModeChange={setViewMode}
+                onPrint={handlePrint}
+                timeRange={timeRange}
+                setTimeRange={setTimeRange}
+            />
 
 
 
@@ -1249,139 +1388,42 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
 
 
 
-                    <div className="bg-wallstreet-800 rounded-xl border border-wallstreet-700 shadow-lg flex flex-col mt-6">
-                        <div className="flex justify-between items-start gap-4 p-6 border-b border-wallstreet-700 bg-wallstreet-900/50">
-                            <div>
-                                <h3 className="text-lg font-mono font-black text-wallstreet-text uppercase tracking-widest">Heatmap</h3>
-                                <p className="text-[11px] text-wallstreet-500 mt-2 font-mono font-bold uppercase tracking-tight">
-                                    {heatmapMode === 'CONTRIBUTION'
-                                        ? 'BPS contribution per ticker.'
-                                        : 'Monthly position performance per ticker. * marks partial MF NAV coverage.'}
-                                </p>
-                            </div>
-                            <div className="flex flex-col items-end gap-2">
-                                <div className="flex p-0.5 bg-wallstreet-900 rounded-lg border border-wallstreet-700">
-                                    {(['CONTRIBUTION', 'PERFORMANCE'] as const).map(mode => (
-                                        <button
-                                            key={mode}
-                                            onClick={() => setHeatmapMode(mode)}
-                                            className={`px-3 py-1.5 rounded text-xs font-mono font-bold transition-all ${
-                                                heatmapMode === mode
-                                                    ? 'bg-[#0A2351] text-white shadow-sm ring-1 ring-[#0A2351]/40'
-                                                    : 'text-wallstreet-500 hover:text-wallstreet-text'
-                                            }`}
-                                        >
-                                            {mode === 'CONTRIBUTION' ? 'Contribution' : 'Performance'}
-                                        </button>
-                                    ))}
-                                </div>
-                            </div>
-                        </div>
-                        <div className="w-full">
-                            <table className="w-full text-[11px] border-collapse table-fixed">
-                                <thead>
-                                    <tr>
-                                        <th className="px-3 py-2 text-center font-mono font-bold uppercase text-wallstreet-400 bg-wallstreet-900 border-b border-wallstreet-700 w-44 tracking-widest sticky top-0 z-30">Ticker</th>
-                                        {allMonths.map(date => (
-                                            <th key={date.toISOString()} className="py-2 text-center font-mono font-bold uppercase text-wallstreet-400 bg-wallstreet-900 border-b border-wallstreet-700 tracking-tighter sticky top-0 z-30">
-                                                {date.toLocaleDateString('en-US', { month: 'short' }).toUpperCase()}
-                                            </th>
-                                        ))}
-                                        <th className="px-3 py-2 text-center font-mono font-bold uppercase text-wallstreet-text bg-wallstreet-900 border-b border-wallstreet-700 border-l border-wallstreet-300 w-24 sticky top-0 z-30">Total</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {matrixData.map((row) => (
-                                        <tr key={row.ticker} className="hover:bg-wallstreet-900/50 transition-colors group">
-                                            <td className="px-3 py-0 font-mono font-bold text-wallstreet-text border-b border-wallstreet-700 truncate text-sm">{row.ticker}</td>
-                                            {allMonths.map(date => {
-                                                const key = `${date.getFullYear()}-${date.getMonth()}`;
-                                                const val = heatmapMode === 'PERFORMANCE' ? row[`p-${key}`] : row[key];
-                                                const isPartialMf = heatmapMode === 'PERFORMANCE' && !!row[`partial-${key}`];
-                                                const { bg, text } = getHeatmapCellStyle(val, heatmapMode);
-
-                                                return (
-                                                    <td key={date.toISOString()} className="p-0 border-b border-wallstreet-700 relative group/cell">
-                                                        {(() => {
-                                                            const maxW = row[`w-${key}`];
-                                                            const isZeroVal = val !== null && Math.abs(val) < 0.0001;
-                                                            const isZeroWeight = maxW !== undefined && maxW < 0.0001;
-                                                            const showHyphen = val === null || (isZeroVal && isZeroWeight);
-
-                                                            // Adjust bg if showing hyphen to match "no data" style
-                                                            const displayBg = showHyphen ? (tc.isDark ? '#1e293b' : '#f8fafc') : bg;
-                                                            const tooltipLabel = heatmapMode === 'PERFORMANCE' ? 'Performance' : 'Contribution';
-
-                                                            return (
-                                                                <div
-                                                                    className="w-full h-7 flex items-center justify-center font-mono font-bold cursor-default transition-transform hover:scale-110 hover:z-20 hover:shadow-sm relative text-sm"
-                                                                    style={{ backgroundColor: displayBg, color: showHyphen ? tc.tickFill : text }}
-                                                                    title={showHyphen ? undefined : `${row.ticker} - ${date.toLocaleDateString('en-US', { month: 'short' }).toUpperCase()}`}
-                                                                >
-                                                                    {!showHyphen ? (
-                                                                        <span className="opacity-100">
-                                                                            {formatHeatmapPct(val!)}
-                                                                            {isPartialMf && <sup className="ml-0.5 text-[10px] text-amber-300">*</sup>}
-                                                                        </span>
-                                                                    ) : <span className="text-gray-300">-</span>}
-                                                                    {!showHyphen && val !== null && (
-                                                                        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 px-3 py-2 bg-slate-900 text-white text-[10px] rounded opacity-0 group-hover/cell:opacity-100 pointer-events-none z-50 whitespace-nowrap shadow-xl flex flex-col items-center gap-1">
-                                                                            <div className="font-bold border-b-0 pb-0 mb-0">{row.ticker} - {date.toLocaleDateString('en-US', { month: 'short' }).toUpperCase()}</div>
-                                                                            <div className="text-wallstreet-500">{tooltipLabel}: {formatHeatmapPct(val)}</div>
-                                                                            {isPartialMf && <div className="text-amber-300 font-bold">* Partial MF NAV coverage through the period</div>}
-                                                                        </div>
-                                                                    )}
-                                                                </div>
-                                                            );
-                                                        })()}
-                                                    </td>
-                                                );
-                                            })}
-                                            <td className="px-3 py-0 text-center font-mono font-bold border-b border-wallstreet-700 border-l border-wallstreet-300 bg-wallstreet-900/80 text-sm">
-                                                {(() => {
-                                                    const rowTotal = heatmapMode === 'PERFORMANCE' ? (row.totalPerformance ?? 0) : row.total;
-                                                    const isZeroTotal = Math.abs(rowTotal) < 0.0001;
-                                                    const isZeroLatestWeight = (row.latestWeight || 0) < 0.0001; // Use latestWeight
-                                                    const showTotalHyphen = isZeroTotal && isZeroLatestWeight;
-
-                                                    if (showTotalHyphen) {
-                                                        return <span className="text-gray-300">-</span>;
-                                                    }
-                                                    return <span className={rowTotal >= 0 ? 'text-green-700' : 'text-red-700'}>{formatHeatmapPct(rowTotal)}</span>;
-                                                })()}
-                                            </td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                                <tfoot>
-                                    <tr className="bg-wallstreet-100 border-t-2 border-wallstreet-700 shadow-inner">
-                                        <td className="px-3 py-1 font-mono font-bold text-wallstreet-text text-xs uppercase">{heatmapFooterLabel}</td>
-                                        {allMonths.map(date => {
-                                            const key = `${date.getFullYear()}-${date.getMonth()}`;
-                                            const hasData = heatmapTotals.hasDataMap[key];
-                                            const val = heatmapTotals.totals[key];
-                                            return (
-                                                <td key={date.toISOString()} className="px-3 py-1 text-center font-mono font-bold text-sm border-b border-wallstreet-700 border-l border-wallstreet-700">
-                                                    {hasData ? <span className={val >= 0 ? 'text-green-700' : 'text-red-700'}>{formatHeatmapPct(val)}</span> : <span className="text-gray-300">-</span>}
-                                                </td>
-                                            )
-                                        })}
-                                        <td className="px-3 py-1 text-center font-mono font-bold text-sm border-l border-wallstreet-300 bg-wallstreet-200 text-wallstreet-text">
-                                            <span className={heatmapTotals.grandTotal >= 0 ? 'text-green-800' : 'text-red-800'}>{formatHeatmapPct(heatmapTotals.grandTotal)}</span>
-                                        </td>
-                                    </tr>
-                                </tfoot>
-                            </table>
-                        </div>
-                    </div>
+                    <HeatmapSection matrixData={matrixData} allMonths={allMonths} tc={tc} />
                 </div>
             ) : (
+                        <div className="space-y-4">
+                        {/* Table mode toggle */}
+                        <div className="flex items-center gap-3">
+                            <span className="text-xs font-mono text-wallstreet-500 uppercase tracking-wider">View:</span>
+                            <div className="flex p-1 bg-wallstreet-200 rounded-xl">
+                                <button
+                                    onClick={() => setTableMode('monthly')}
+                                    className={`px-3 py-1.5 rounded-lg text-xs font-bold font-mono transition-all ${tableMode === 'monthly' ? 'bg-wallstreet-800 text-wallstreet-accent shadow-sm' : 'text-wallstreet-500 hover:text-wallstreet-text'}`}
+                                >
+                                    Top Contributors/Disruptors
+                                </button>
+                                <button
+                                    onClick={() => setTableMode('month')}
+                                    className={`px-3 py-1.5 rounded-lg text-xs font-bold font-mono transition-all ${tableMode === 'month' ? 'bg-wallstreet-800 text-wallstreet-accent shadow-sm' : 'text-wallstreet-500 hover:text-wallstreet-text'}`}
+                                >
+                                    By Month
+                                </button>
+                                <button
+                                    onClick={() => setTableMode('period')}
+                                    className={`px-3 py-1.5 rounded-lg text-xs font-bold font-mono transition-all ${tableMode === 'period' ? 'bg-wallstreet-800 text-wallstreet-accent shadow-sm' : 'text-wallstreet-500 hover:text-wallstreet-text'}`}
+                                >
+                                    By Period
+                                </button>
+                            </div>
+                        </div>
+
+                        {tableMode === 'monthly' ? (
                         <div className="space-y-6 print-area">
                         {/* Page 1: Q1 + Q2 */}
                         <div className="print-page">
                         {/* Print-only title */}
                         <div className="hidden print-title-block">
-                            <h1 className="font-bold text-center">Top Contributors &amp; Disruptors — {primaryYear}</h1>
+                            <h1 className="font-bold text-center">Top Contributors &amp; Disruptors â€” {primaryYear}</h1>
                         </div>
                         {/* Row 1: Jan, Feb, Mar, Q1 */}
                         {allMonths.length >= 3 && (
@@ -1394,7 +1436,7 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
                                         return dDate.getFullYear() === date.getFullYear() && dDate.getMonth() === date.getMonth() && !d.ticker.toUpperCase().includes('CASH');
                                     });
                                     if (monthlyData.length === 0) return <div key={monthIdx} className="hidden" />;
-                                    const items = aggregatePeriodData(monthlyData);
+                                    const items = buildTableItemsFromHistory(monthlyData);
 
                                     // Status Indicators
                                     const now = new Date();
@@ -1407,9 +1449,7 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
                                         status = 'IN_PROGRESS';
                                     }
 
-                                    const monthlyTotalReturn = getMonthlyBackcastReturn(date);
-
-                                    return <AttributionTable key={date.toISOString()} title={displayTitle} items={items} status={status} totalContribution={monthlyTotalReturn ?? undefined} totalLabel={monthlyTotalReturn !== null ? compoundedTotalLabel : 'Total Portfolio'} />;
+                                    return <AttributionTable key={date.toISOString()} title={displayTitle} items={items} status={status} />;
                                 })}
                                 {(() => {
                                     const q1Data = cleanData.filter(d => {
@@ -1432,7 +1472,7 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
                                         qStatus = 'IN_PROGRESS';
                                     }
 
-                                    return <AttributionTable key="Q1" title={qTitle} items={aggregatePeriodData(q1Data)} isQuarter={true} status={qStatus} totalContribution={backcastQuarterReturns['Q1']} totalLabel={compoundedTotalLabel} />;
+                                    return <AttributionTable key="Q1" title={qTitle} items={buildTableItemsFromHistory(q1Data)} isQuarter={true} status={qStatus} />;
                                 })()}
                             </div>
                         )}
@@ -1448,7 +1488,7 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
                                         return dDate.getFullYear() === date.getFullYear() && dDate.getMonth() === date.getMonth() && !d.ticker.toUpperCase().includes('CASH');
                                     });
                                     if (monthlyData.length === 0) return <div key={monthIdx} className="hidden" />;
-                                    const items = aggregatePeriodData(monthlyData);
+                                    const items = buildTableItemsFromHistory(monthlyData);
 
                                     // Status Indicators
                                     const now = new Date();
@@ -1461,9 +1501,7 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
                                         status = 'IN_PROGRESS';
                                     }
 
-                                    const monthlyTotalReturn = getMonthlyBackcastReturn(date);
-
-                                    return <AttributionTable key={date.toISOString()} title={displayTitle} items={items} status={status} totalContribution={monthlyTotalReturn ?? undefined} totalLabel={monthlyTotalReturn !== null ? compoundedTotalLabel : 'Total Portfolio'} />;
+                                    return <AttributionTable key={date.toISOString()} title={displayTitle} items={items} status={status} />;
                                 })}
                                 {(() => {
                                     const q2Data = cleanData.filter(d => {
@@ -1486,7 +1524,7 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
                                         qStatus = 'IN_PROGRESS';
                                     }
 
-                                    return <AttributionTable key="Q2" title={qTitle} items={aggregatePeriodData(q2Data)} isQuarter={true} status={qStatus} totalContribution={backcastQuarterReturns['Q2']} totalLabel={compoundedTotalLabel} />;
+                                    return <AttributionTable key="Q2" title={qTitle} items={buildTableItemsFromHistory(q2Data)} isQuarter={true} status={qStatus} />;
                                 })()}
                             </div>
                         )}
@@ -1506,7 +1544,7 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
                                         return dDate.getFullYear() === date.getFullYear() && dDate.getMonth() === date.getMonth() && !d.ticker.toUpperCase().includes('CASH');
                                     });
                                     if (monthlyData.length === 0) return <div key={monthIdx} className="hidden" />;
-                                    const items = aggregatePeriodData(monthlyData);
+                                    const items = buildTableItemsFromHistory(monthlyData);
 
                                     // Status Indicators
                                     const now = new Date();
@@ -1519,9 +1557,7 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
                                         status = 'IN_PROGRESS';
                                     }
 
-                                    const monthlyTotalReturn = getMonthlyBackcastReturn(date);
-
-                                    return <AttributionTable key={date.toISOString()} title={displayTitle} items={items} status={status} totalContribution={monthlyTotalReturn ?? undefined} totalLabel={monthlyTotalReturn !== null ? compoundedTotalLabel : 'Total Portfolio'} />;
+                                    return <AttributionTable key={date.toISOString()} title={displayTitle} items={items} status={status} />;
                                 })}
                                 {(() => {
                                     const q3Data = cleanData.filter(d => {
@@ -1544,7 +1580,7 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
                                         qStatus = 'IN_PROGRESS';
                                     }
 
-                                    return <AttributionTable key="Q3" title={qTitle} items={aggregatePeriodData(q3Data)} isQuarter={true} status={qStatus} totalContribution={backcastQuarterReturns['Q3']} totalLabel={compoundedTotalLabel} />;
+                                    return <AttributionTable key="Q3" title={qTitle} items={buildTableItemsFromHistory(q3Data)} isQuarter={true} status={qStatus} />;
                                 })()}
                             </div>
                         )}
@@ -1560,7 +1596,7 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
                                         return dDate.getFullYear() === date.getFullYear() && dDate.getMonth() === date.getMonth() && !d.ticker.toUpperCase().includes('CASH');
                                     });
                                     if (monthlyData.length === 0) return <div key={monthIdx} className="hidden" />;
-                                    const items = aggregatePeriodData(monthlyData);
+                                    const items = buildTableItemsFromHistory(monthlyData);
 
                                     // Status Indicators
                                     const now = new Date();
@@ -1573,9 +1609,7 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
                                         status = 'IN_PROGRESS';
                                     }
 
-                                    const monthlyTotalReturn = getMonthlyBackcastReturn(date);
-
-                                    return <AttributionTable key={date.toISOString()} title={displayTitle} items={items} status={status} totalContribution={monthlyTotalReturn ?? undefined} totalLabel={monthlyTotalReturn !== null ? compoundedTotalLabel : 'Total Portfolio'} />;
+                                    return <AttributionTable key={date.toISOString()} title={displayTitle} items={items} status={status} />;
                                 })}
                                 {(() => {
                                     const q4Data = cleanData.filter(d => {
@@ -1598,12 +1632,142 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
                                         qStatus = 'IN_PROGRESS';
                                     }
 
-                                    return <AttributionTable key="Q4" title={qTitle} items={aggregatePeriodData(q4Data)} isQuarter={true} status={qStatus} totalContribution={backcastQuarterReturns['Q4']} totalLabel={compoundedTotalLabel} />;
+                                    return <AttributionTable key="Q4" title={qTitle} items={buildTableItemsFromHistory(q4Data)} isQuarter={true} status={qStatus} />;
                                 })()}
                             </div>
                         )}
                         </div>{/* end print-page 2 */}
                     </div>
+                        ) : tableMode === 'month' ? (
+                        !analysisResponse || monthlyPeriods.length === 0 ? (
+                            <div className="flex items-center justify-center p-12">
+                                <div className="bg-wallstreet-800 p-6 rounded-xl border border-wallstreet-700 text-center">
+                                    <p className="text-wallstreet-500 text-sm font-mono">No monthly data available. Reload the portfolio to generate monthly sheets.</p>
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="overflow-x-auto rounded-xl border border-wallstreet-700">
+                                <table className="w-full text-xs font-mono border-collapse">
+                                    <thead>
+                                        <tr className="bg-wallstreet-800 border-b border-wallstreet-700">
+                                            <th className="text-left px-4 py-3 text-wallstreet-500 font-bold sticky left-0 bg-wallstreet-800 min-w-[90px]">Ticker</th>
+                                            {monthlyPeriods.map((p, i) => {
+                                                const e = new Date(p.end + 'T00:00:00');
+                                                const monthLabel = e.toLocaleDateString('en-US', { month: 'long' }).toUpperCase();
+                                                return (
+                                                    <th key={i} colSpan={3} className="text-center px-2 py-3 text-wallstreet-500 font-bold border-l border-wallstreet-700 whitespace-nowrap">
+                                                        {monthLabel}
+                                                    </th>
+                                                );
+                                            })}
+                                            <th colSpan={3} className="text-center px-2 py-3 text-wallstreet-accent font-bold border-l border-wallstreet-700">YTD</th>
+                                        </tr>
+                                        <tr className="bg-wallstreet-900 border-b border-wallstreet-700">
+                                            <th className="sticky left-0 bg-wallstreet-900 px-4 py-2 text-wallstreet-500"></th>
+                                            {monthlyPeriods.map((_, i) => (
+                                                <React.Fragment key={i}>
+                                                    <th className="px-2 py-2 text-right text-wallstreet-500 border-l border-wallstreet-700">Wt%</th>
+                                                    <th className="px-2 py-2 text-right text-wallstreet-500">Ret%</th>
+                                                    <th className="px-2 py-2 text-right text-wallstreet-500">Contrib</th>
+                                                </React.Fragment>
+                                            ))}
+                                            <th className="px-2 py-2 text-right text-wallstreet-500 border-l border-wallstreet-700">Ret%</th>
+                                            <th className="px-2 py-2 text-right text-wallstreet-accent font-bold">Contrib</th>
+                                            <th className="px-2 py-2 text-right text-wallstreet-accent font-bold">% of Contribution</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                                {matrixData.map((row, ri) => (
+                                            <tr key={row.ticker} className={`border-b border-wallstreet-800 hover:bg-wallstreet-700/40 transition-colors ${ri % 2 === 0 ? '' : 'bg-wallstreet-800/30'}`}>
+                                                <td className="sticky left-0 px-4 py-2.5 font-bold text-wallstreet-text bg-wallstreet-900">{row.ticker}</td>
+                                                {monthlyPeriods.map((p, pi) => {
+                                                    const d = new Date(p.end + 'T00:00:00');
+                                                    const key = `${d.getFullYear()}-${d.getMonth()}`;
+                                                    const weight = row[`w-${key}`];
+                                                    const ret = row[`p-${key}`];
+                                                    const contrib = row[key];
+                                                    const hasData = ret !== null && ret !== undefined && contrib !== null && contrib !== undefined;
+                                                    return (
+                                                        <React.Fragment key={pi}>
+                                                            <td className="px-2 py-2.5 text-right text-wallstreet-500 border-l border-wallstreet-800">{hasData ? `${(weight ?? 0).toFixed(1)}%` : '-'}</td>
+                                                            <td className={`px-2 py-2.5 text-right ${!hasData ? 'text-wallstreet-500' : ret >= 0 ? 'text-green-400' : 'text-red-400'}`}>{hasData ? `${ret.toFixed(2)}%` : '-'}</td>
+                                                            <td className={`px-2 py-2.5 text-right font-semibold ${!hasData ? 'text-wallstreet-500' : contrib >= 0 ? 'text-green-400' : 'text-red-400'}`}>{hasData ? `${contrib >= 0 ? '' : '('}${Math.abs(contrib * 100).toFixed(2)}%${contrib < 0 ? ')' : ''}` : '-'}</td>
+                                                        </React.Fragment>
+                                                    );
+                                                })}
+                                                <td className={`px-2 py-2.5 text-right border-l border-wallstreet-700 ${row.totalPerformance >= 0 ? 'text-green-400' : 'text-red-400'}`}>{row.totalPerformance.toFixed(2)}%</td>
+                                                <td className={`px-2 py-2.5 text-right font-bold ${row.totalContribution >= 0 ? 'text-green-400' : 'text-red-400'}`}>{row.totalContribution >= 0 ? '' : '('}{Math.abs(row.totalContribution * 100).toFixed(2)}%{row.totalContribution < 0 ? ')' : ''}</td>
+                                                <td className={`px-2 py-2.5 text-right font-bold border-l border-wallstreet-700 ${portfolioYtdReturnDenominator !== null ? (((row.totalContribution * 10000) / portfolioYtdReturnDenominator) >= 0 ? 'text-green-400' : 'text-red-400') : 'text-wallstreet-500'}`}>
+                                                    {portfolioYtdReturnDenominator !== null
+                                                        ? `${((row.totalContribution * 10000) / portfolioYtdReturnDenominator) >= 0 ? '' : '('}${Math.abs((row.totalContribution * 10000) / portfolioYtdReturnDenominator).toFixed(2)}%${((row.totalContribution * 10000) / portfolioYtdReturnDenominator) < 0 ? ')' : ''}`
+                                                        : '-'}
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        )
+                        ) : (
+                        /* Period View â€” sourced from analysisResponse.periodSheet */
+                        !analysisResponse || analysisResponse.periodSheet.length === 0 ? (
+                            <div className="flex items-center justify-center p-12">
+                                <div className="bg-wallstreet-800 p-6 rounded-xl border border-wallstreet-700 text-center">
+                                    <p className="text-wallstreet-500 text-sm font-mono">No period data available. Reload the portfolio to generate period sheets.</p>
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="overflow-x-auto rounded-xl border border-wallstreet-700">
+                                <table className="w-full text-xs font-mono border-collapse">
+                                    <thead>
+                                        <tr className="bg-wallstreet-800 border-b border-wallstreet-700">
+                                            <th className="text-left px-4 py-3 text-wallstreet-500 font-bold sticky left-0 bg-wallstreet-800 min-w-[90px]">Ticker</th>
+                                            {analysisResponse.periods.map((p, i) => {
+                                                const s = new Date(p.start + 'T00:00:00');
+                                                const e = new Date(p.end + 'T00:00:00');
+                                                const fmt = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                                                return (
+                                                    <th key={i} colSpan={3} className="text-center px-2 py-3 text-wallstreet-500 font-bold border-l border-wallstreet-700 whitespace-nowrap">
+                                                        {fmt(s)} - {fmt(e)}
+                                                    </th>
+                                                );
+                                            })}
+                                            <th colSpan={2} className="text-center px-2 py-3 text-wallstreet-accent font-bold border-l border-wallstreet-700">YTD</th>
+                                        </tr>
+                                        <tr className="bg-wallstreet-900 border-b border-wallstreet-700">
+                                            <th className="sticky left-0 bg-wallstreet-900 px-4 py-2 text-wallstreet-500"></th>
+                                            {analysisResponse.periods.map((_, i) => (
+                                                <React.Fragment key={i}>
+                                                    <th className="px-2 py-2 text-right text-wallstreet-500 border-l border-wallstreet-700">Wt%</th>
+                                                    <th className="px-2 py-2 text-right text-wallstreet-500">Ret%</th>
+                                                    <th className="px-2 py-2 text-right text-wallstreet-500">Contrib</th>
+                                                </React.Fragment>
+                                            ))}
+                                            <th className="px-2 py-2 text-right text-wallstreet-500 border-l border-wallstreet-700">Ret%</th>
+                                            <th className="px-2 py-2 text-right text-wallstreet-accent font-bold">Contrib</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {analysisResponse.periodSheet.map((row, ri) => (
+                                            <tr key={row.ticker} className={`border-b border-wallstreet-800 hover:bg-wallstreet-700/40 transition-colors ${ri % 2 === 0 ? '' : 'bg-wallstreet-800/30'}`}>
+                                                <td className="sticky left-0 px-4 py-2.5 font-bold text-wallstreet-text bg-wallstreet-900">{row.ticker}</td>
+                                                {row.periods.map((pd, pi) => (
+                                                    <React.Fragment key={pi}>
+                                                        <td className="px-2 py-2.5 text-right text-wallstreet-500 border-l border-wallstreet-800">{(pd.weight * 100).toFixed(1)}%</td>
+                                                        <td className={`px-2 py-2.5 text-right ${pd.returnPct >= 0 ? 'text-green-400' : 'text-red-400'}`}>{(pd.returnPct * 100).toFixed(2)}%</td>
+                                                        <td className={`px-2 py-2.5 text-right font-semibold ${pd.contribution >= 0 ? 'text-green-400' : 'text-red-400'}`}>{pd.contribution >= 0 ? '' : '('}{Math.abs(pd.contribution * 100).toFixed(2)}%{pd.contribution < 0 ? ')' : ''}</td>
+                                                    </React.Fragment>
+                                                ))}
+                                                <td className={`px-2 py-2.5 text-right border-l border-wallstreet-700 ${row.ytdReturn >= 0 ? 'text-green-400' : 'text-red-400'}`}>{(row.ytdReturn * 100).toFixed(2)}%</td>
+                                                <td className={`px-2 py-2.5 text-right font-bold ${row.ytdContrib >= 0 ? 'text-green-400' : 'text-red-400'}`}>{row.ytdContrib >= 0 ? '' : '('}{Math.abs(row.ytdContrib * 100).toFixed(2)}%{row.ytdContrib < 0 ? ')' : ''}</td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        )
+                        )}
+                        </div>
                 )}
             </>
         )}

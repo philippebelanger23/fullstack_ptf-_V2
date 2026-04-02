@@ -13,7 +13,7 @@ import yfinance as yf
 from fastapi import APIRouter, File, HTTPException, Query, UploadFile
 
 from cache_manager import load_cache, save_cache
-from market_data import get_price_on_date, get_fx_return, needs_fx_adjustment
+from market_data import get_price_on_date, get_fx_return, get_nav_price_on_or_before, needs_fx_adjustment
 from models import PortfolioConfig
 from routes.portfolio import get_aggregated_nav_data
 from services.config_manager import load_json, save_json
@@ -293,8 +293,13 @@ async def price_audit(
         start_ts = pd.to_datetime(start_date)
         end_ts = pd.to_datetime(end_date)
 
-        price_start = get_price_on_date(ticker.upper(), start_ts, cache)
-        price_end = get_price_on_date(ticker.upper(), end_ts, cache)
+        ticker_upper = ticker.upper()
+        if ticker_upper in nav_dict:
+            price_start = get_nav_price_on_or_before(ticker_upper, start_ts, nav_dict)
+            price_end = get_nav_price_on_or_before(ticker_upper, end_ts, nav_dict)
+        else:
+            price_start = get_price_on_date(ticker_upper, start_ts, cache)
+            price_end = get_price_on_date(ticker_upper, end_ts, cache)
 
         if price_start is None or price_end is None:
             raise HTTPException(status_code=404, detail=f"Could not fetch prices for {ticker} on the given dates")
@@ -314,14 +319,11 @@ async def price_audit(
 
         # Fetch the full daily price series for the range
         try:
-            hist = yf.download(ticker.upper(), start=start_ts,
-                               end=end_ts + pd.Timedelta(days=1),
-                               progress=False, auto_adjust=True)
-            # Handle multi-level column index from yfinance
-            if isinstance(hist.columns, pd.MultiIndex):
-                close_col = hist['Close'][ticker.upper()]
-            else:
-                close_col = hist['Close']
+            hist = yf.Ticker(ticker.upper()).history(
+                start=start_ts,
+                end=end_ts + pd.Timedelta(days=1),
+            )
+            close_col = hist["Close"] if not hist.empty else pd.Series(dtype=float)
             prices_series = [
                 {"date": str(idx.date()), "close": round(float(val), 4)}
                 for idx, val in close_col.items()
@@ -332,8 +334,8 @@ async def price_audit(
         save_cache(cache)
 
         return {
-            "ticker": ticker.upper(),
-            "source": "yfinance auto_adjust=True (total-return adjusted close: split + dividend adjusted)",
+            "ticker": ticker_upper,
+            "source": "historic NAV CSV" if ticker_upper in nav_dict else "yfinance Ticker.history(...)[\"Close\"]",
             "start_date": start_date,
             "end_date": end_date,
             "price_start": round(float(price_start), 4),

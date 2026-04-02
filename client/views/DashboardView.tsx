@@ -612,7 +612,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ data, customSector
         />
       </div>
 
-      <div className="grid grid-cols-1 gap-6 mb-8 items-stretch" style={{ gridTemplateColumns: 'minmax(0, 2fr) minmax(0, 3fr)' }}>
+      <div className="grid grid-cols-1 gap-6 mb-8 items-stretch" style={{ gridTemplateColumns: 'minmax(0, 2fr) minmax(0, 3fr)', gridTemplateRows: 'minmax(0, 1fr)' }}>
         <PortfolioEvolutionChart data={areaChartData} topTickers={topTickers} dates={dates} colors={chartColors} />
         <div className="bg-wallstreet-800 p-6 rounded-xl border border-wallstreet-700 shadow-sm flex gap-6 h-full">
           <div className="flex flex-col flex-1 min-w-0">

@@ -1,12 +1,12 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { AlertCircle, ArrowRight, Trash2, Database, Edit, FileSpreadsheet, CheckCircle2, AlertTriangle, Upload, PieChart, RefreshCw, Layers, ChevronDown, ChevronUp, HelpCircle, Search, Eye, Plus, Save } from 'lucide-react';
-import { PortfolioItem } from '../types';
-import { analyzeManualPortfolio, checkNavLag, loadSectorWeights, saveSectorWeights, uploadNav, saveAssetGeo, fetchNavAudit, saveManualNav } from '../services/api';
+import { PortfolioItem, PortfolioAnalysisResponse } from '../types';
+import { analyzeManualPortfolioFull, checkNavLag, loadSectorWeights, saveSectorWeights, uploadNav, saveAssetGeo, fetchNavAudit, saveManualNav, clearMarketCache } from '../services/api';
 import { ManualEntryModal } from '../components/ManualEntryModal';
 import { SectorWeightsModal } from '../components/SectorWeightsModal';
 
 interface UploadViewProps {
-  onDataLoaded: (data: PortfolioItem[], fileInfo?: { name: string, count: number }, files?: { weightsFile: File | null, navFile: File | null }) => void;
+  onDataLoaded: (data: PortfolioItem[], fileInfo?: { name: string, count: number }, files?: { weightsFile: File | null, navFile: File | null }, response?: PortfolioAnalysisResponse) => void;
   onProceed: () => void;
   currentData: PortfolioItem[];
   fileHistory?: { name: string, count: number }[];
@@ -27,6 +27,7 @@ export const UploadView: React.FC<UploadViewProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isCheckingLag, setIsCheckingLag] = useState(false);
+  const [isRefreshingPrices, setIsRefreshingPrices] = useState(false);
 
   // NAV Audit State
   const [isNavAuditOpen, setIsNavAuditOpen] = useState(false);
@@ -181,8 +182,8 @@ export const UploadView: React.FC<UploadViewProps> = ({
     setIsCheckingLag(true);
     try {
       // 1. Re-analyze portfolio to pick up any new NAVs on disk
-      const results = await analyzeManualPortfolio(currentData);
-      onDataLoaded(results, { name: "Manual Entry (Refreshed)", count: results.length });
+      const response = await analyzeManualPortfolioFull(currentData);
+      onDataLoaded(response.items, { name: "Manual Entry (Refreshed)", count: response.items.length }, undefined, response);
 
       // 2. Re-check lag status with forceRefresh=true
       await runLagCheck(results, true);
@@ -194,13 +195,29 @@ export const UploadView: React.FC<UploadViewProps> = ({
     }
   };
 
+  const handleRefreshPrices = async () => {
+    if (currentData.length === 0) return;
+    setIsRefreshingPrices(true);
+    setError(null);
+    try {
+      await clearMarketCache();
+      const response = await analyzeManualPortfolioFull(currentData);
+      onDataLoaded(response.items, { name: "Manual Entry", count: response.items.length }, undefined, response);
+    } catch (err: any) {
+      console.error("Price refresh failed:", err);
+      setError("Failed to refresh prices: " + (err.message || "Unknown error"));
+    } finally {
+      setIsRefreshingPrices(false);
+    }
+  };
+
   const handleManualSubmit = async (items: PortfolioItem[]) => {
     setIsAnalyzing(true);
     setError(null);
     try {
-      const results = await analyzeManualPortfolio(items);
-      onDataLoaded(results, { name: "Manual Entry", count: results.length });
-      await runLagCheck(results);
+      const response = await analyzeManualPortfolioFull(items);
+      onDataLoaded(response.items, { name: "Manual Entry", count: response.items.length }, undefined, response);
+      await runLagCheck(response.items);
       setIsAssetSectionOpen(true); // Open section automatically after entry
     } catch (err: any) {
       console.error("Manual analysis failed, falling back to basic data:", err);
@@ -225,11 +242,11 @@ export const UploadView: React.FC<UploadViewProps> = ({
 
       // Proactively re-analyze and refresh lag check with force refresh
       // forceRefresh=true ensures server re-reads NAV files from disk
-      const analyzedData = await analyzeManualPortfolio(currentData);
-      onDataLoaded(analyzedData, { name: "Manual Entry (Updated)", count: analyzedData.length });
+      const response = await analyzeManualPortfolioFull(currentData);
+      onDataLoaded(response.items, { name: "Manual Entry (Updated)", count: response.items.length }, undefined, response);
 
       // Run lag check to update status with new data (force refresh)
-      await runLagCheck(analyzedData, true);
+      await runLagCheck(response.items, true);
     } catch (err: any) {
       setError(`Upload failed for ${ticker}: ${err.message}`);
     } finally {
@@ -318,13 +335,24 @@ export const UploadView: React.FC<UploadViewProps> = ({
               </div>
             </div>
 
-            <div className="flex-1 flex flex-col items-center justify-center">
+            <div className="flex-1 flex flex-col items-center justify-center gap-3">
               <button
                 onClick={() => setIsManualModalOpen(true)}
                 className="w-full max-w-[200px] py-3 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 transition-all flex items-center justify-center gap-2 shadow-lg shadow-blue-900/30"
               >
                 <Edit size={18} /> Open Editor
               </button>
+              {currentData.length > 0 && (
+                <button
+                  onClick={handleRefreshPrices}
+                  disabled={isRefreshingPrices}
+                  className="w-full max-w-[200px] py-2 bg-wallstreet-700 text-wallstreet-400 font-bold rounded-xl hover:bg-wallstreet-600 hover:text-wallstreet-text transition-all flex items-center justify-center gap-2 text-xs disabled:opacity-50 disabled:cursor-not-allowed"
+                  title="Clear cached prices and re-fetch fresh data from market"
+                >
+                  <RefreshCw size={14} className={isRefreshingPrices ? 'animate-spin' : ''} />
+                  {isRefreshingPrices ? 'Refreshing...' : 'Refresh Prices'}
+                </button>
+              )}
             </div>
           </div>
 

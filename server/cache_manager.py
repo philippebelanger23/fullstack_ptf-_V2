@@ -20,30 +20,43 @@ RECENT_DATA_TTL_SECONDS = 86400 * 7  # 7 days
 def load_cache():
     """
     Load cached market data if it exists and is not expired.
-    
+
     The cache file has a modification time check - if the file is older than
     CACHE_TTL_SECONDS, we return an empty cache to force a refresh.
     However, entries for dates older than 7 days are preserved as they represent
     historical data that won't change.
+
+    Today's entries are always pruned unconditionally: market prices are not
+    finalized until after close, so a price fetched at 2pm must be re-fetched
+    on the next analysis run to pick up the actual closing price.
     """
+    from datetime import date as _date
     cache_path = Path(CACHE_FILE)
     if cache_path.exists():
         try:
             # Check file age
             file_mtime = cache_path.stat().st_mtime
             file_age = time.time() - file_mtime
-            
+
             with open(cache_path, 'rb') as f:
                 cached_data = pickle.load(f)
-            
+
+            # Always strip today's entries — prices are not final until market close.
+            today_str = _date.today().strftime('%Y-%m-%d')
+            before = len(cached_data)
+            cached_data = {k: v for k, v in cached_data.items() if not k.endswith(f'_{today_str}')}
+            pruned_today = before - len(cached_data)
+            if pruned_today:
+                logger.info(f"Pruned {pruned_today} today's cache entries ({today_str}) to force fresh prices")
+
             if file_age > CACHE_TTL_SECONDS:
                 # Cache is stale - but preserve historical data entries
                 # Historical entries are for dates > 7 days ago
                 logger.info(f"Cache file is {file_age/3600:.1f} hours old, pruning recent entries")
                 return _prune_recent_entries(cached_data)
-            
+
             return cached_data
-            
+
         except Exception as e:
             logger.warning(f"Error loading cache: {e}")
             return {}

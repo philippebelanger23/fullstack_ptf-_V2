@@ -24,6 +24,7 @@ from services.backcast_service import (
     compute_annualized_vol,
     compute_rolling_metrics,
     fetch_returns_df,
+    load_backcast_nav_data,
     is_cash_ticker,
 )
 
@@ -48,7 +49,9 @@ async def portfolio_backcast(request: BackcastRequest):
         return {"error": "No portfolio items provided"}
 
     # 1. Aggregate period-specific weights (one set per rebalance date)
-    period_weights = aggregate_period_weights(items)
+    nav_dict = load_backcast_nav_data()
+    nav_tickers = set(nav_dict.keys())
+    period_weights = aggregate_period_weights(items, nav_tickers=nav_tickers)
     if not period_weights:
         return {"error": "No valid tickers found"}
 
@@ -56,7 +59,11 @@ async def portfolio_backcast(request: BackcastRequest):
     all_tickers = list({t for _, w, _ in period_weights for t in w if not is_cash_ticker(t)})
     all_mutual_fund_tickers = {t for _, _, mf in period_weights for t in mf}
     try:
-        returns_df, _, missing_tickers = fetch_returns_df(all_tickers, mutual_fund_tickers=all_mutual_fund_tickers)
+        returns_df, _, missing_tickers = fetch_returns_df(
+            all_tickers,
+            mutual_fund_tickers=all_mutual_fund_tickers,
+            nav_dict=nav_dict,
+        )
     except ValueError as e:
         return {"error": str(e)}
     except Exception as e:
@@ -79,7 +86,11 @@ async def portfolio_backcast(request: BackcastRequest):
 
     # 5. Optional: per-period, per-ticker attribution derived from the same daily data
     if request.includeAttribution:
-        result["periodAttribution"] = compute_period_attribution(returns_df, period_weights)
+        result["periodAttribution"] = compute_period_attribution(
+            returns_df,
+            period_weights,
+            nav_tickers=nav_tickers,
+        )
 
     return result
 
@@ -96,7 +107,9 @@ async def risk_contribution(request: BackcastRequest):
         return {"error": "No portfolio items provided"}
 
     # 1. Aggregate weights
-    weights_by_ticker, mutual_fund_tickers = aggregate_weights(items)
+    nav_dict = load_backcast_nav_data()
+    nav_tickers = set(nav_dict.keys())
+    weights_by_ticker, mutual_fund_tickers = aggregate_weights(items, nav_tickers=nav_tickers)
 
     if not weights_by_ticker:
         return {"error": "No valid tickers found"}
@@ -104,7 +117,11 @@ async def risk_contribution(request: BackcastRequest):
     # 2. Fetch price data — exclude cash tickers and mutual funds (CSV-sourced, not on yfinance)
     tradeable_tickers = [t for t in weights_by_ticker if not is_cash_ticker(t)]
     try:
-        returns_df, raw_returns_df, _ = fetch_returns_df(tradeable_tickers, mutual_fund_tickers=mutual_fund_tickers)
+        returns_df, raw_returns_df, _ = fetch_returns_df(
+            tradeable_tickers,
+            mutual_fund_tickers=mutual_fund_tickers,
+            nav_dict=nav_dict,
+        )
     except ValueError as e:
         return {"error": str(e)}
     except Exception as e:
@@ -121,7 +138,7 @@ async def risk_contribution(request: BackcastRequest):
         if ticker not in returns_df.columns:
             missing_tickers.append(ticker)
             continue
-        is_mf = ticker in mutual_fund_tickers
+        is_mf = ticker in (mutual_fund_tickers | nav_tickers)
         if needs_fx_adjustment(ticker, is_mutual_fund=is_mf) and "USDCAD=X" in returns_df.columns:
             fx_ret = returns_df["USDCAD=X"]
             adj_ret = (1 + returns_df[ticker]) * (1 + fx_ret) - 1
@@ -189,7 +206,12 @@ async def risk_contribution(request: BackcastRequest):
     # match /portfolio-backcast and /rolling-metrics exactly.
     bmk_vol = 0.0
     portfolio_beta = 1.0
-    shared_ptf_returns, _ = build_portfolio_returns(returns_df, weights_by_ticker, mutual_fund_tickers)
+    shared_ptf_returns, _ = build_portfolio_returns(
+        returns_df,
+        weights_by_ticker,
+        mutual_fund_tickers,
+        nav_tickers=nav_tickers,
+    )
     shared_bmk_returns = build_benchmark_returns(returns_df, benchmark=request.benchmark)
     ptf_daily = shared_ptf_returns.iloc[1:].values
     bmk_daily = shared_bmk_returns.iloc[1:].values
@@ -299,7 +321,7 @@ async def risk_contribution(request: BackcastRequest):
         for ticker in corr_tickers:
             if ticker not in raw_returns_df.columns:
                 continue
-            is_mf = ticker in mutual_fund_tickers
+            is_mf = ticker in (mutual_fund_tickers | nav_tickers)
             if needs_fx_adjustment(ticker, is_mutual_fund=is_mf) and "USDCAD=X" in raw_returns_df.columns:
                 fx_ret = raw_returns_df["USDCAD=X"]
                 raw_corr_cols[ticker] = (1 + raw_returns_df[ticker]) * (1 + fx_ret) - 1
@@ -362,14 +384,20 @@ async def rolling_metrics_endpoint(request: BackcastRequest):
     if not items:
         return {"error": "No portfolio items provided"}
 
-    period_weights = aggregate_period_weights(items)
+    nav_dict = load_backcast_nav_data()
+    nav_tickers = set(nav_dict.keys())
+    period_weights = aggregate_period_weights(items, nav_tickers=nav_tickers)
     if not period_weights:
         return {"error": "No valid tickers found"}
 
     all_tickers = list({t for _, w, _ in period_weights for t in w if not is_cash_ticker(t)})
     all_mutual_fund_tickers = {t for _, _, mf in period_weights for t in mf}
     try:
-        returns_df, _, _ = fetch_returns_df(all_tickers, mutual_fund_tickers=all_mutual_fund_tickers)
+        returns_df, _, _ = fetch_returns_df(
+            all_tickers,
+            mutual_fund_tickers=all_mutual_fund_tickers,
+            nav_dict=nav_dict,
+        )
     except ValueError as e:
         return {"error": str(e)}
     except Exception as e:

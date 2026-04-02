@@ -16,7 +16,6 @@ import {
     loadSectorWeights, loadAssetGeo
 } from '../services/api';
 import { formatPct } from '../utils/formatters';
-import { aggregatePeriodData } from './attribution/attributionUtils';
 import { getDateRangeForPeriod } from '../utils/dateUtils';
 import {
     PortfolioItem, BackcastResponse, RiskContributionResponse, ViewState,
@@ -99,16 +98,16 @@ const PanelActions: React.FC<{
         <button
             onClick={() => onNavigate?.(targetView)}
             title="Go to tab"
-            className="p-1 text-wallstreet-400 hover:text-wallstreet-accent rounded transition-colors"
+            className="p-1 text-wallstreet-400 hover:text-wallstreet-accent hover:bg-wallstreet-700 rounded transition-colors"
         >
-            <ArrowUpRight size={12} />
+            <ArrowUpRight size={14} />
         </button>
         <button
             onClick={() => onExpand(panelId)}
             title="Expand"
-            className="p-1 text-wallstreet-400 hover:text-wallstreet-accent rounded transition-colors"
+            className="p-1 text-wallstreet-400 hover:text-wallstreet-accent hover:bg-wallstreet-700 rounded transition-colors"
         >
-            <Maximize2 size={12} />
+            <Maximize2 size={14} />
         </button>
     </span>
 );
@@ -291,11 +290,12 @@ export const ReportView: React.FC<ReportViewProps> = ({ data, customSectors, ass
     }, [backcast, selectedPeriod, chartView]);
 
     const periodAttribution = useMemo(() => {
-        if (!data.length) return [];
+        if (!backcast?.periodAttribution?.length) return [];
         const cutoff = getPeriodCutoff(selectedPeriod);
-        const filtered = data.filter(d => new Date(d.date) >= cutoff);
-        return aggregatePeriodData(filtered).sort((a, b) => b.contribution - a.contribution);
-    }, [data, selectedPeriod]);
+        return backcast.periodAttribution
+            .filter(item => new Date(item.date) >= cutoff)
+            .sort((a, b) => b.contribution - a.contribution);
+    }, [backcast, selectedPeriod]);
 
     const sortedHoldings = useMemo(() => {
         const sorted = [...enrichedCurrentHoldings].sort((a, b) => b.weight - a.weight);
@@ -735,8 +735,8 @@ export const ReportView: React.FC<ReportViewProps> = ({ data, customSectors, ass
                     />
                     {/* Action buttons overlay the component's own dark title bar — always visible */}
                     <span className="print-hide absolute top-[10px] right-3 inline-flex items-center gap-0.5">
-                        <button onClick={() => onNavigate?.(ViewState.ATTRIBUTION)} title="Go to tab" className="p-1 text-wallstreet-400 hover:text-white rounded transition-colors"><ArrowUpRight size={12} /></button>
-                        <button onClick={() => setExpandedPanel('attribution')} title="Expand" className="p-1 text-wallstreet-400 hover:text-white rounded transition-colors"><Maximize2 size={12} /></button>
+                        <button onClick={() => onNavigate?.(ViewState.ATTRIBUTION)} title="Go to tab" className="p-1 text-wallstreet-400 hover:text-white hover:bg-wallstreet-700 rounded transition-colors"><ArrowUpRight size={14} /></button>
+                        <button onClick={() => setExpandedPanel('attribution')} title="Expand" className="p-1 text-wallstreet-400 hover:text-white hover:bg-wallstreet-700 rounded transition-colors"><Maximize2 size={14} /></button>
                     </span>
                 </PanelWrapper>
 

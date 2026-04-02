@@ -8,10 +8,27 @@ from typing import List
 import pandas as pd
 from fastapi import APIRouter, HTTPException
 
-from data_loader import load_historic_nav_csvs
-from market_data import calculate_returns, build_results_dataframe
-from cache_manager import load_cache, save_cache
-from models import PortfolioItem, ManualAnalysisRequest
+from data_loader import load_historic_nav_csvs, load_manual_navs_json, merge_nav_sources
+from market_data import (
+    calculate_returns,
+    calculate_benchmark_returns,
+    build_results_dataframe,
+    create_monthly_periods,
+    build_monthly_dataframe,
+    calculate_monthly_benchmark_returns,
+)
+from cache_manager import load_cache, save_cache, clear_cache, get_cache_info
+from services.period_normalizer import normalize_portfolio_periods
+from models import (
+    PortfolioItem,
+    ManualAnalysisRequest,
+    PeriodBoundary,
+    PeriodDetail,
+    MonthDetail,
+    PeriodSheetRow,
+    MonthlySheetRow,
+    PortfolioAnalysisResponse,
+)
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -27,33 +44,14 @@ def get_aggregated_nav_data() -> dict:
     1. manual_navs.json
     2. historic_navs/*.csv
     """
-    nav_dict = {}
-
-    # 1. Load manually provided NAVs
-    manual_nav_path = Path("data/manual_navs.json")
-    if manual_nav_path.exists():
-        try:
-            with open(manual_nav_path, "r") as f:
-                static_navs = json.load(f)
-                for ticker, dates_data in static_navs.items():
-                    if ticker not in nav_dict:
-                        nav_dict[ticker] = {}
-                    for d, v in dates_data.items():
-                        nav_dict[ticker][pd.to_datetime(d)] = v
-        except Exception as e:
-            logger.warning(f"Failed to load manual_navs.json: {e}")
-
-    # 2. Load historical CSV NAVs
+    manual_navs = load_manual_navs_json("data/manual_navs.json")
+    csv_navs = {}
     try:
         csv_navs = load_historic_nav_csvs("data/historic_navs")
-        for ticker, dates_data in csv_navs.items():
-            if ticker not in nav_dict:
-                nav_dict[ticker] = {}
-            nav_dict[ticker].update(dates_data)
     except Exception as e:
         logger.warning(f"Failed to load historical CSV NAVs: {e}")
 
-    return nav_dict
+    return merge_nav_sources(manual_navs, csv_navs)
 
 
 # ---------------------------------------------------------------------------
@@ -67,8 +65,10 @@ def run_portfolio_analysis(
     mutual_fund_tickers=None,
     etf_tickers=None,
     cash_tickers=None,
-) -> List[PortfolioItem]:
+) -> PortfolioAnalysisResponse:
     """Core logic shared between file upload and manual entry."""
+    weights_dict, dates = normalize_portfolio_periods(weights_dict, dates)
+
     cache = load_cache()
     if mutual_fund_tickers is None:
         mutual_fund_tickers = set()
@@ -76,6 +76,7 @@ def run_portfolio_analysis(
         etf_tickers = set()
     if cash_tickers is None:
         cash_tickers = set()
+    mutual_fund_tickers = set(mutual_fund_tickers or set()) | set(nav_dict.keys())
 
     logger.info("Fetching market data...")
     returns, prices = calculate_returns(weights_dict, nav_dict, dates, cache, mutual_fund_tickers)
@@ -94,20 +95,63 @@ def run_portfolio_analysis(
 
     logger.info("Building results dataframe...")
     df, periods = build_results_dataframe(
-        weights_dict, returns, prices, dates, cache, mutual_fund_tickers, custom_sectors
+        weights_dict,
+        returns,
+        prices,
+        dates,
+        cache,
+        mutual_fund_tickers,
+        custom_sectors,
+        nav_dict=nav_dict,
     )
 
+    if df.empty:
+        return PortfolioAnalysisResponse(
+            items=[],
+            periodSheet=[],
+            monthlySheet=[],
+            periods=[],
+            monthlyPeriods=[],
+            benchmarkReturns={},
+            benchmarkMonthlyReturns={},
+        )
+
+    # ── Monthly sheet ────────────────────────────────────────────────────────
+    logger.info("Building monthly sheet...")
+    monthly_periods = create_monthly_periods(periods)
+    monthly_df = build_monthly_dataframe(
+        weights_dict, monthly_periods, periods, df,
+        prices, cache, nav_dict=nav_dict, mutual_fund_tickers=mutual_fund_tickers,
+    )
+
+    # ── Benchmark returns (period-level and monthly-level) ───────────────────
+    logger.info("Computing benchmark returns...")
+    try:
+        bench_raw = calculate_benchmark_returns(dates, cache)
+        # bench_raw = {bench_name: {(start_ts, end_ts): float}} — align with periods list
+        bench_period_lists = {
+            name: [float(returns_map.get(p, 0.0)) for p in periods]
+            for name, returns_map in bench_raw.items()
+        }
+    except Exception as e:
+        logger.warning(f"Failed to compute period benchmark returns: {e}")
+        bench_period_lists = {}
+
+    try:
+        bench_monthly_lists = calculate_monthly_benchmark_returns(monthly_periods, cache)
+        bench_monthly_lists = {k: [float(v) for v in vs] for k, vs in bench_monthly_lists.items()}
+    except Exception as e:
+        logger.warning(f"Failed to compute monthly benchmark returns: {e}")
+        bench_monthly_lists = {}
+
+    save_cache(cache)
+
+    # ── Flat items list (existing serialization — unchanged for all other views) ─
+    now_ts = pd.Timestamp.now().normalize()
     result_items = []
 
-    if df.empty:
-        return []
-
-    now_ts = pd.Timestamp.now().normalize()
-
-    # Iterate through each period to create time-series data for the client
     for i, period in enumerate(periods):
         end_date_ts = period[1]
-        # Clamp synthetic future endpoint dates (used to make today a period start) to today
         display_ts = end_date_ts if end_date_ts <= now_ts else now_ts
         date_str = display_ts.strftime("%Y-%m-%d")
 
@@ -121,8 +165,6 @@ def run_portfolio_analysis(
 
             ticker_custom_sectors = custom_sectors.get(ticker)
 
-            # Look up raw prices for this sub-period so the client can
-            # compute monthly return as price_end / price_start − 1.
             sp = None
             ep = None
             if ticker in prices:
@@ -149,20 +191,74 @@ def run_portfolio_analysis(
             )
             result_items.append(item)
 
-    # Deduplicate by (ticker, date): when a synthetic terminal endpoint causes two
-    # consecutive periods to share the same display date, keep only the last occurrence
-    # so the most recently entered weights win (the synthetic period's weights).
     seen: dict = {}
     for item in result_items:
         seen[(item.ticker, item.date)] = item
-    return list(seen.values())
+    items = list(seen.values())
+
+    # ── Period sheet serialization ───────────────────────────────────────────
+    period_sheet_rows = []
+    for _, row in df.iterrows():
+        ticker = row["Ticker"]
+        period_details = [
+            PeriodDetail(
+                weight=float(row.get(f"Weight_{i}", 0.0)),
+                returnPct=float(row.get(f"Return_{i}", 0.0)),
+                contribution=float(row.get(f"Contrib_{i}", 0.0)),
+            )
+            for i in range(len(periods))
+        ]
+        period_sheet_rows.append(PeriodSheetRow(
+            ticker=ticker,
+            periods=period_details,
+            ytdReturn=float(row.get("YTD_Return", 0.0)),
+            ytdContrib=float(row.get("YTD_Contrib", 0.0)),
+        ))
+
+    # ── Monthly sheet serialization ──────────────────────────────────────────
+    monthly_sheet_rows = []
+    for _, row in monthly_df.iterrows():
+        ticker = row["Ticker"]
+        month_details = [
+            MonthDetail(
+                returnPct=float(row.get(f"Return_{i}", 0.0)),
+                contribution=float(row.get(f"Contrib_{i}", 0.0)),
+            )
+            for i in range(len(monthly_periods))
+        ]
+        monthly_sheet_rows.append(MonthlySheetRow(
+            ticker=ticker,
+            months=month_details,
+            ytdReturn=float(row.get("YTD_Return", 0.0)),
+            ytdContrib=float(row.get("YTD_Contrib", 0.0)),
+        ))
+
+    # ── Period / monthly boundary lists ─────────────────────────────────────
+    period_boundaries = [
+        PeriodBoundary(start=p[0].strftime("%Y-%m-%d"), end=p[1].strftime("%Y-%m-%d"))
+        for p in periods
+    ]
+    monthly_period_boundaries = [
+        PeriodBoundary(start=p[0].strftime("%Y-%m-%d"), end=p[1].strftime("%Y-%m-%d"))
+        for p in monthly_periods
+    ]
+
+    return PortfolioAnalysisResponse(
+        items=items,
+        periodSheet=period_sheet_rows,
+        monthlySheet=monthly_sheet_rows,
+        periods=period_boundaries,
+        monthlyPeriods=monthly_period_boundaries,
+        benchmarkReturns=bench_period_lists,
+        benchmarkMonthlyReturns=bench_monthly_lists,
+    )
 
 
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
 
-@router.post("/analyze-manual", response_model=List[PortfolioItem])
+@router.post("/analyze-manual", response_model=PortfolioAnalysisResponse)
 async def analyze_manual(request: ManualAnalysisRequest):
     try:
         weights_dict = {}
@@ -202,90 +298,6 @@ async def analyze_manual(request: ManualAnalysisRequest):
         if not dates:
             raise HTTPException(status_code=400, detail="No valid dates found in data")
 
-        # ── Step 0: Prepend the prior month-end to ensure the first month's
-        #    return captures the full month from its true starting base.
-        first_date = dates[0]
-        prior_me = (first_date.replace(day=1) - pd.Timedelta(days=1)).normalize()
-        if prior_me not in dates_set:
-            dates.insert(0, prior_me)
-            dates_set.add(prior_me)
-            # Weights for prior_me will default to 0.0 dynamically during allocation mapping
-
-        # ── Step 1: Inject month-end boundaries between ALL consecutive
-        #    config dates that span a month boundary.  Without this, a
-        #    period such as Jan-21 → Feb-26 would be assigned entirely
-        #    to February, leaving January with an incomplete return.
-        #    This must run unconditionally so cross-month spans are always split.
-        sorted_dates = sorted(dates)
-        extra_month_ends = set()
-        for idx in range(len(sorted_dates) - 1):
-            d_start = sorted_dates[idx]
-            d_end = sorted_dates[idx + 1]
-            # Generate month-end dates that fall strictly between d_start and d_end
-            if d_start.month != d_end.month or d_start.year != d_end.year:
-                me_dates = pd.date_range(
-                    start=d_start + pd.DateOffset(days=1),
-                    end=d_end - pd.DateOffset(days=1),
-                    freq="ME",
-                )
-                for me in me_dates:
-                    me_ts = pd.Timestamp(me).normalize()
-                    if me_ts not in dates_set:
-                        extra_month_ends.add(me_ts)
-
-        for me_ts in extra_month_ends:
-            dates.append(me_ts)
-            dates_set.add(me_ts)
-            for ticker in weights_dict:
-                prior_dates = sorted([d for d in weights_dict[ticker] if d <= me_ts])
-                if prior_dates:
-                    weights_dict[ticker][me_ts] = weights_dict[ticker][prior_dates[-1]]
-
-        # Automatically add 'Today' if the last date is in the past
-        latest_date = sorted(dates)[-1]
-        now = pd.Timestamp.now().normalize()
-        if latest_date < now:
-            # ── Step 2: Inject month-end dates between the last config date
-            #    and today (existing behaviour).
-            dates = sorted(dates)
-            latest_date = dates[-1]
-            month_end_dates = pd.date_range(
-                start=latest_date + pd.DateOffset(days=1),
-                end=now,
-                freq="ME",
-            )
-            for me_date in month_end_dates:
-                me_ts = pd.Timestamp(me_date).normalize()
-                if me_ts not in dates_set:
-                    dates.append(me_ts)
-                    dates_set.add(me_ts)
-                    for ticker in weights_dict:
-                        prior_dates = sorted([d for d in weights_dict[ticker] if d <= me_ts])
-                        if prior_dates:
-                            weights_dict[ticker][me_ts] = weights_dict[ticker][prior_dates[-1]]
-
-            dates.append(now)
-            for ticker in weights_dict:
-                prior_dates = sorted([d for d in weights_dict[ticker] if d < now])
-                if prior_dates:
-                    weights_dict[ticker][now] = weights_dict[ticker][prior_dates[-1]]
-
-            dates = sorted(dates)
-        else:
-            # latest_date >= now: the most recent config date is today or in the future.
-            # Inject a one-day synthetic endpoint so that latest_date becomes the START
-            # of the final period — ensuring its weights are shown in the Holdings Breakdown.
-            # run_portfolio_analysis will clamp this synthetic date back to today.
-            synthetic = latest_date + pd.Timedelta(days=1)
-            if synthetic not in dates_set:
-                dates.append(synthetic)
-                dates_set.add(synthetic)
-                for ticker in weights_dict:
-                    prior = sorted([d for d in weights_dict[ticker] if d <= latest_date])
-                    if prior:
-                        weights_dict[ticker][synthetic] = weights_dict[ticker][prior[-1]]
-            dates = sorted(dates)
-
         nav_dict = get_aggregated_nav_data()
 
         mutual_fund_tickers = {item.ticker.upper().strip() for item in request.items if item.isMutualFund}
@@ -297,3 +309,20 @@ async def analyze_manual(request: ManualAnalysisRequest):
     except Exception as e:
         logger.error(f"Error in manual analysis: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ---------------------------------------------------------------------------
+# Cache management endpoints
+# ---------------------------------------------------------------------------
+
+@router.post("/cache/clear")
+def clear_market_cache():
+    """Clear the entire market data price cache, forcing fresh yfinance fetches."""
+    clear_cache()
+    return {"success": True, "message": "Market data cache cleared"}
+
+
+@router.get("/cache/info")
+def market_cache_info():
+    """Return metadata about the current market data cache."""
+    return get_cache_info()

@@ -254,7 +254,7 @@ export const SectorDeviationCard: React.FC<Props> = ({ currentHoldings, benchmar
     return (
         <>
         <div className={noWrapper ? "flex flex-col h-full" : "lg:col-span-1 bg-wallstreet-800 p-6 rounded-xl border border-wallstreet-700 shadow-sm flex flex-col h-full"}>
-            <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center justify-between mb-4 flex-shrink-0">
                 <h3 className="flex items-center gap-1.5 font-mono font-bold text-wallstreet-text uppercase tracking-wider text-[16px]">
                     Benchmark Deviation
                     {titleActions}
@@ -283,87 +283,88 @@ export const SectorDeviationCard: React.FC<Props> = ({ currentHoldings, benchmar
                 </div>
             </div>
 
-            <div className="flex-1 w-full overflow-hidden">
-                {deviationView === 'SECTOR' ? (
-                    <table className="w-full h-full text-sm font-mono border-collapse table-fixed">
-                        <thead className="bg-wallstreet-50 text-wallstreet-500 text-xs uppercase sticky top-0">
-                            <tr>
-                                <th className="w-8 p-1"></th>
-                                <th className="p-1 text-left w-[26%]">Sector</th>
-                                <th className="p-1 text-right w-[22%]">Bench</th>
-                                <th className="p-1 text-right w-[22%]">Actual</th>
-                                <th className="p-1 text-center w-[30%]">
-                                    <span className="border-b border-wallstreet-300 pb-0.5">Delta</span>
-                                </th>
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y divide-wallstreet-100">
-                            {sectorData.groups.map((group, gIdx) => (
-                                <React.Fragment key={gIdx}>
-                                    {group.sectors.map((sector, sIdx) => (
-                                        <tr
-                                            key={sector.name}
-                                            className="hover:bg-wallstreet-50 cursor-default"
-                                            onMouseEnter={(e) => {
-                                                const rect = (e.currentTarget as HTMLTableRowElement).getBoundingClientRect();
-                                                setHoveredSector(sector.key);
-                                                setTooltipPos({ x: rect.right + 8, y: rect.top });
-                                            }}
-                                            onMouseLeave={() => { setHoveredSector(null); setTooltipPos(null); }}
-                                        >
-                                            {sIdx === 0 && (
-                                                <td
-                                                    rowSpan={group.sectors.length}
-                                                    className={`p-0 text-center border-r-2 ${group.name === 'Cyclical' ? 'border-red-200 dark:border-red-800/60' : group.name === 'Sensitive' ? 'border-blue-200 dark:border-blue-800/60' : 'border-green-200 dark:border-green-800/60'} ${group.bgColor} align-middle relative`}
-                                                >
-                                                    <div className="h-full w-full flex items-center justify-center py-1">
-                                                        <span
-                                                            className={`text-[11px] uppercase -rotate-90 whitespace-nowrap font-black tracking-widest ${group.color}`}
-                                                            style={{ writingMode: 'vertical-rl', textOrientation: 'mixed', transform: 'rotate(180deg)' }}
-                                                        >
-                                                            {group.name}
-                                                        </span>
-                                                    </div>
-                                                </td>
-                                            )}
-                                            <td className={`p-1 font-bold ${group.bgColor}`}>
-                                                <span className={`${group.color} text-sm`}>{sector.name}</span>
+            <div className="flex-1 w-full overflow-hidden relative">
+                {/* Sector table — always rendered in normal flow to define container height */}
+                <table className={`w-full h-full text-sm font-mono border-collapse table-fixed ${deviationView !== 'SECTOR' ? 'invisible' : ''}`}>
+                    <thead className="bg-wallstreet-50 text-wallstreet-500 text-xs uppercase sticky top-0">
+                        <tr>
+                            <th className="w-8 p-1"></th>
+                            <th className="p-1 text-left w-[26%]">Sector</th>
+                            <th className="p-1 text-right w-[22%]">Bench</th>
+                            <th className="p-1 text-right w-[22%]">Actual</th>
+                            <th className="p-1 text-center w-[30%]">
+                                <span className="border-b border-wallstreet-300 pb-0.5">Delta</span>
+                            </th>
+                        </tr>
+                    </thead>
+                    <tbody className="divide-y divide-wallstreet-100">
+                        {sectorData.groups.map((group, gIdx) => (
+                            <React.Fragment key={gIdx}>
+                                {group.sectors.map((sector, sIdx) => (
+                                    <tr
+                                        key={sector.name}
+                                        className="hover:bg-wallstreet-50 cursor-default"
+                                        onMouseEnter={(e) => {
+                                            const rect = (e.currentTarget as HTMLTableRowElement).getBoundingClientRect();
+                                            setHoveredSector(sector.key);
+                                            setTooltipPos({ x: rect.right + 8, y: rect.top });
+                                        }}
+                                        onMouseLeave={() => { setHoveredSector(null); setTooltipPos(null); }}
+                                    >
+                                        {sIdx === 0 && (
+                                            <td
+                                                rowSpan={group.sectors.length}
+                                                className={`p-0 text-center border-r-2 ${group.name === 'Cyclical' ? 'border-red-200 dark:border-red-800/60' : group.name === 'Sensitive' ? 'border-blue-200 dark:border-blue-800/60' : 'border-green-200 dark:border-green-800/60'} ${group.bgColor} align-middle relative`}
+                                            >
+                                                <div className="h-full w-full flex items-center justify-center py-1">
+                                                    <span
+                                                        className={`text-[11px] uppercase -rotate-90 whitespace-nowrap font-black tracking-widest ${group.color}`}
+                                                        style={{ writingMode: 'vertical-rl', textOrientation: 'mixed', transform: 'rotate(180deg)' }}
+                                                    >
+                                                        {group.name}
+                                                    </span>
+                                                </div>
                                             </td>
-                                            <td className={`p-1 text-right font-bold text-wallstreet-500 text-sm ${group.bgColor}`}>
-                                                {sector.benchmark.toFixed(2)}%
-                                            </td>
-                                            <td className={`p-1 text-right font-bold text-wallstreet-text text-sm ${group.bgColor}`}>
-                                                {sector.actual.toFixed(2)}%
-                                            </td>
-                                            <td className={`p-1 ${group.bgColor}`}>
-                                                <DeltaBar val={sector.delta} />
-                                            </td>
-                                        </tr>
-                                    ))}
-                                </React.Fragment>
-                            ))}
-                        </tbody>
-                        <tfoot className="bg-wallstreet-100 border-t-2 border-wallstreet-300">
-                            <tr>
-                                <td className="p-1 font-bold text-right text-xs uppercase" colSpan={3}>Total Allocated:</td>
-                                <td className="p-1 text-right font-bold text-wallstreet-text text-sm">{sectorData.totalActual.toFixed(2)}%</td>
-                                <td></td>
-                            </tr>
-                        </tfoot>
-                    </table>
-                ) : (
-                    /* Geography view */
-                    <div className="flex flex-col h-full">
+                                        )}
+                                        <td className={`p-1 font-bold ${group.bgColor}`}>
+                                            <span className={`${group.color} text-sm`}>{sector.name}</span>
+                                        </td>
+                                        <td className={`p-1 text-right font-bold text-wallstreet-500 text-sm ${group.bgColor}`}>
+                                            {sector.benchmark.toFixed(2)}%
+                                        </td>
+                                        <td className={`p-1 text-right font-bold text-wallstreet-text text-sm ${group.bgColor}`}>
+                                            {sector.actual.toFixed(2)}%
+                                        </td>
+                                        <td className={`p-1 ${group.bgColor}`}>
+                                            <DeltaBar val={sector.delta} />
+                                        </td>
+                                    </tr>
+                                ))}
+                            </React.Fragment>
+                        ))}
+                    </tbody>
+                    <tfoot className="bg-wallstreet-100 border-t-2 border-wallstreet-300">
+                        <tr>
+                            <td className="p-1 font-bold text-right text-xs uppercase" colSpan={3}>Total Allocated:</td>
+                            <td className="p-1 text-right font-bold text-wallstreet-text text-sm">{sectorData.totalActual.toFixed(2)}%</td>
+                            <td></td>
+                        </tr>
+                    </tfoot>
+                </table>
+
+                {/* Geography view — absolutely overlays the sector table when active */}
+                {deviationView === 'GEOGRAPHY' && (
+                    <div className="absolute inset-0 flex flex-col bg-wallstreet-800">
                         {geoDeviationData.length === 0 ? (
                             <p className="text-xs text-wallstreet-400 italic mt-4 text-center">Geography benchmark data not available.</p>
                         ) : (
                             <table className="w-full h-full text-sm font-mono border-collapse">
                                 <thead className="bg-wallstreet-50 text-wallstreet-500 text-xs uppercase sticky top-0">
                                     <tr>
-                                        <th className="p-2 text-left w-[28%]">Region</th>
-                                        <th className="p-2 text-right w-[24%]">Bench</th>
-                                        <th className="p-2 text-right w-[24%]">Actual</th>
-                                        <th className="p-2 text-center w-[24%]">
+                                        <th className="p-1 text-left w-[28%]">Region</th>
+                                        <th className="p-1 text-right w-[24%]">Bench</th>
+                                        <th className="p-1 text-right w-[24%]">Actual</th>
+                                        <th className="p-1 text-center w-[24%]">
                                             <span className="border-b border-wallstreet-300 pb-0.5">Delta</span>
                                         </th>
                                     </tr>
@@ -382,8 +383,8 @@ export const SectorDeviationCard: React.FC<Props> = ({ currentHoldings, benchmar
                                 </tbody>
                                 <tfoot className="bg-wallstreet-100 border-t-2 border-wallstreet-300">
                                     <tr>
-                                        <td className="p-2 font-bold text-right text-xs uppercase" colSpan={2}>Total Portfolio:</td>
-                                        <td className="p-2 text-right font-bold text-wallstreet-text text-sm">
+                                        <td className="p-1 font-bold text-right text-xs uppercase" colSpan={2}>Total Portfolio:</td>
+                                        <td className="p-1 text-right font-bold text-wallstreet-text text-sm">
                                             {geoDeviationData.reduce((s, r) => s + r.actual, 0).toFixed(2)}%
                                         </td>
                                         <td></td>

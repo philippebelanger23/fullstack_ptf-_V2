@@ -8,8 +8,8 @@ import { AttributionView } from './views/attribution/AttributionView';
 import { IndexView } from './views/IndexView';
 import { PerformanceView } from './views/PerformanceView';
 import { RiskContributionView } from './views/RiskContributionView';
-import { PortfolioItem, ViewState, BackcastResponse } from './types';
-import { loadPortfolioConfig, analyzeManualPortfolio, convertConfigToItems, loadSectorWeights, loadAssetGeo, fetchPortfolioBackcast } from './services/api';
+import { PortfolioItem, ViewState, BackcastResponse, PortfolioAnalysisResponse } from './types';
+import { loadPortfolioConfig, analyzeManualPortfolioFull, convertConfigToItems, loadSectorWeights, loadAssetGeo, fetchPortfolioBackcast } from './services/api';
 
 class GlobalErrorBoundary extends Component<{ children: React.ReactNode }, { hasError: boolean, error: Error | null, errorInfo: ErrorInfo | null }> {
   constructor(props: any) {
@@ -65,6 +65,8 @@ class GlobalErrorBoundary extends Component<{ children: React.ReactNode }, { has
 function App() {
   const [currentView, setCurrentView] = useState<ViewState>(ViewState.UPLOAD);
   const [portfolioData, setPortfolioData] = useState<PortfolioItem[]>([]);
+  // Full attribution sheets from /analyze-manual — periodSheet, monthlySheet, boundaries, benchmarks
+  const [analysisResponse, setAnalysisResponse] = useState<PortfolioAnalysisResponse | null>(null);
   const [fileHistory, setFileHistory] = useState<{ name: string, count: number }[]>([]);
 
   // Lifted state for Correlation Analysis to prevent regeneration
@@ -89,6 +91,8 @@ function App() {
   const [backcastLoading, setBackcastLoading] = useState(false);
   // Pre-fetched non-default benchmarks so the Performance tab switches are instant.
   const [prefetchedBackcasts, setPrefetchedBackcasts] = useState<Record<string, BackcastResponse>>({});
+  const [isBootstrapping, setIsBootstrapping] = useState(true);
+  const [showBootOverlay, setShowBootOverlay] = useState(true);
 
   useEffect(() => {
     if (portfolioData.length === 0) {
@@ -194,8 +198,8 @@ function App() {
           if (flatItems.length > 0) {
             console.log("Auto-loading saved portfolio...");
             try {
-              const results = await analyzeManualPortfolio(flatItems);
-              handleDataLoaded(results, { name: "Manual Entry", count: results.length });
+              const response = await analyzeManualPortfolioFull(flatItems);
+              handleDataLoaded(response.items, { name: "Manual Entry", count: response.items.length }, undefined, response);
 
             } catch (analysisErr) {
               console.error("Backend analysis failed during auto-load, falling back to basic data:", analysisErr);
@@ -206,14 +210,37 @@ function App() {
         }
       } catch (err) {
         console.error("Auto-load failed totally:", err);
+      } finally {
+        setIsBootstrapping(false);
       }
     };
 
     autoLoad();
   }, []);
 
-  const handleDataLoaded = (data: PortfolioItem[], fileInfo?: { name: string, count: number }) => {
+  useEffect(() => {
+    if (isBootstrapping) {
+      setShowBootOverlay(true);
+      return;
+    }
+
+    const timeout = window.setTimeout(() => {
+      setShowBootOverlay(false);
+    }, 300);
+
+    return () => window.clearTimeout(timeout);
+  }, [isBootstrapping]);
+
+  const bootSteps = [
+    { key: 'portfolio', label: 'Loading Portfolio Data', sub: 'Saved holdings and allocations' },
+    { key: 'nav', label: 'Refreshing NAV History', sub: 'Mutual fund CSV inputs and lag status' },
+    { key: 'benchmarks', label: 'Prefetching Benchmarks', sub: 'Backcast series and performance views' },
+    { key: 'views', label: 'Building Workspace', sub: 'Charts, tables, and shared state' },
+  ] as const;
+
+  const handleDataLoaded = (data: PortfolioItem[], fileInfo?: { name: string, count: number }, _files?: any, response?: PortfolioAnalysisResponse) => {
     setPortfolioData(data);
+    setAnalysisResponse(response ?? null);
     setCorrelationResult(null);
     setCorrelationStatus('idle');
 
@@ -255,7 +282,85 @@ function App() {
 
   return (
     <GlobalErrorBoundary>
-      <div className="flex min-h-screen bg-wallstreet-900 text-wallstreet-text font-sans">
+      <div className="flex min-h-screen bg-wallstreet-900 text-wallstreet-text font-sans relative">
+        {showBootOverlay && (
+          <div
+            className={`fixed inset-0 z-[80] flex items-center justify-center bg-wallstreet-900/96 backdrop-blur-sm transition-opacity duration-300 ease-in-out ${
+              isBootstrapping ? 'opacity-100' : 'opacity-0 pointer-events-none'
+            }`}
+            aria-busy="true"
+            aria-live="polite"
+          >
+            <div className="flex flex-col items-center gap-8 w-full max-w-sm px-6">
+              <style>{`
+                @keyframes bootBarPulse {
+                  0%, 100% { transform: scaleY(0.14); opacity: 0.12; }
+                  50% { transform: scaleY(1); opacity: 1; }
+                }
+                @keyframes bootScanLine {
+                  0% { left: -2px; }
+                  100% { left: calc(100% + 2px); }
+                }
+                @keyframes bootStepPulse {
+                  0%, 100% { opacity: 0.45; transform: translateY(0); }
+                  50% { opacity: 1; transform: translateY(-1px); }
+                }
+              `}</style>
+              <div className="relative overflow-hidden rounded" style={{ width: '176px', height: '60px' }}>
+                <div className="flex items-end h-full gap-1.5">
+                  {[20, 44, 30, 58, 40, 74, 50, 86, 44, 68, 56, 84, 60].map((h, i) => (
+                    <div
+                      key={i}
+                      className="flex-1 rounded-t-sm origin-bottom"
+                      style={{
+                        height: `${h}%`,
+                        background: i === 12 ? 'var(--wallstreet-accent)' : 'var(--wallstreet-700)',
+                        animation: `bootBarPulse 2.2s ease-in-out ${i * 0.14}s infinite`,
+                      }}
+                    />
+                  ))}
+                </div>
+                <div
+                  className="absolute top-0 bottom-0 w-px"
+                  style={{
+                    background: 'linear-gradient(to bottom, transparent, rgba(10,35,81,0.72), transparent)',
+                    animation: 'bootScanLine 2.2s linear infinite',
+                  }}
+                />
+              </div>
+
+              <p className="text-[11px] font-mono text-wallstreet-500 tracking-[0.28em] uppercase">
+                Loading Workspace
+              </p>
+
+              <div className="w-full bg-wallstreet-700 rounded-full h-1.5 overflow-hidden">
+                <div className="bg-wallstreet-accent h-full rounded-full w-2/5 transition-all duration-500 ease-out" />
+              </div>
+
+              <div className="w-full space-y-3">
+                {bootSteps.map(({ key, label, sub }, index) => (
+                  <div key={key} className="flex items-center gap-3" style={{ animation: `bootStepPulse 2.2s ease-in-out ${index * 0.16}s infinite` }}>
+                    <div className="w-5 h-5 flex items-center justify-center flex-shrink-0">
+                      {index === 0 ? (
+                        <svg className="w-5 h-5 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                        </svg>
+                      ) : (
+                        <div className={`w-3.5 h-3.5 border-2 border-wallstreet-600 rounded-full ${index === 1 ? 'border-t-wallstreet-accent animate-spin' : 'border-wallstreet-600 opacity-70'}`} />
+                      )}
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-sm font-mono font-medium text-wallstreet-500">
+                        {label}
+                      </p>
+                      <p className="text-xs text-wallstreet-500 truncate">{sub}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
         <Sidebar
           currentView={currentView}
           setView={setCurrentView}
@@ -291,7 +396,7 @@ function App() {
             <IndexView />
           )}
           {visited.has(ViewState.ATTRIBUTION) && viewPane(ViewState.ATTRIBUTION,
-            <AttributionView data={mergedPortfolioData} selectedYear={selectedYear} setSelectedYear={setSelectedYear} customSectors={customSectors} tablesRequest={attributionTablesRequest} sharedBackcast={backcastData} />
+            <AttributionView data={mergedPortfolioData} selectedYear={selectedYear} setSelectedYear={setSelectedYear} customSectors={customSectors} tablesRequest={attributionTablesRequest} sharedBackcast={backcastData} analysisResponse={analysisResponse} />
           )}
           {visited.has(ViewState.PERFORMANCE) && viewPane(ViewState.PERFORMANCE,
             <PerformanceView isActive={currentView === ViewState.PERFORMANCE} sharedBackcast={backcastData} sharedBackcastLoading={backcastLoading} prefetchedBackcasts={prefetchedBackcasts} />

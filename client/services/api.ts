@@ -1,4 +1,4 @@
-import { PortfolioItem, BackcastMetrics, BackcastSeriesPoint, BackcastResponse, RiskPosition, SectorRisk, RiskContributionResponse, SectorHistoryData, RollingMetricsResponse } from '../types';
+import { PortfolioItem, BackcastMetrics, BackcastSeriesPoint, BackcastResponse, RiskPosition, SectorRisk, RiskContributionResponse, SectorHistoryData, RollingMetricsResponse, PortfolioAnalysisResponse } from '../types';
 
 const API_Base_URL = ''; // Use relative path to leverage Vite proxy
 
@@ -178,20 +178,27 @@ export const fetchDividends = createCachedFetcher<number>(
 // NON-CACHED API FUNCTIONS
 // =============================================================================
 
+/** Full /analyze-manual call — returns both attribution sheets plus the flat items list. */
+export const analyzeManualPortfolioFull = async (items: PortfolioItem[]): Promise<PortfolioAnalysisResponse> => {
+    const response = await fetch(`${API_Base_URL}/analyze-manual`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items }),
+    });
+
+    if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Server Error: ${response.status} ${response.statusText} - ${errorText}`);
+    }
+
+    return await response.json();
+};
+
+/** Convenience wrapper — returns only the flat PortfolioItem[] for callers that don't need sheets. */
 export const analyzeManualPortfolio = async (items: PortfolioItem[]): Promise<PortfolioItem[]> => {
     try {
-        const response = await fetch(`${API_Base_URL}/analyze-manual`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ items }),
-        });
-
-        if (!response.ok) {
-            const errorText = await response.text();
-            throw new Error(`Server Error: ${response.status} ${response.statusText} - ${errorText}`);
-        }
-
-        return await response.json();
+        const result = await analyzeManualPortfolioFull(items);
+        return result.items;
     } catch (error) {
         console.error("Manual Analysis Error:", error);
         throw error;
@@ -566,5 +573,18 @@ export const fetchRiskContribution = async (items: PortfolioItem[]): Promise<Ris
             };
         }
     });
+};
+
+// =============================================================================
+// Cache management
+// =============================================================================
+
+export const clearMarketCache = async (): Promise<void> => {
+    await fetch(`${API_Base_URL}/cache/clear`, { method: 'POST' });
+};
+
+export const fetchCacheInfo = async (): Promise<{ exists: boolean; age_hours: number | null; entries: number; is_stale: boolean }> => {
+    const res = await fetch(`${API_Base_URL}/cache/info`);
+    return res.json();
 };
 

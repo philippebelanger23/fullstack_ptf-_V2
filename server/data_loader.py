@@ -1,5 +1,6 @@
 """Data loading utilities for portfolio analysis."""
 
+import json
 import logging
 import pandas as pd
 from pathlib import Path
@@ -144,3 +145,66 @@ def load_historic_nav_csvs(directory_path):
             logger.error(f"Error loading {csv_file}: {e}")
             
     return nav_dict
+
+
+def load_manual_navs_json(file_path):
+    """Load manual NAV JSON as {ticker: {Timestamp: float}}."""
+    nav_dict = {}
+    path = Path(file_path)
+
+    if not path.exists():
+        return nav_dict
+
+    try:
+        with open(path, "r") as f:
+            raw_data = json.load(f)
+    except Exception as e:
+        logger.warning(f"Failed to load manual NAV JSON {file_path}: {e}")
+        return nav_dict
+
+    for ticker, dates_data in raw_data.items():
+        ticker = ticker.upper()
+        nav_dict[ticker] = {}
+        for d, v in dates_data.items():
+            try:
+                nav_dict[ticker][pd.to_datetime(d).normalize()] = float(v)
+            except Exception:
+                continue
+
+    return nav_dict
+
+
+def merge_nav_sources(
+    manual_navs,
+    csv_navs,
+):
+    """
+    Merge manual JSON NAVs and CSV NAVs into one date map per ticker.
+
+    CSV values override manual values only on identical dates. Otherwise every
+    known NAV date is preserved so mutual funds can resolve exact boundaries the
+    same way stocks/ETFs do with market prices.
+    """
+    merged = {}
+    all_tickers = set(manual_navs.keys()) | set(csv_navs.keys())
+
+    for ticker in all_tickers:
+        manual_series = {
+            pd.to_datetime(dt).normalize(): float(val)
+            for dt, val in (manual_navs.get(ticker, {}) or {}).items()
+        }
+        csv_series = {
+            pd.to_datetime(dt).normalize(): float(val)
+            for dt, val in (csv_navs.get(ticker, {}) or {}).items()
+        }
+
+        if not csv_series:
+            if manual_series:
+                merged[ticker] = dict(sorted(manual_series.items()))
+            continue
+
+        combined = dict(manual_series)
+        combined.update(csv_series)
+        merged[ticker] = dict(sorted(combined.items()))
+
+    return merged

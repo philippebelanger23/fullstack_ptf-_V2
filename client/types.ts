@@ -129,6 +129,55 @@ export interface RiskContributionResponse {
   error?: string;
 }
 
+// ---------------------------------------------------------------------------
+// Attribution sheet types (mirrors CALCULATION_ENGINE.md §5 & §8)
+// ---------------------------------------------------------------------------
+
+export interface PeriodBoundary {
+  start: string;  // ISO date YYYY-MM-DD
+  end: string;
+}
+
+/** One sub-period column: Weight_i, Return_i, Contrib_i */
+export interface PeriodDetail {
+  weight: number;       // decimal (0.10 = 10%)
+  returnPct: number;    // decimal (0.05 = 5%)
+  contribution: number; // decimal (w × r)
+}
+
+/** One monthly column: Return_i, Contrib_i (forward-compounded within month) */
+export interface MonthDetail {
+  returnPct: number;    // decimal
+  contribution: number; // decimal (forward-compounded)
+}
+
+/** One row from the period-sheet (§5) — one entry per ticker */
+export interface PeriodSheetRow {
+  ticker: string;
+  periods: PeriodDetail[];
+  ytdReturn: number;   // geometric chain over all sub-periods
+  ytdContrib: number;  // forward-compounded across all sub-periods
+}
+
+/** One row from the monthly-sheet (§8) — one entry per ticker */
+export interface MonthlySheetRow {
+  ticker: string;
+  months: MonthDetail[];
+  ytdReturn: number;   // geometric chain of monthly returns
+  ytdContrib: number;  // forward-compounded across months (== period-sheet YTD)
+}
+
+/** Full /analyze-manual response including both attribution sheets */
+export interface PortfolioAnalysisResponse {
+  items: PortfolioItem[];                          // flat list used by all other views
+  periodSheet: PeriodSheetRow[];                   // sub-period granularity
+  monthlySheet: MonthlySheetRow[];                 // calendar-month granularity
+  periods: PeriodBoundary[];                       // sub-period date boundaries
+  monthlyPeriods: PeriodBoundary[];                // monthly period boundaries
+  benchmarkReturns: Record<string, number[]>;      // {bench_name: [r_period_0, ...]}
+  benchmarkMonthlyReturns: Record<string, number[]>; // {bench_name: [r_month_0, ...]}
+}
+
 // Sector History types
 export type SectorHistoryData = Record<string, { date: string; value: number }[]>;
 

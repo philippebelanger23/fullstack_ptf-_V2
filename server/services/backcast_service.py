@@ -11,9 +11,11 @@ are the canonical single source of truth — all endpoints must call these inste
 reimplementing the formulas inline.
 """
 
+import json
 import logging
 from datetime import datetime
 from typing import List
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -21,6 +23,8 @@ import yfinance as yf
 
 from market_data import needs_fx_adjustment
 from constants import BENCHMARK_BLEND_TICKERS
+from data_loader import load_historic_nav_csvs, load_manual_navs_json, merge_nav_sources
+from services.attribution_math import apply_fx_adjustment, geometric_chain
 
 logger = logging.getLogger(__name__)
 
@@ -79,11 +83,23 @@ def compute_sortino(daily_rets: np.ndarray) -> float:
 CASH_TICKER_NAMES: set[str] = {"CASH", "*CASH*"}
 
 
+def load_backcast_nav_data() -> dict[str, dict[pd.Timestamp, float]]:
+    """Load NAV data for backcast/risk endpoints."""
+    manual_navs = load_manual_navs_json("data/manual_navs.json")
+    csv_navs = {}
+    try:
+        csv_navs = load_historic_nav_csvs("data/historic_navs")
+    except Exception as e:
+        logger.warning(f"Could not load historic NAVs for backcast: {e}")
+
+    return merge_nav_sources(manual_navs, csv_navs)
+
+
 def is_cash_ticker(ticker: str) -> bool:
     return ticker.upper().strip() in CASH_TICKER_NAMES
 
 
-def aggregate_weights(items) -> tuple[dict, set]:
+def aggregate_weights(items, nav_tickers: set[str] | None = None) -> tuple[dict, set]:
     """
     Collapse a list of PortfolioItem objects into
     (weights_by_ticker, mutual_fund_tickers).
@@ -97,6 +113,7 @@ def aggregate_weights(items) -> tuple[dict, set]:
     """
     weights_by_ticker: dict[str, float] = {}
     mutual_fund_tickers: set[str] = set()
+    nav_tickers = nav_tickers or set()
 
     for item in items:
         ticker = item.ticker.upper().strip()
@@ -112,6 +129,8 @@ def aggregate_weights(items) -> tuple[dict, set]:
             weights_by_ticker[ticker] = w
         if getattr(item, "isMutualFund", False):
             mutual_fund_tickers.add(ticker)
+        if ticker in nav_tickers:
+            mutual_fund_tickers.add(ticker)
 
     # Normalise to sum to 1 (cash tickers are included so their weight dilutes
     # equity exposure rather than being inflated away).
@@ -122,7 +141,10 @@ def aggregate_weights(items) -> tuple[dict, set]:
     return weights_by_ticker, mutual_fund_tickers
 
 
-def aggregate_period_weights(items) -> list[tuple[str, dict[str, float], set[str]]]:
+def aggregate_period_weights(
+    items,
+    nav_tickers: set[str] | None = None,
+) -> list[tuple[str, dict[str, float], set[str]]]:
     """
     Group portfolio items by date and compute normalized weights per period.
 
@@ -135,6 +157,7 @@ def aggregate_period_weights(items) -> list[tuple[str, dict[str, float], set[str
     from collections import defaultdict
 
     periods: dict[str, list] = defaultdict(list)
+    nav_tickers = nav_tickers or set()
     for item in items:
         d = getattr(item, "date", None)
         if not d:
@@ -154,6 +177,8 @@ def aggregate_period_weights(items) -> list[tuple[str, dict[str, float], set[str
             w = item.weight / 100.0
             weights_by_ticker[ticker] = w
             if getattr(item, "isMutualFund", False):
+                mutual_fund_tickers.add(ticker)
+            if ticker in nav_tickers:
                 mutual_fund_tickers.add(ticker)
 
         total_weight = sum(weights_by_ticker.values())
@@ -212,9 +237,9 @@ def build_period_weighted_portfolio_returns(
                 continue  # 0% return — weight dilutes other positions
             if ticker in returns_df.columns:
                 is_mf = ticker in mf_tickers
-                if needs_fx_adjustment(ticker, is_mutual_fund=is_mf) and "USDCAD=X" in returns_df.columns:
-                    fx_ret = slice_df["USDCAD=X"]
-                    ticker_ret = (1 + slice_df[ticker]) * (1 + fx_ret) - 1
+                needs_fx = needs_fx_adjustment(ticker, is_mutual_fund=is_mf)
+                if needs_fx and "USDCAD=X" in returns_df.columns:
+                    ticker_ret = apply_fx_adjustment(slice_df[ticker], slice_df["USDCAD=X"], True)
                 else:
                     ticker_ret = slice_df[ticker]
                 slice_return = slice_return + weight * ticker_ret
@@ -229,6 +254,7 @@ def build_period_weighted_portfolio_returns(
 def compute_period_attribution(
     returns_df: pd.DataFrame,
     period_weights: list[tuple[str, dict[str, float], set[str]]],
+    nav_tickers: set[str] | None = None,
 ) -> list[dict]:
     """
     Compute per-period, per-ticker attribution from the same daily returns
@@ -251,6 +277,7 @@ def compute_period_attribution(
         return []
 
     results: list[dict] = []
+    nav_tickers = nav_tickers or set()
 
     for i, (date_str, weights, mf_tickers) in enumerate(period_weights):
         period_end = pd.Timestamp(date_str)
@@ -287,15 +314,15 @@ def compute_period_attribution(
                 # Ticker missing from price data — skip (will remain as-is from analyze-manual)
                 continue
 
-            is_mf = ticker in mf_tickers
-            if needs_fx_adjustment(ticker, is_mutual_fund=is_mf) and "USDCAD=X" in returns_df.columns:
-                fx_ret = slice_df["USDCAD=X"]
-                daily_ret = (1 + slice_df[ticker]) * (1 + fx_ret) - 1
+            is_mf = ticker in (set(mf_tickers) | nav_tickers)
+            needs_fx = needs_fx_adjustment(ticker, is_mutual_fund=is_mf)
+            if needs_fx and "USDCAD=X" in returns_df.columns:
+                daily_ret = apply_fx_adjustment(slice_df[ticker], slice_df["USDCAD=X"], True)
             else:
                 daily_ret = slice_df[ticker]
 
             # Geometric chain of daily returns = period return
-            period_return = float((1 + daily_ret).prod() - 1)
+            period_return = float(geometric_chain(daily_ret))
             contribution_pct = weight_pct * period_return  # %-form * decimal = %-form
 
             results.append({
@@ -313,6 +340,7 @@ def fetch_returns_df(
     portfolio_tickers: List[str],
     period: str = "1y",
     mutual_fund_tickers: set = None,
+    nav_dict: dict | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame, list]:
     """
     Download price data for *portfolio_tickers* plus benchmark tickers.
@@ -321,13 +349,24 @@ def fetch_returns_df(
     - raw_returns_df: pct_change with NaN preserved — for pairwise correlation
     Mutual fund tickers are excluded from the yfinance fetch (their data comes from CSV).
     """
-    mf = mutual_fund_tickers or set()
+    nav_dict = nav_dict or load_backcast_nav_data()
+    nav_tickers = set(nav_dict.keys())
+    mf = (mutual_fund_tickers or set()) | nav_tickers
     yf_tickers = [t for t in portfolio_tickers if t not in mf]
     fetch_list = list(set(yf_tickers + BENCHMARK_BLEND_TICKERS))
     data = yf.download(fetch_list, period=period, interval="1d", progress=False)
     if data.empty:
         raise ValueError("Failed to fetch price data")
     closes = data["Close"] if "Close" in data.columns else data
+
+    closes.index = pd.to_datetime(closes.index).normalize()
+    for ticker in portfolio_tickers:
+        if ticker in nav_tickers:
+            nav_series = pd.Series(nav_dict[ticker]).sort_index()
+            nav_series.index = pd.to_datetime(nav_series.index).normalize()
+            nav_series = nav_series.reindex(closes.index).ffill().bfill()
+            closes[ticker] = nav_series
+
     raw_returns_df = closes.pct_change()
     filled_closes = closes.ffill().bfill()
     returns_df = filled_closes.pct_change().fillna(0)
@@ -339,6 +378,7 @@ def build_portfolio_returns(
     returns_df: pd.DataFrame,
     weights_by_ticker: dict,
     mutual_fund_tickers: set,
+    nav_tickers: set[str] | None = None,
 ) -> tuple[pd.Series, list]:
     """
     Compute a daily portfolio-return Series applying FX adjustments where needed.
@@ -346,10 +386,11 @@ def build_portfolio_returns(
     """
     portfolio_returns = pd.Series(0.0, index=returns_df.index)
     missing_tickers = []
+    effective_mf = set(mutual_fund_tickers or set()) | (nav_tickers or set())
 
     for ticker, weight in weights_by_ticker.items():
         if ticker in returns_df.columns:
-            is_mf = ticker in mutual_fund_tickers
+            is_mf = ticker in effective_mf
             if needs_fx_adjustment(ticker, is_mutual_fund=is_mf) and "USDCAD=X" in returns_df.columns:
                 fx_ret = returns_df["USDCAD=X"]
                 ticker_ret = (1 + returns_df[ticker]) * (1 + fx_ret) - 1
