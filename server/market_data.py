@@ -380,10 +380,11 @@ def create_monthly_periods(periods):
 def build_monthly_dataframe(weights_dict, monthly_periods, periods, period_df,
                             prices, cache, nav_dict=None, mutual_fund_tickers=None):
     """
-    Build the monthly-level results DataFrame per CALCULATION_ENGINE.md §8.
+    Build the monthly-level results DataFrame for the live attribution contract.
 
     Monthly return  : (price_end / price_start) - 1, FX-adjusted.
-    Monthly contrib : forward-compounded across sub-periods within the month.
+    Monthly contrib : percentage-point contribution, forward-compounded across
+                      sub-periods within the month.
     YTD contrib     : Σ_m [ C_m × Π_{n>m}(1 + R_n) ]
 
     Invariant: YTD_Contrib == period_df["YTD_Contrib"] for every ticker.

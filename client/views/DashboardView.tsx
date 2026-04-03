@@ -21,6 +21,8 @@ const COLORS = [
   '#db2777', '#06b6d4', '#64748b',
 ];
 
+const isCashHolding = (item: PortfolioItem) => !!item.isCash || item.sector === 'CASH' || item.ticker.toUpperCase() === '*CASH*';
+
 export const DashboardView: React.FC<DashboardViewProps> = ({ data, customSectors, assetGeo, isActive }) => {
   const { dates, latestDate, currentHoldings, totalWeight } = useMemo(() => {
     const dates = Array.from(new Set(data.map(d => d.date))).sort() as string[];
@@ -29,6 +31,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ data, customSector
     const totalWeight = currentHoldings.reduce((acc, item) => acc + item.weight, 0);
     return { dates, latestDate, currentHoldings, totalWeight };
   }, [data]);
+
+  const realPositionCount = useMemo(
+    () => currentHoldings.filter(item => item.weight > 0.01 && !isCashHolding(item)).length,
+    [currentHoldings]
+  );
 
   const { topHoldings, top10TotalWeight, topTickers, areaChartData } = useMemo(() => {
     // Current top 10 for the Pie Chart and KPI
@@ -496,7 +503,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ data, customSector
             <div className="flex w-full items-center mt-1">
               <div className="flex-1 flex flex-col items-center justify-center">
                 <div className="flex items-center gap-1.5 mb-1"><span className="text-xs font-extrabold text-wallstreet-500 uppercase tracking-wider">Positions</span></div>
-                <span className="text-xl font-bold text-wallstreet-text font-mono">{currentHoldings.filter(h => h.weight > 0.01).length}</span>
+                <span className="text-xl font-bold text-wallstreet-text font-mono">{realPositionCount}</span>
               </div>
               <div className="w-px h-8 bg-wallstreet-100"></div>
               <div className="flex-1 flex flex-col items-center justify-center">

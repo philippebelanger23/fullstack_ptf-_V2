@@ -1,4 +1,4 @@
-import React, { useCallback, useRef, useMemo } from 'react';
+import React, { memo, useCallback, useRef, useMemo } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, LabelList, ReferenceLine } from 'recharts';
 import { TrendingUp, Layers, Loader2 } from 'lucide-react';
 import { useThemeColors } from '../../hooks/useThemeColors';
@@ -41,7 +41,7 @@ interface WaterfallChartProps {
     waterfallDomain: [number, number];
 }
 
-export const WaterfallChart: React.FC<WaterfallChartProps> = ({ waterfallData, waterfallDomain }) => {
+const WaterfallChartBase: React.FC<WaterfallChartProps> = ({ waterfallData, waterfallDomain }) => {
     const tc = useThemeColors();
     return (
     <div className="lg:col-span-4 bg-wallstreet-800 p-6 rounded-xl border border-wallstreet-700 shadow-sm flex flex-col">
@@ -87,6 +87,12 @@ export const WaterfallChart: React.FC<WaterfallChartProps> = ({ waterfallData, w
     </div>
     );
 };
+
+export const WaterfallChart = memo(WaterfallChartBase, (prev, next) => (
+    prev.waterfallData === next.waterfallData
+    && prev.waterfallDomain[0] === next.waterfallDomain[0]
+    && prev.waterfallDomain[1] === next.waterfallDomain[1]
+));
 
 // ── SectorAttributionCharts ──────────────────────────────────────────────────
 

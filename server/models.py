@@ -1,22 +1,23 @@
 """Pydantic models for the portfolio analysis API."""
 
 from typing import Dict, List, Optional
+
 from pydantic import BaseModel
 
 
 class PortfolioItem(BaseModel):
     ticker: str
-    weight: float
+    weight: float  # percent-form (12.5 = 12.5%)
     date: str
     companyName: Optional[str] = None
     sector: Optional[str] = None
     notes: Optional[str] = None
-    returnPct: Optional[float] = None
-    contribution: Optional[float] = None
+    returnPct: Optional[float] = None  # decimal return (0.05 = 5%)
+    contribution: Optional[float] = None  # percentage-point contribution (0.5 = 0.50% = 50 bps)
     isMutualFund: Optional[bool] = None  # Flag for mutual funds requiring CSV NAV data
     isEtf: Optional[bool] = None  # Flag for ETFs
     isCash: Optional[bool] = None  # Flag for cash equivalents
-    sectorWeights: Optional[dict] = None  # Custom sector breakdowns percentage (e.g. {"Technology": 10.0})
+    sectorWeights: Optional[dict] = None  # Custom sector breakdown percentage (e.g. {"Technology": 10.0})
     startPrice: Optional[float] = None  # Price at start of sub-period (for direct return calc)
     endPrice: Optional[float] = None  # Price at end of sub-period (for direct return calc)
 
@@ -51,7 +52,7 @@ class BackcastRequest(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Attribution sheet models (CALCULATION_ENGINE.md §5 & §8)
+# Attribution sheet models
 # ---------------------------------------------------------------------------
 
 class PeriodBoundary(BaseModel):
@@ -61,39 +62,44 @@ class PeriodBoundary(BaseModel):
 
 class PeriodDetail(BaseModel):
     """One sub-period column: Weight_i, Return_i, Contrib_i."""
-    weight: float       # decimal (0.10 = 10%)
-    returnPct: float    # decimal (0.05 = 5%)
-    contribution: float # decimal (w × r)
+
+    weight: float  # percent-form weight (12.5 = 12.5%)
+    returnPct: float  # decimal return (0.05 = 5%)
+    contribution: float  # percentage-point contribution (0.5 = 0.50% = 50 bps)
 
 
 class MonthDetail(BaseModel):
     """One monthly column: Return_i, Contrib_i (forward-compounded within month)."""
-    returnPct: float    # decimal
-    contribution: float # decimal (forward-compounded)
+
+    returnPct: float  # decimal return (0.05 = 5%)
+    contribution: float  # percentage-point contribution, forward-compounded within the month
 
 
 class PeriodSheetRow(BaseModel):
-    """One ticker row from the period-sheet (§5)."""
+    """One ticker row from the period-sheet."""
+
     ticker: str
     periods: List[PeriodDetail]
-    ytdReturn: float   # geometric chain over all sub-periods
-    ytdContrib: float  # forward-compounded across all sub-periods
+    ytdReturn: float  # geometric chain over all sub-periods
+    ytdContrib: float  # percentage-point contribution, forward-compounded across all sub-periods
 
 
 class MonthlySheetRow(BaseModel):
-    """One ticker row from the monthly-sheet (§8)."""
+    """One ticker row from the monthly-sheet."""
+
     ticker: str
     months: List[MonthDetail]
-    ytdReturn: float   # geometric chain of monthly returns
-    ytdContrib: float  # forward-compounded across months — equals period-sheet YTD
+    ytdReturn: float  # geometric chain of monthly returns
+    ytdContrib: float  # percentage-point contribution, forward-compounded across months
 
 
 class PortfolioAnalysisResponse(BaseModel):
     """Extended /analyze-manual response including both attribution sheets."""
-    items: List[PortfolioItem]                    # existing flat list (all views use this)
-    periodSheet: List[PeriodSheetRow]             # per-sub-period detail
-    monthlySheet: List[MonthlySheetRow]           # per-calendar-month detail
-    periods: List[PeriodBoundary]                 # sub-period boundaries
-    monthlyPeriods: List[PeriodBoundary]          # monthly period boundaries
-    benchmarkReturns: Dict[str, List[float]]      # {bench_name: [r_period_0, ...]}
+
+    items: List[PortfolioItem]  # existing flat list used by the rest of the app
+    periodSheet: List[PeriodSheetRow]  # per-sub-period detail
+    monthlySheet: List[MonthlySheetRow]  # per-calendar-month detail
+    periods: List[PeriodBoundary]  # sub-period boundaries
+    monthlyPeriods: List[PeriodBoundary]  # monthly period boundaries
+    benchmarkReturns: Dict[str, List[float]]  # {bench_name: [r_period_0, ...]}
     benchmarkMonthlyReturns: Dict[str, List[float]]  # {bench_name: [r_month_0, ...]}

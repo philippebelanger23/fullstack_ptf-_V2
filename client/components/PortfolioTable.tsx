@@ -243,7 +243,7 @@ export const PortfolioTable: React.FC<PortfolioTableProps> = ({ currentHoldings:
   };
 
 
-  let globalIndex = 0;
+  let holdingIndex = 0;
 
   return (
     <div className="bg-wallstreet-800 rounded-xl border border-wallstreet-700 overflow-hidden shadow-sm">
@@ -308,22 +308,23 @@ export const PortfolioTable: React.FC<PortfolioTableProps> = ({ currentHoldings:
 
                   {/* Holdings Rows */}
                   {(!isCollapsed || isCashSection) && items.map((item) => {
-                    globalIndex++;
+                    const isCashRow = isCash(item);
+                    const displayIndex = isCashRow ? null : ++holdingIndex;
                     const region = getRegion(item);
-                    const isDirectEquity = !isCash(item) && !isETFOrMF(item);
+                    const isDirectEquity = !isCashRow && !isETFOrMF(item);
                     const beta = isDirectEquity && marketBetaMap && marketBetaMap[item.ticker] !== undefined
                       ? marketBetaMap[item.ticker]
                       : null;
                     const sectorExposure = getSectorExposure(item);
 
-                    const rowTotal = isCash(item)
+                    const rowTotal = isCashRow
                       ? null
                       : GICS_SECTORS.reduce((sum, s) => sum + (typeof sectorExposure[s] === 'number' ? sectorExposure[s] as number : 0), 0);
 
                     return (
                       <tr key={item.ticker} className="hover:bg-wallstreet-700/30 transition-colors group">
                         <td className="px-3 py-1.5 text-center text-wallstreet-400 font-medium sticky left-0 bg-wallstreet-800 group-hover:bg-wallstreet-700/30 z-10">
-                          {globalIndex}
+                          {displayIndex}
                         </td>
                         <td className="px-3 py-1.5 font-bold text-wallstreet-text sticky left-12 bg-wallstreet-800 group-hover:bg-wallstreet-700/30 z-10">
                           <div className="flex items-center gap-2">

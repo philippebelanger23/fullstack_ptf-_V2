@@ -313,6 +313,116 @@ I ran the backend math and isolation tests relevant to this audit:
 - `pytest server/test_reference_repo_isolation.py -q`
   - Result: `2 passed`
 
+## Recommended Changes
+
+### Priority 1: Cleanup
+
+1. Remove `Return_Contribution_Python/` from the repo.
+2. Remove or rewrite any docs, comments, and notes that still imply that folder is part of the live architecture.
+3. Keep `server/test_reference_repo_isolation.py` and extend it if needed so future runtime code cannot drift back toward reference-only folders.
+4. Clean up stale type comments that still describe decimal-weight sheet payloads when the live UI contract is percent-form.
+
+### Priority 2: Canonicalize Units
+
+1. Pick one explicit contract for weights across the app.
+2. My recommendation: keep `PortfolioItem.weight` as percent-form at the UI boundary, but convert to decimal exactly once at the backend service boundary.
+3. Rename or document every field with that contract in mind:
+   - `weightPct` for percent-form values
+   - `returnDec` or `returnPctDec` for decimal returns
+   - `contributionPct` for percentage-point contribution
+4. Update model comments, tests, and table comments so they all describe the same units.
+
+### Priority 3: Collapse to One Attribution Engine
+
+Right now the app uses:
+
+- `/analyze-manual` for period/month tables
+- `/portfolio-backcast` for performance-consistent period attribution overrides
+
+That split is the largest design risk.
+
+Recommended change:
+
+1. Choose one canonical attribution engine.
+2. Either:
+   - keep `/analyze-manual` as the canonical source and derive backcast-compatible outputs from it
+   - or move period/month sheet generation onto the same daily-chain engine used by `/portfolio-backcast`
+3. Stop mixing period values from one engine with override values from another unless the response explicitly carries both contracts.
+
+### Priority 4: Unify Data Population
+
+Several views re-load config and fetch again instead of consuming one shared app-level dataset.
+
+Recommended change:
+
+1. Build one canonical analysis state in `App.tsx`.
+2. Feed all views from that state.
+3. Only fetch supplemental data separately when it is truly orthogonal:
+   - benchmark exposure
+   - sector metadata
+   - NAV audit
+   - market beta / dividend enrichments
+4. Avoid recomputing holdings from `loadPortfolioConfig` inside individual views unless there is a deliberate reason.
+
+### Priority 5: Normalize Date Semantics
+
+`PortfolioItem.date` currently means different things depending on where the item came from:
+
+- config-derived items use rebalance start dates
+- analyzed items use period-end display dates
+
+Recommended change:
+
+1. Split date semantics explicitly:
+   - `effectiveStartDate`
+   - `effectiveEndDate`
+   - `displayDate`
+2. Do not overload one `date` field for all stages.
+3. Make period grouping and period display use different fields if needed.
+
+### Priority 6: Tighten the Audit Itself
+
+To make this audit more useful as a long-term reference:
+
+1. Add a short glossary for:
+   - weight
+   - return
+   - contribution
+   - period attribution
+   - monthly attribution
+2. Add a field-contract appendix that lists every API payload and its units.
+3. Add a “known intentional divergences” section if two paths must remain.
+4. Add exact file/function anchors for every major step so future edits are faster to verify.
+5. Add a “what breaks if this changes” note for:
+   - weight normalization
+   - date normalization
+   - FX adjustment
+   - NAV lookback behavior
+
+### Priority 7: Add Guardrail Tests
+
+Recommended tests:
+
+1. One end-to-end test from saved config -> `/analyze-manual` -> `/portfolio-backcast` asserting consistent period totals.
+2. One contract test asserting the unit convention of:
+   - `PortfolioItem.weight`
+   - `PeriodSheetRow.periods[].weight`
+   - `periodAttribution[].weight`
+3. One regression test asserting that analyzed attribution tables and backcast override values do not diverge for the same period unless explicitly allowed.
+4. One test for date semantics across:
+   - config-derived items
+   - analyzed items
+   - backcast grouping
+
+### Suggested Cleanup Sequence
+
+1. Delete `Return_Contribution_Python/`.
+2. Run the isolation test and full backend test suite.
+3. Clean comments and docs that still describe old contracts.
+4. Canonicalize the unit contract in models and types.
+5. Decide which attribution engine is authoritative.
+6. Refactor views toward one shared analysis state.
+
 ## Bottom Line
 
 The live population chain is:

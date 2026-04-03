@@ -1,12 +1,12 @@
 export interface PortfolioItem {
   ticker: string;
-  weight: number;
+  weight: number; // percent-form (12.5 = 12.5%)
   date: string;
   companyName?: string;
   sector?: string;
   notes?: string;
-  returnPct?: number;
-  contribution?: number;
+  returnPct?: number; // decimal return (0.05 = 5%)
+  contribution?: number; // percentage-point contribution (0.5 = 0.50% = 50 bps)
   isMutualFund?: boolean; // Flag for mutual funds requiring CSV NAV data
   isEtf?: boolean; // Flag for ETFs
   isCash?: boolean; // Flag for cash equivalents
@@ -14,7 +14,6 @@ export interface PortfolioItem {
   startPrice?: number; // Price at start of sub-period
   endPrice?: number; // Price at end of sub-period
 }
-
 
 export enum ViewState {
   UPLOAD = 'UPLOAD',
@@ -27,14 +26,12 @@ export enum ViewState {
   RISK_CONTRIBUTION = 'RISK_CONTRIBUTION'
 }
 
-// Correlation types
 export interface CorrelationData {
   tickers: string[];
   matrix: number[][];
   analysis: string;
 }
 
-// Backcast / Performance types
 export interface BackcastMetrics {
   totalReturn: number;
   benchmarkReturn: number;
@@ -72,9 +69,9 @@ export interface DrawdownEpisode {
 export interface PeriodAttributionItem {
   ticker: string;
   date: string;
-  weight: number;      // %-form  (e.g. 10.0 for 10 %)
-  returnPct: number;   // decimal (e.g. 0.05  for  5 %)
-  contribution: number; // %-form (= weight * returnPct)
+  weight: number; // percent-form (10.0 = 10%)
+  returnPct: number; // decimal return (0.05 = 5%)
+  contribution: number; // percentage-point contribution (0.5 = 0.50% = 50 bps)
   isCash?: boolean;
 }
 
@@ -88,7 +85,6 @@ export interface BackcastResponse {
   periodAttribution?: PeriodAttributionItem[];
 }
 
-// Risk Contribution types
 export interface RiskPosition {
   ticker: string;
   sector: string;
@@ -130,58 +126,51 @@ export interface RiskContributionResponse {
 }
 
 // ---------------------------------------------------------------------------
-// Attribution sheet types (mirrors CALCULATION_ENGINE.md §5 & §8)
+// Attribution sheet types
 // ---------------------------------------------------------------------------
 
 export interface PeriodBoundary {
-  start: string;  // ISO date YYYY-MM-DD
+  start: string; // ISO date YYYY-MM-DD
   end: string;
 }
 
-/** One sub-period column: Weight_i, Return_i, Contrib_i */
 export interface PeriodDetail {
-  weight: number;       // decimal (0.10 = 10%)
-  returnPct: number;    // decimal (0.05 = 5%)
-  contribution: number; // decimal (w × r)
+  weight: number; // percent-form weight (12.5 = 12.5%)
+  returnPct: number; // decimal return (0.05 = 5%)
+  contribution: number; // percentage-point contribution (0.5 = 0.50% = 50 bps)
 }
 
-/** One monthly column: Return_i, Contrib_i (forward-compounded within month) */
 export interface MonthDetail {
-  returnPct: number;    // decimal
-  contribution: number; // decimal (forward-compounded)
+  returnPct: number; // decimal return (0.05 = 5%)
+  contribution: number; // percentage-point contribution, forward-compounded within the month
 }
 
-/** One row from the period-sheet (§5) — one entry per ticker */
 export interface PeriodSheetRow {
   ticker: string;
   periods: PeriodDetail[];
-  ytdReturn: number;   // geometric chain over all sub-periods
-  ytdContrib: number;  // forward-compounded across all sub-periods
+  ytdReturn: number; // geometric chain over all sub-periods
+  ytdContrib: number; // percentage-point contribution, forward-compounded across all sub-periods
 }
 
-/** One row from the monthly-sheet (§8) — one entry per ticker */
 export interface MonthlySheetRow {
   ticker: string;
   months: MonthDetail[];
-  ytdReturn: number;   // geometric chain of monthly returns
-  ytdContrib: number;  // forward-compounded across months (== period-sheet YTD)
+  ytdReturn: number; // geometric chain of monthly returns
+  ytdContrib: number; // percentage-point contribution, forward-compounded across months
 }
 
-/** Full /analyze-manual response including both attribution sheets */
 export interface PortfolioAnalysisResponse {
-  items: PortfolioItem[];                          // flat list used by all other views
-  periodSheet: PeriodSheetRow[];                   // sub-period granularity
-  monthlySheet: MonthlySheetRow[];                 // calendar-month granularity
-  periods: PeriodBoundary[];                       // sub-period date boundaries
-  monthlyPeriods: PeriodBoundary[];                // monthly period boundaries
-  benchmarkReturns: Record<string, number[]>;      // {bench_name: [r_period_0, ...]}
+  items: PortfolioItem[]; // flat list used by all other views
+  periodSheet: PeriodSheetRow[]; // sub-period granularity
+  monthlySheet: MonthlySheetRow[]; // calendar-month granularity
+  periods: PeriodBoundary[]; // sub-period date boundaries
+  monthlyPeriods: PeriodBoundary[]; // monthly period boundaries
+  benchmarkReturns: Record<string, number[]>; // {bench_name: [r_period_0, ...]}
   benchmarkMonthlyReturns: Record<string, number[]>; // {bench_name: [r_month_0, ...]}
 }
 
-// Sector History types
 export type SectorHistoryData = Record<string, { date: string; value: number }[]>;
 
-// Rolling Metrics types
 export interface RollingMetricPoint {
   date: string;
   portfolio: { sharpe: number; vol: number; beta: number };

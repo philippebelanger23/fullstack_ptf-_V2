@@ -10,6 +10,7 @@ import { CorrelationHeatmap } from './risk/CorrelationHeatmap';
 import type { ChartView } from './performance/PerformanceCharts';
 import type { Period } from './performance/PerformanceKPIs';
 import { UnifiedPerformancePanel } from './performance/UnifiedPerformancePanel';
+import { buildTableItemsFromHistory } from './attribution/canonicalAttribution';
 import {
     loadPortfolioConfig, convertConfigToItems,
     fetchPortfolioBackcast, fetchRiskContribution, fetchIndexExposure, fetchSectors,
@@ -32,8 +33,6 @@ interface ReportViewProps {
     sharedBackcast?: BackcastResponse | null;
     sharedBackcastLoading?: boolean;
 }
-
-const getPeriodCutoff = (period: Period): Date => getDateRangeForPeriod(period).start;
 
 const fmtDate = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 
@@ -291,18 +290,78 @@ export const ReportView: React.FC<ReportViewProps> = ({ data, customSectors, ass
 
     const periodAttribution = useMemo(() => {
         if (!backcast?.periodAttribution?.length) return [];
-        const cutoff = getPeriodCutoff(selectedPeriod);
-        return backcast.periodAttribution
-            .filter(item => new Date(item.date) >= cutoff)
+        const { start, end } = getDateRangeForPeriod(selectedPeriod);
+        const periodEnd = end ?? new Date();
+
+        const filteredHistory = backcast.periodAttribution.filter(item => {
+            const itemDate = new Date(`${item.date}T00:00:00`);
+            return itemDate >= start
+                && itemDate <= periodEnd
+                && !item.isCash
+                && item.ticker.toUpperCase() !== 'CASH'
+                && item.ticker.toUpperCase() !== '*CASH*';
+        });
+
+        return buildTableItemsFromHistory(filteredHistory)
             .sort((a, b) => b.contribution - a.contribution);
     }, [backcast, selectedPeriod]);
+
+    const getHoldingDisplayName = (item: PortfolioItem) => (
+        item.isMutualFund ? item.ticker : (item.companyName?.trim() || item.ticker)
+    );
+
+    const getHoldingSectorDisplay = (sector?: string) => {
+        if (!sector) return '—';
+        switch (sector) {
+            case 'Basic Materials':
+            case 'Materials':
+                return 'Materials';
+            case 'Consumer Cyclical':
+                return 'Discretionary';
+            case 'Consumer Discretionary':
+                return 'Discretionary';
+            case 'Communication':
+                return 'Communications';
+            case 'Communication Services':
+                return 'Communications';
+            case 'Energy':
+                return 'Energy';
+            case 'Industrials':
+            case 'Industrial':
+                return 'Industrials';
+            case 'Consumer Defensive':
+                return 'Staples';
+            case 'Consumer Staples':
+                return 'Staples';
+            case 'Financial Services':
+            case 'Financials':
+            case 'Financial':
+                return 'Financials';
+            case 'Real Estate':
+                return 'Real Estate';
+            case 'Information Technology':
+                return 'Technology';
+            case 'Technology':
+                return 'Technology';
+            case 'Healthcare':
+                return 'Health Care';
+            case 'Health Care':
+                return 'Health Care';
+            case 'Mixed':
+                return 'Mixed';
+            case 'CASH':
+                return 'CASH';
+            default:
+                return sector;
+        }
+    };
 
     const sortedHoldings = useMemo(() => {
         const sorted = [...enrichedCurrentHoldings].sort((a, b) => b.weight - a.weight);
         let cum = 0;
         return sorted.map(item => {
             cum += item.weight;
-            return { ...item, cumulative: cum };
+            return { ...item, displayName: getHoldingDisplayName(item), cumulative: cum };
         });
     }, [enrichedCurrentHoldings]);
 
@@ -522,19 +581,22 @@ export const ReportView: React.FC<ReportViewProps> = ({ data, customSectors, ass
                             <table className="w-full text-sm font-mono table-fixed">
                                 <thead className="sticky top-0 bg-wallstreet-800 z-10">
                                     <tr className="text-wallstreet-500 uppercase text-xs tracking-wide border-b border-wallstreet-700">
-                                        <th className="text-left pb-2.5 w-[20%]">Ticker</th>
-                                        <th className="text-left pb-2.5 w-[40%]">Sector</th>
-                                        <th className="text-right pb-2.5 pr-8 w-[20%]">Weight</th>
-                                        <th className="text-right pb-2.5 pr-8 w-[20%]">Cumul.</th>
+                                        <th className="text-left pb-2.5 w-[44%]">Name</th>
+                                        <th className="text-left pb-2.5 w-[26%]">Sector</th>
+                                        <th className="text-right pb-2.5 pr-8 w-[15%]">Weight</th>
+                                        <th className="text-right pb-2.5 pr-8 w-[15%]">Cumul.</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     {sortedHoldings.map((item, i) => (
-                                        <tr key={item.ticker} className={i % 2 === 0 ? '' : 'bg-wallstreet-900/40'}>
-                                            <td className="py-1 font-bold text-wallstreet-text">{item.ticker}</td>
-                                            <td className="py-1"><SectorBadge sector={item.sector ?? '—'} className="!text-xs" /></td>
-                                            <td className="py-1 text-right pr-8 text-wallstreet-text">{formatPct(item.weight)}</td>
-                                            <td className="py-1 text-right pr-8 text-wallstreet-500 font-bold">{formatPct(item.cumulative)}</td>
+                                        <tr
+                                            key={item.ticker}
+                                            className={`group/holding-row transition-colors ${i % 2 === 0 ? '' : 'bg-wallstreet-900/40'}`}
+                                        >
+                                            <td className="py-1 bg-transparent transition-colors group-hover/holding-row:bg-slate-100 dark:group-hover/holding-row:bg-slate-700/40 font-medium text-wallstreet-text truncate" title={item.displayName}>{item.displayName}</td>
+                                            <td className="py-1 bg-transparent transition-colors group-hover/holding-row:bg-slate-100 dark:group-hover/holding-row:bg-slate-700/40"><SectorBadge sector={getHoldingSectorDisplay(item.sector)} className="!text-xs" /></td>
+                                            <td className="py-1 bg-transparent transition-colors group-hover/holding-row:bg-slate-100 dark:group-hover/holding-row:bg-slate-700/40 text-right pr-8 text-wallstreet-text">{formatPct(item.weight)}</td>
+                                            <td className="py-1 bg-transparent transition-colors group-hover/holding-row:bg-slate-100 dark:group-hover/holding-row:bg-slate-700/40 text-right pr-8 text-wallstreet-500 font-bold">{formatPct(item.cumulative)}</td>
                                         </tr>
                                     ))}
                                 </tbody>
@@ -691,19 +753,22 @@ export const ReportView: React.FC<ReportViewProps> = ({ data, customSectors, ass
                             <table className="w-full text-sm font-mono table-fixed">
                                 <thead className="sticky top-0 bg-wallstreet-800 z-10">
                                     <tr className="text-wallstreet-500 uppercase text-xs tracking-wide border-b border-wallstreet-700">
-                                        <th className="text-left pb-2.5 w-[22%]">Ticker</th>
-                                        <th className="text-left pb-2.5 w-[38%]">Sector</th>
-                                        <th className="text-right pb-2.5 pr-8 w-[20%]">Weight</th>
-                                        <th className="text-right pb-2.5 pr-8 w-[20%]">Cumul.</th>
+                                        <th className="text-left pb-2.5 w-[34%]">Name</th>
+                                        <th className="text-left pb-2.5 w-[30%]">Sector</th>
+                                        <th className="text-right pb-2.5 pr-8 w-[18%]">Weight</th>
+                                        <th className="text-right pb-2.5 pr-8 w-[18%]">Cumul.</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     {sortedHoldings.map((item, i) => (
-                                        <tr key={item.ticker} className={i % 2 === 0 ? '' : 'bg-wallstreet-900/40'}>
-                                            <td className="py-1 font-bold text-wallstreet-text">{item.ticker}</td>
-                                            <td className="py-1"><SectorBadge sector={item.sector ?? '—'} className="!text-xs" /></td>
-                                            <td className="py-1 text-right pr-8 text-wallstreet-text">{formatPct(item.weight)}</td>
-                                            <td className="py-1 text-right pr-8 text-wallstreet-500 font-bold">{formatPct(item.cumulative)}</td>
+                                        <tr
+                                            key={item.ticker}
+                                            className={`group/holding-row transition-colors ${i % 2 === 0 ? '' : 'bg-wallstreet-900/40'}`}
+                                        >
+                                            <td className="py-1 bg-transparent transition-colors group-hover/holding-row:bg-slate-100 dark:group-hover/holding-row:bg-slate-700/40 font-medium text-wallstreet-text truncate" title={item.displayName}>{item.displayName}</td>
+                                            <td className="py-1 bg-transparent transition-colors group-hover/holding-row:bg-slate-100 dark:group-hover/holding-row:bg-slate-700/40"><SectorBadge sector={getHoldingSectorDisplay(item.sector)} className="!text-xs" /></td>
+                                            <td className="py-1 bg-transparent transition-colors group-hover/holding-row:bg-slate-100 dark:group-hover/holding-row:bg-slate-700/40 text-right pr-8 text-wallstreet-text">{formatPct(item.weight)}</td>
+                                            <td className="py-1 bg-transparent transition-colors group-hover/holding-row:bg-slate-100 dark:group-hover/holding-row:bg-slate-700/40 text-right pr-8 text-wallstreet-500 font-bold">{formatPct(item.cumulative)}</td>
                                         </tr>
                                     ))}
                                 </tbody>
@@ -776,10 +841,10 @@ export const ReportView: React.FC<ReportViewProps> = ({ data, customSectors, ass
                     <div className="relative z-10">
                         <div
                             className={`bg-wallstreet-800 border border-wallstreet-700 rounded-2xl shadow-2xl p-6 flex flex-col overflow-hidden max-w-[95vw] max-h-[95vh] ${expandedPanel === 'correlation' ? 'aspect-square w-auto h-[85vh] max-h-[90vw]' :
-                                expandedPanel === 'deviation' ? 'w-[95vw] xl:w-[1400px] h-[85vh] xl:max-h-[900px]' :
-                                    expandedPanel === 'performance' ? 'w-[98vw] xl:w-[1700px] h-[93vh] xl:max-h-[1050px]' :
-                                        expandedPanel === 'geography' ? 'aspect-[4/3] w-auto h-[85vh] max-h-[90vw] max-w-[90vw]' :
-                                            expandedPanel === 'holdings' ? 'w-[80vw] lg:w-[700px] h-auto max-h-[95vh]' :
+                                        expandedPanel === 'deviation' ? 'w-[95vw] xl:w-[1400px] h-[85vh] xl:max-h-[900px]' :
+                                            expandedPanel === 'performance' ? 'w-[98vw] xl:w-[1700px] h-[93vh] xl:max-h-[1050px]' :
+                                                expandedPanel === 'geography' ? 'aspect-[4/3] w-auto h-[85vh] max-h-[90vw] max-w-[90vw]' :
+                                            expandedPanel === 'holdings' ? 'w-[90vw] lg:w-[980px] h-auto max-h-[95vh]' :
                                             expandedPanel === 'attribution' ? 'w-[80vw] lg:w-[900px] h-auto max-h-[95vh] overflow-auto' :
                                             'w-[80vw] lg:w-[1000px] h-[85vh] lg:max-h-[800px]'
                                 }`}
