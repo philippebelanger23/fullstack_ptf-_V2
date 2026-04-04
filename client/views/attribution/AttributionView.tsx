@@ -1,15 +1,22 @@
-﻿import React, { useMemo, useState, useRef, useCallback, Component, ErrorInfo } from 'react';
+﻿import React, { useMemo, useState, useCallback, Component, ErrorInfo } from 'react';
 import { useThemeColors } from '../../hooks/useThemeColors';
-import { KPICard } from '../../components/KPICard';
 import { Dropdown } from '../../components/Dropdown';
-import { TrendingUp, Target, AlertTriangle, Calendar, Grid, Activity, Percent, Layers, Zap, Scale, Info, Printer, Download, Loader2, ArrowUpRight, ArrowDownRight, Briefcase } from 'lucide-react';
-import { fetchSectorHistory, fetchSectors, fetchIndexExposure, SectorHistoryData } from '../../services/api';
-import { PortfolioItem, BackcastResponse, PortfolioAnalysisResponse } from '../../types';
+import { AlertTriangle, Calendar, Grid, Layers, Info, Printer } from 'lucide-react';
+import { PortfolioWorkspaceAttribution } from '../../types';
 import { FreshnessBadge } from '../../components/ui/FreshnessBadge';
-import { formatPct, formatBps } from '../../utils/formatters';
-import { buildCanonicalMonthlyHistory, buildTableItemsFromHistory, compoundContribution, compoundReturnPct } from './canonicalAttribution';
+import { getAvailableCalendarYears } from '../../utils/selectedYear';
+import { buildCanonicalMonthlyHistory, compoundContribution, compoundReturnPct } from './canonicalAttribution';
 import { AttributionTable } from './AttributionTable';
 import { WaterfallChart, SectorAttributionCharts } from './AttributionCharts';
+import {
+    buildCanonicalContributorPages,
+    buildCanonicalMonthlyMatrixTable,
+    buildCanonicalPeriodMatrixTable,
+    buildCanonicalPortfolioMonthlyPerformance,
+    type CanonicalAttributionMatrixLayout,
+    type CanonicalContributorPageLayout,
+    compoundCanonicalMonthlyPerformance,
+} from '../../selectors/attributionSelectors';
 
 // â”€â”€ ErrorBoundary â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
@@ -48,14 +55,144 @@ class ErrorBoundary extends Component<{ children: React.ReactNode }, { hasError:
 // â”€â”€ Types â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 interface AttributionViewProps {
-    data: PortfolioItem[];
     selectedYear: number;
     setSelectedYear: (year: number) => void;
-    customSectors?: Record<string, Record<string, number>>;
     tablesRequest?: number;
-    sharedBackcast?: BackcastResponse | null;
-    analysisResponse?: PortfolioAnalysisResponse | null;
+    attributionData?: PortfolioWorkspaceAttribution | null;
 }
+
+type AttributionTickerStat = {
+    ticker: string;
+    totalContrib: number;
+    totalReturn: number;
+    ytdReturn: number;
+    history: ReturnType<typeof buildCanonicalMonthlyHistory>['rows'];
+    latestWeight: number;
+    stdDevContrib: number;
+    beta: number;
+    riskScore: number;
+};
+
+type AttributionMatrixRow = {
+    ticker: string;
+    total: number;
+    totalContribution: number;
+    totalPerformance: number;
+    latestWeight: number;
+    [key: string]: string | number | boolean | null;
+};
+
+const QUARTER_MONTHS: Record<'Q1' | 'Q2' | 'Q3' | 'Q4', number[]> = {
+    Q1: [0, 1, 2],
+    Q2: [3, 4, 5],
+    Q3: [6, 7, 8],
+    Q4: [9, 10, 11],
+};
+
+const monthKey = (date: Date) => `${date.getFullYear()}-${date.getMonth()}`;
+
+const buildAttributionTickerStats = (
+    tickers: string[],
+    sourceData: ReturnType<typeof buildCanonicalMonthlyHistory>['rows'],
+    allMonths: Date[],
+    yearData: ReturnType<typeof buildCanonicalMonthlyHistory>['rows'],
+    selectedYear: number,
+): AttributionTickerStat[] => {
+    const portRetSeries: number[] = [];
+    allMonths.forEach(month => {
+        const monthData = sourceData.filter(d => {
+            const dDate = new Date(d.date);
+            return dDate.getFullYear() === month.getFullYear() && dDate.getMonth() === month.getMonth();
+        });
+        const sumContrib = monthData.reduce((sum, d) => sum + (d.contribution || 0), 0);
+        portRetSeries.push(sumContrib);
+    });
+
+    const portMean = portRetSeries.reduce((a, b) => a + b, 0) / (portRetSeries.length || 1);
+    const portVariance = portRetSeries.reduce((a, b) => a + Math.pow(b - portMean, 2), 0) / (portRetSeries.length || 1);
+
+    return tickers.map(ticker => {
+        const history = sourceData.filter(d => d.ticker === ticker);
+        const yearHistory = yearData.filter(d => d.ticker === ticker && new Date(d.date).getFullYear() === selectedYear);
+
+        const totalContrib = compoundContribution(history);
+        const tickerContribSeries: number[] = [];
+
+        allMonths.forEach(month => {
+            const entry = history.find(d => {
+                const dDate = new Date(d.date);
+                return dDate.getFullYear() === month.getFullYear() && dDate.getMonth() === month.getMonth();
+            });
+            tickerContribSeries.push(entry ? (entry.contribution || 0) : 0);
+        });
+
+        const meanContrib = tickerContribSeries.reduce((a, b) => a + b, 0) / (tickerContribSeries.length || 1);
+        const varianceContrib = tickerContribSeries.reduce((a, b) => a + Math.pow(b - meanContrib, 2), 0) / (tickerContribSeries.length || 1);
+        const stdDevContrib = Math.sqrt(varianceContrib);
+
+        let covariance = 0;
+        for (let i = 0; i < portRetSeries.length; i++) {
+            covariance += (tickerContribSeries[i] - meanContrib) * (portRetSeries[i] - portMean);
+        }
+        covariance /= (portRetSeries.length || 1);
+
+        const beta = portVariance !== 0 ? covariance / portVariance : 0;
+        const latestEntry = history.reduce((latest, current) => {
+            return new Date(current.date).getTime() > new Date(latest.date).getTime() ? current : latest;
+        }, history[0]);
+        const latestWeight = latestEntry ? latestEntry.weight : 0;
+
+        return {
+            ticker,
+            totalContrib,
+            totalReturn: compoundReturnPct(history),
+            ytdReturn: compoundReturnPct(yearHistory),
+            history,
+            latestWeight,
+            stdDevContrib,
+            beta,
+            riskScore: stdDevContrib,
+        };
+    }).filter(t => t.latestWeight > 0.001 || Math.abs(t.totalContrib) > 0.0001);
+};
+
+const buildAttributionMatrixData = (
+    stats: AttributionTickerStat[],
+    allMonths: Date[],
+) => stats.map(stat => {
+    const row: AttributionMatrixRow = {
+        ticker: stat.ticker,
+        total: stat.totalContrib,
+        totalContribution: stat.totalContrib,
+        totalPerformance: stat.totalReturn,
+        latestWeight: stat.latestWeight,
+    };
+
+    allMonths.forEach(monthDate => {
+        const key = monthKey(monthDate);
+        const monthlyEntry = stat.history.find(h => {
+            const d = new Date(h.date);
+            return d.getMonth() === monthDate.getMonth() && d.getFullYear() === monthDate.getFullYear();
+        });
+        if (monthlyEntry) {
+            row[key] = monthlyEntry.contribution;
+            row[`p-${key}`] = monthlyEntry.returnPct * 100;
+            row[`partial-${key}`] = !!monthlyEntry.partial;
+            row[`w-${key}`] = monthlyEntry.weight;
+        } else {
+            row[key] = null;
+            row[`p-${key}`] = null;
+            row[`partial-${key}`] = false;
+            row[`w-${key}`] = 0;
+        }
+    });
+
+    return row;
+}).filter(row => {
+    const hasAnyNonNullContrib = allMonths.some(monthDate => row[monthKey(monthDate)] !== null);
+    const tickerUpper = row.ticker.toUpperCase();
+    return hasAnyNonNullContrib && tickerUpper !== 'CASH' && tickerUpper !== '*CASH*';
+});
 
 // â”€â”€ FuturePeriodMessage â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
@@ -87,15 +224,151 @@ const FuturePeriodMessage = () => (
     </div>
 );
 
+const formatMatrixReturn = (value: number | null) => {
+    if (value === null || value === undefined) return '-';
+    return value < 0 ? `(${Math.abs(value).toFixed(2)}%)` : `${value.toFixed(2)}%`;
+};
+
+const formatMatrixContribution = (value: number | null) => {
+    if (value === null || value === undefined) return '-';
+    return value < 0 ? `(${Math.abs(value * 100).toFixed(2)}%)` : `${Math.abs(value * 100).toFixed(2)}%`;
+};
+
+const formatContributionShare = (value: number | null) => {
+    if (value === null || value === undefined) return '-';
+    return value < 0 ? `(${Math.abs(value).toFixed(2)}%)` : `${value.toFixed(2)}%`;
+};
+
+const CanonicalContributorPagesSection: React.FC<{
+    pages: CanonicalContributorPageLayout[];
+    year: number;
+}> = ({ pages, year }) => {
+    if (pages.length === 0) {
+        return (
+            <div className="flex items-center justify-center p-12">
+                <div className="bg-wallstreet-800 p-6 rounded-xl border border-wallstreet-700 text-center">
+                    <p className="text-wallstreet-500 text-sm font-mono">No canonical contributor tables available for {year}.</p>
+                </div>
+            </div>
+        );
+    }
+
+    return (
+        <div className="space-y-6 print-area">
+            {pages.map((page, pageIndex) => (
+                <div key={page.key} className="print-page">
+                    {pageIndex === 0 && (
+                        <div className="hidden print-title-block">
+                            <h1 className="font-bold text-center">Top Contributors &amp; Disruptors â€” {year}</h1>
+                        </div>
+                    )}
+                    {page.rows.map((cards, rowIndex) => (
+                        <div key={`${page.key}-row-${rowIndex}`} className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 items-end print-row">
+                            {cards.map((card) => (
+                                <AttributionTable
+                                    key={card.key}
+                                    title={card.title}
+                                    items={card.items}
+                                    isQuarter={card.isQuarter}
+                                    status={card.status}
+                                />
+                            ))}
+                        </div>
+                    ))}
+                </div>
+            ))}
+        </div>
+    );
+};
+
+const CanonicalMatrixTable: React.FC<{
+    layout: CanonicalAttributionMatrixLayout;
+    emptyMessage: string;
+    showContributionShare?: boolean;
+}> = ({ layout, emptyMessage, showContributionShare = false }) => {
+    if (layout.columns.length === 0 || layout.rows.length === 0) {
+        return (
+            <div className="flex items-center justify-center p-12">
+                <div className="bg-wallstreet-800 p-6 rounded-xl border border-wallstreet-700 text-center">
+                    <p className="text-wallstreet-500 text-sm font-mono">{emptyMessage}</p>
+                </div>
+            </div>
+        );
+    }
+
+    return (
+        <div className="overflow-x-auto rounded-xl border border-wallstreet-700">
+            <table className="w-full text-xs font-mono border-collapse">
+                <thead>
+                    <tr className="bg-wallstreet-800 border-b border-wallstreet-700">
+                        <th className="text-left px-4 py-3 text-wallstreet-500 font-bold sticky left-0 bg-wallstreet-800 min-w-[90px]">Ticker</th>
+                        {layout.columns.map((column) => (
+                            <th key={column.key} colSpan={3} className="text-center px-2 py-3 text-wallstreet-500 font-bold border-l border-wallstreet-700 whitespace-nowrap">
+                                {column.label}
+                            </th>
+                        ))}
+                        <th colSpan={showContributionShare ? 3 : 2} className="text-center px-2 py-3 text-wallstreet-accent font-bold border-l border-wallstreet-700">YTD</th>
+                    </tr>
+                    <tr className="bg-wallstreet-900 border-b border-wallstreet-700">
+                        <th className="sticky left-0 bg-wallstreet-900 px-4 py-2 text-wallstreet-500"></th>
+                        {layout.columns.map((column) => (
+                            <React.Fragment key={`${column.key}-subhead`}>
+                                <th className="px-2 py-2 text-right text-wallstreet-500 border-l border-wallstreet-700">Wt%</th>
+                                <th className="px-2 py-2 text-right text-wallstreet-500">Ret%</th>
+                                <th className="px-2 py-2 text-right text-wallstreet-500">Contrib</th>
+                            </React.Fragment>
+                        ))}
+                        <th className="px-2 py-2 text-right text-wallstreet-500 border-l border-wallstreet-700">Ret%</th>
+                        <th className="px-2 py-2 text-right text-wallstreet-accent font-bold">Contrib</th>
+                        {showContributionShare && (
+                            <th className="px-2 py-2 text-right text-wallstreet-accent font-bold">% of Contribution</th>
+                        )}
+                    </tr>
+                </thead>
+                <tbody>
+                    {layout.rows.map((row, rowIndex) => (
+                        <tr key={row.ticker} className={`border-b border-wallstreet-800 hover:bg-wallstreet-700/40 transition-colors ${rowIndex % 2 === 0 ? '' : 'bg-wallstreet-800/30'}`}>
+                            <td className="sticky left-0 px-4 py-2.5 font-bold text-wallstreet-text bg-wallstreet-900">{row.ticker}</td>
+                            {row.cells.map((cell, cellIndex) => {
+                                const hasData = cell.returnPct !== null && cell.contribution !== null;
+                                return (
+                                    <React.Fragment key={`${row.ticker}-cell-${cellIndex}`}>
+                                        <td className="px-2 py-2.5 text-right text-wallstreet-500 border-l border-wallstreet-800">{hasData ? `${(cell.weight ?? 0).toFixed(1)}%` : '-'}</td>
+                                        <td className={`px-2 py-2.5 text-right ${!hasData ? 'text-wallstreet-500' : (cell.returnPct ?? 0) >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                                            {formatMatrixReturn(cell.returnPct)}
+                                        </td>
+                                        <td className={`px-2 py-2.5 text-right font-semibold ${!hasData ? 'text-wallstreet-500' : (cell.contribution ?? 0) >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                                            {formatMatrixContribution(cell.contribution)}
+                                        </td>
+                                    </React.Fragment>
+                                );
+                            })}
+                            <td className={`px-2 py-2.5 text-right border-l border-wallstreet-700 ${row.ytdReturn >= 0 ? 'text-green-400' : 'text-red-400'}`}>{formatMatrixReturn(row.ytdReturn)}</td>
+                            <td className={`px-2 py-2.5 text-right font-bold ${row.ytdContribution >= 0 ? 'text-green-400' : 'text-red-400'}`}>{formatMatrixContribution(row.ytdContribution)}</td>
+                            {showContributionShare && (
+                                <td className={`px-2 py-2.5 text-right font-bold border-l border-wallstreet-700 ${row.contributionShare === null ? 'text-wallstreet-500' : row.contributionShare >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                                    {formatContributionShare(row.contributionShare)}
+                                </td>
+                            )}
+                        </tr>
+                    ))}
+                </tbody>
+            </table>
+        </div>
+    );
+};
+
 // â”€â”€ HeatmapSection â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 interface HeatmapSectionProps {
     matrixData: any[];
     allMonths: Date[];
+    portfolioMonthlyPerformance: Record<string, number | null>;
+    portfolioTotalPerformance: number | null;
     tc: ReturnType<typeof useThemeColors>;
 }
 
-const HeatmapSection: React.FC<HeatmapSectionProps> = ({ matrixData, allMonths, tc }) => {
+const HeatmapSection: React.FC<HeatmapSectionProps> = ({ matrixData, allMonths, portfolioMonthlyPerformance, portfolioTotalPerformance, tc }) => {
     const [heatmapMode, setHeatmapMode] = useState<'CONTRIBUTION' | 'PERFORMANCE'>('CONTRIBUTION');
 
     const formatHeatmapPct = useCallback((value: number) => {
@@ -135,38 +408,44 @@ const HeatmapSection: React.FC<HeatmapSectionProps> = ({ matrixData, allMonths, 
     const heatmapTotals = useMemo(() => {
         const totals: Record<string, number> = {};
         const hasDataMap: Record<string, boolean> = {};
-        let grandTotal = 0;
+        if (heatmapMode === 'PERFORMANCE') {
+            allMonths.forEach(month => {
+                const key = monthKey(month);
+                const value = portfolioMonthlyPerformance[key];
+                totals[key] = value ?? 0;
+                hasDataMap[key] = value !== null && value !== undefined;
+            });
+
+            return {
+                totals,
+                hasDataMap,
+                grandTotal: portfolioTotalPerformance ?? 0,
+            };
+        }
 
         allMonths.forEach(month => {
-            const key = `${month.getFullYear()}-${month.getMonth()}`;
+            const key = monthKey(month);
             totals[key] = 0;
             hasDataMap[key] = false;
         });
 
         matrixData.forEach(row => {
             allMonths.forEach(month => {
-                const key = `${month.getFullYear()}-${month.getMonth()}`;
-                const val = heatmapMode === 'PERFORMANCE' ? row[`p-${key}`] : row[key];
+                const key = monthKey(month);
+                const val = row[key];
                 if (val !== null && !hasDataMap[key]) {
                     hasDataMap[key] = true;
                 }
-                totals[key] += val ?? 0;
-
-                if (heatmapMode === 'PERFORMANCE' && row[`partial-${key}`]) {
-                    // Mark as partial
-                }
+                totals[key] += (typeof val === 'number' ? val : 0);
             });
-            grandTotal += heatmapMode === 'PERFORMANCE'
-                ? (row.totalPerformance ?? 0)
-                : row.total;
         });
 
-        const selectedTotal = heatmapMode === 'PERFORMANCE'
-            ? (matrixData.reduce((sum, row) => sum + (row.totalPerformance ?? 0), 0))
-            : (matrixData.reduce((sum, row) => sum + row.total, 0));
-
-        return { totals, hasDataMap, grandTotal: selectedTotal };
-    }, [matrixData, allMonths, heatmapMode]);
+        return {
+            totals,
+            hasDataMap,
+            grandTotal: matrixData.reduce((sum, row) => sum + row.total, 0),
+        };
+    }, [allMonths, heatmapMode, matrixData, portfolioMonthlyPerformance, portfolioTotalPerformance]);
 
     const heatmapFooterLabel = heatmapMode === 'PERFORMANCE' ? 'YTD Performance' : 'Compounded Total';
 
@@ -303,6 +582,7 @@ const HeatmapSection: React.FC<HeatmapSectionProps> = ({ matrixData, allMonths, 
 interface AttributionHeaderProps {
     selectedYear: number;
     setSelectedYear: (year: number) => void;
+    availableYears: number[];
     fetchedAt: string | null;
     onPrint: () => void;
     timeRange: 'YTD' | 'Q1' | 'Q2' | 'Q3' | 'Q4';
@@ -311,7 +591,7 @@ interface AttributionHeaderProps {
     onViewModeChange: (mode: 'OVERVIEW' | 'TABLES') => void;
 }
 
-const AttributionHeader: React.FC<AttributionHeaderProps> = ({ selectedYear, setSelectedYear, fetchedAt, onPrint, timeRange, setTimeRange, currentViewMode, onViewModeChange }) => {
+const AttributionHeader: React.FC<AttributionHeaderProps> = ({ selectedYear, setSelectedYear, availableYears, fetchedAt, onPrint, timeRange, setTimeRange, currentViewMode, onViewModeChange }) => {
     const [viewMode, setViewMode] = useState<'OVERVIEW' | 'TABLES'>('OVERVIEW');
 
     const handleViewModeChange = useCallback((mode: 'OVERVIEW' | 'TABLES') => {
@@ -360,10 +640,7 @@ const AttributionHeader: React.FC<AttributionHeaderProps> = ({ selectedYear, set
                 <Dropdown
                     value={selectedYear}
                     onChange={(val) => handleYearChange(Number(val))}
-                    options={[
-                        { value: new Date().getFullYear() - 1, label: new Date().getFullYear() - 1 },
-                        { value: new Date().getFullYear(), label: new Date().getFullYear() }
-                    ]}
+                    options={availableYears.map((year) => ({ value: year, label: year }))}
                     className="min-w-[100px]"
                 />
 
@@ -379,10 +656,20 @@ const AttributionHeader: React.FC<AttributionHeaderProps> = ({ selectedYear, set
 
 // â”€â”€ AttributionViewContent â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selectedYear, setSelectedYear, customSectors, tablesRequest, sharedBackcast, analysisResponse }) => {
+const AttributionViewContent: React.FC<AttributionViewProps> = ({ selectedYear, setSelectedYear, tablesRequest, attributionData }) => {
+    const analysisResponse = attributionData;
     const tc = useThemeColors();
     const [viewMode, setViewMode] = useState<'OVERVIEW' | 'TABLES'>('OVERVIEW');
     const [tableMode, setTableMode] = useState<'monthly' | 'month' | 'period'>('monthly');
+    const availableYears = useMemo(() => (
+        getAvailableCalendarYears(
+            [
+                ...(analysisResponse?.monthlyPeriods?.map((period) => period.end) ?? []),
+                ...(analysisResponse?.periods?.map((period) => period.end) ?? []),
+            ],
+            [selectedYear, new Date().getFullYear()],
+        )
+    ), [analysisResponse, selectedYear]);
 
     // Deep-link from Portfolio Report: switch to TABLES mode when requested
     React.useEffect(() => {
@@ -408,74 +695,9 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
         });
     }, [analysisResponse]);
     const [timeRange, setTimeRange] = useState<'YTD' | 'Q1' | 'Q2' | 'Q3' | 'Q4'>('YTD');
-    const [sectorHistory, setSectorHistory] = useState<{ US: SectorHistoryData, CA: SectorHistoryData, OVERALL: SectorHistoryData }>({ US: {}, CA: {}, OVERALL: {} });
-    const [tickerSectors, setTickerSectors] = useState<Record<string, string>>({});
-    const [isAttributionLoading, setIsAttributionLoading] = useState(true);
-    const [loadProgress, setLoadProgress] = useState<Record<string, 'pending' | 'done' | 'error'>>({
-        benchmark: 'pending', history: 'pending', sectors: 'pending',
-    });
     const [regionFilter, setRegionFilter] = useState<'ALL' | 'US' | 'CA'>('ALL');
     const [benchmarkMode, setBenchmarkMode] = useState<'SECTOR' | 'SP500' | 'TSX'>('SECTOR');
-    const [benchmarkExposure, setBenchmarkExposure] = useState<any[]>([]);
-    const [fetchedAt, setFetchedAt] = useState<string | null>(null);
-
-    // Stable ticker key â€” only changes when actual ticker set changes, not on every data reference swap
-    const tickerKey = useMemo(() => {
-        return Array.from(new Set(data.map(d => d.ticker))).filter(t => t !== 'CASH').sort().join(',');
-    }, [data]);
-    const prevTickerKeyRef = useRef(tickerKey);
-
-    // Single consolidated load: runs all fetches in parallel, sets state once
-    const loadAllData = useCallback(async (tickers: string[]) => {
-        setIsAttributionLoading(true);
-        setLoadProgress({ benchmark: 'pending', history: 'pending', sectors: 'pending' });
-        const trackFetch = async <T,>(key: string, fn: () => Promise<T>): Promise<T> => {
-            try {
-                const result = await fn();
-                setLoadProgress(prev => ({ ...prev, [key]: 'done' }));
-                return result;
-            } catch (err) {
-                setLoadProgress(prev => ({ ...prev, [key]: 'error' }));
-                throw err;
-            }
-        };
-        try {
-            const [exposureRes, historyRes, sectorsRes] = await Promise.all([
-                trackFetch('benchmark', fetchIndexExposure),
-                trackFetch('history', fetchSectorHistory),
-                tickers.length > 0
-                    ? trackFetch('sectors', () => fetchSectors(tickers))
-                    : (() => { setLoadProgress(prev => ({ ...prev, sectors: 'done' })); return Promise.resolve({} as Record<string, string>); })(),
-            ]);
-
-            if (exposureRes?.sectors) setBenchmarkExposure(exposureRes.sectors);
-            setSectorHistory(historyRes);
-            setTickerSectors(sectorsRes);
-        } finally {
-            setIsAttributionLoading(false);
-            setFetchedAt(new Date().toISOString());
-        }
-    }, []);
-
-    // Initial load
-    React.useEffect(() => {
-        const tickers = tickerKey ? tickerKey.split(',') : [];
-        loadAllData(tickers);
-    }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-    // Re-fetch only ticker sectors when the ticker set actually changes (not on every data reference swap)
-    React.useEffect(() => {
-        if (tickerKey === prevTickerKeyRef.current) return;
-        prevTickerKeyRef.current = tickerKey;
-        if (!tickerKey) return;
-        const tickers = tickerKey.split(',');
-        let cancelled = false;
-        (async () => {
-            const sectors = await fetchSectors(tickers);
-            if (!cancelled) setTickerSectors(sectors);
-        })();
-        return () => { cancelled = true; };
-    }, [tickerKey]);
+    const fetchedAt = null;
 
     const isFuture = useMemo(() => {
         const now = new Date();
@@ -488,844 +710,121 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
         return now.getMonth() < quarterStarts[timeRange];
     }, [selectedYear, timeRange]);
 
-    // Select sector history based on region filter: CA uses Canadian ETFs, US uses US ETFs
-    const activeSectorHistory = useMemo(() => {
-        if (regionFilter === 'CA') return sectorHistory.CA || {};
-        return sectorHistory.US || {};
-    }, [sectorHistory, regionFilter]);
-
-    // For "ALL" region, also keep CA history available for blending
-    const caSectorHistory = useMemo(() => {
-        return sectorHistory.CA || {};
-    }, [sectorHistory]);
-
     const handlePrint = () => {
         window.print();
     };
 
-    const canonicalMonthlyHistory = useMemo(() => buildCanonicalMonthlyHistory(analysisResponse, data), [analysisResponse, data]);
+    const canonicalMonthlyHistory = useMemo(() => buildCanonicalMonthlyHistory(analysisResponse), [analysisResponse]);
 
     const cleanData = useMemo(() => canonicalMonthlyHistory.rows, [canonicalMonthlyHistory]);
+    const yearData = useMemo(() => cleanData.filter(d => new Date(d.date).getFullYear() === selectedYear), [cleanData, selectedYear]);
 
-    const { allMonths, primaryYear } = useMemo(() => ({
-        allMonths: Array.from({ length: 12 }, (_, monthIndex) => new Date(selectedYear, monthIndex, 1)),
-        primaryYear: selectedYear,
-    }), [selectedYear]);
+    const allMonths = useMemo(() => Array.from({ length: 12 }, (_, monthIndex) => new Date(selectedYear, monthIndex, 1)), [selectedYear]);
 
     const filteredOverviewData = useMemo(() => {
-        const yearFiltered = cleanData.filter(d => new Date(d.date).getFullYear() === selectedYear);
-        if (timeRange === 'YTD') return yearFiltered;
-        const quarters: Record<string, number[]> = { 'Q1': [0, 1, 2], 'Q2': [3, 4, 5], 'Q3': [6, 7, 8], 'Q4': [9, 10, 11] };
-        const allowedMonths = quarters[timeRange];
-        return yearFiltered.filter(d => allowedMonths.includes(new Date(d.date).getMonth()));
-    }, [cleanData, timeRange, selectedYear]);
+        if (timeRange === 'YTD') return yearData;
+        const allowedMonths = QUARTER_MONTHS[timeRange];
+        return yearData.filter(d => allowedMonths.includes(new Date(d.date).getMonth()));
+    }, [timeRange, yearData]);
 
-    const uniqueTickers = useMemo(() => Array.from(new Set(filteredOverviewData.map(d => d.ticker))), [filteredOverviewData]);
+    const overviewUniqueTickers = useMemo(() => Array.from(new Set(filteredOverviewData.map(d => d.ticker))), [filteredOverviewData]);
+    const overviewTickerStats = useMemo(
+        () => buildAttributionTickerStats(overviewUniqueTickers, filteredOverviewData, allMonths, yearData, selectedYear),
+        [overviewUniqueTickers, filteredOverviewData, allMonths, yearData, selectedYear],
+    );
 
-    const tickerStats = useMemo(() => {
-        const portRetSeries: number[] = [];
-        allMonths.forEach(month => {
-            const monthData = filteredOverviewData.filter(d => {
-                const dDate = new Date(d.date);
-                return dDate.getFullYear() === month.getFullYear() && dDate.getMonth() === month.getMonth();
-            });
-            const sumContrib = monthData.reduce((sum, d) => sum + (d.contribution || 0), 0);
-            portRetSeries.push(sumContrib);
+    const sortedByContrib = useMemo(() => [...overviewTickerStats].sort((a, b) => b.totalContrib - a.totalContrib), [overviewTickerStats]);
+    const matrixData = useMemo(() => buildAttributionMatrixData(sortedByContrib, allMonths), [sortedByContrib, allMonths]);
+
+    const portfolioMonthlyPerformance = useMemo(() => (
+        buildCanonicalPortfolioMonthlyPerformance(analysisResponse, allMonths, selectedYear, timeRange)
+    ), [analysisResponse, allMonths, selectedYear, timeRange]);
+
+    const canonicalYtdTotalReturn = useMemo(() => {
+        if (!analysisResponse || timeRange !== 'YTD') return null;
+        const reportingYears = analysisResponse.monthlyPeriods
+            .map(period => new Date(`${period.end}T00:00:00`).getFullYear())
+            .filter(year => !Number.isNaN(year));
+        if (reportingYears.length === 0) return null;
+
+        const latestReportingYear = Math.max(...reportingYears);
+        return latestReportingYear === selectedYear ? analysisResponse.portfolioYtdReturn * 100 : null;
+    }, [analysisResponse, selectedYear, timeRange]);
+
+    const portfolioTotalReturn = useMemo(() => {
+        return canonicalYtdTotalReturn ?? compoundCanonicalMonthlyPerformance(portfolioMonthlyPerformance);
+    }, [canonicalYtdTotalReturn, portfolioMonthlyPerformance]);
+
+    const selectedOverviewLayout = useMemo(() => (
+        analysisResponse?.overviewLayouts?.[String(selectedYear)]?.[timeRange] ?? null
+    ), [analysisResponse, selectedYear, timeRange]);
+
+    const canonicalWaterfallData = useMemo(() => (
+        selectedOverviewLayout?.waterfall?.bars ?? []
+    ), [selectedOverviewLayout]);
+
+    const canonicalWaterfallDomain = useMemo<[number, number]>(() => (
+        selectedOverviewLayout?.waterfall?.domain ?? [0, 10]
+    ), [selectedOverviewLayout]);
+
+    const emptySectorAttributionData = useMemo(() => ({
+        data: [],
+        selectionDomain: [-0.01, 0.01] as [number, number],
+        allocationDomain: [-0.01, 0.01] as [number, number],
+        interactionDomain: [-0.01, 0.01] as [number, number],
+    }), []);
+
+    const canonicalSectorAttributionData = useMemo(() => (
+        selectedOverviewLayout?.sectorAttribution?.[regionFilter]?.[benchmarkMode] ?? emptySectorAttributionData
+    ), [benchmarkMode, emptySectorAttributionData, regionFilter, selectedOverviewLayout]);
+
+    React.useEffect(() => {
+        if (process.env.NODE_ENV !== 'development') return;
+        if (canonicalYtdTotalReturn === null) return;
+
+        const compoundedMonthlyTotal = compoundCanonicalMonthlyPerformance(portfolioMonthlyPerformance);
+        if (compoundedMonthlyTotal === null) return;
+        if (Math.abs(canonicalYtdTotalReturn - compoundedMonthlyTotal) <= 0.0001) return;
+
+        console.warn('[AttributionView] portfolioYtdReturn diverges from compounded canonical monthly returns', {
+            selectedYear,
+            canonicalYtdTotalReturn,
+            compoundedMonthlyTotal,
+            canonicalMonthlyPerformance: portfolioMonthlyPerformance,
         });
+    }, [canonicalYtdTotalReturn, portfolioMonthlyPerformance, selectedYear]);
 
-        const portMean = portRetSeries.reduce((a, b) => a + b, 0) / (portRetSeries.length || 1);
-        const portVariance = portRetSeries.reduce((a, b) => a + Math.pow(b - portMean, 2), 0) / (portRetSeries.length || 1);
+    const canonicalContributorPages = useMemo(() => (
+        buildCanonicalContributorPages(analysisResponse, selectedYear)
+    ), [analysisResponse, selectedYear]);
 
-        return uniqueTickers.map(ticker => {
-            const history = filteredOverviewData.filter(d => d.ticker === ticker);
-            const yearHistory = cleanData.filter(d => d.ticker === ticker && new Date(d.date).getFullYear() === selectedYear);
+    const canonicalMonthlyMatrixLayout = useMemo(() => (
+        buildCanonicalMonthlyMatrixTable(analysisResponse, selectedYear)
+    ), [analysisResponse, selectedYear]);
 
-            const totalContrib = compoundContribution(history);
-            const tickerRetSeries: number[] = [];
-            const tickerContribSeries: number[] = [];
+    const canonicalPeriodMatrixLayout = useMemo(() => (
+        buildCanonicalPeriodMatrixTable(analysisResponse, selectedYear)
+    ), [analysisResponse, selectedYear]);
 
-            allMonths.forEach(month => {
-                const entry = history.find(d => {
-                    const dDate = new Date(d.date);
-                    return dDate.getFullYear() === month.getFullYear() && dDate.getMonth() === month.getMonth();
-                });
-                tickerRetSeries.push(entry ? (entry.returnPct || 0) : 0);
-                tickerContribSeries.push(entry ? (entry.contribution || 0) : 0);
-            });
-
-            const meanContrib = tickerContribSeries.reduce((a, b) => a + b, 0) / (tickerContribSeries.length || 1);
-            const varianceContrib = tickerContribSeries.reduce((a, b) => a + Math.pow(b - meanContrib, 2), 0) / (tickerContribSeries.length || 1);
-            const stdDevContrib = Math.sqrt(varianceContrib);
-
-            let covariance = 0;
-            for (let i = 0; i < portRetSeries.length; i++) {
-                covariance += (tickerContribSeries[i] - meanContrib) * (portRetSeries[i] - portMean);
-            }
-            covariance /= (portRetSeries.length || 1);
-
-            const beta = portVariance !== 0 ? covariance / portVariance : 0;
-
-            const latestEntry = history.reduce((latest, current) => {
-                return new Date(current.date).getTime() > new Date(latest.date).getTime() ? current : latest;
-            }, history[0]);
-            const latestWeight = latestEntry ? latestEntry.weight : 0;
-
-            const totalReturn = compoundReturnPct(history);
-            const ytdReturn = compoundReturnPct(yearHistory);
-
-            return { ticker, totalContrib, totalReturn, ytdReturn, history, latestWeight, stdDevContrib, beta, riskScore: stdDevContrib };
-        }).filter(t => t.latestWeight > 0.001 || Math.abs(t.totalContrib) > 0.0001);
-    }, [uniqueTickers, filteredOverviewData, allMonths, cleanData, selectedYear]);
-
-    const sortedByContrib = useMemo(() => [...tickerStats].sort((a, b) => b.totalContrib - a.totalContrib), [tickerStats]);
-    // Update: Sort by latestWeight instead of avgWeight to match Dashboard logic
-    const sortedByWeight = useMemo(() => [...tickerStats].sort((a, b) => b.latestWeight - a.latestWeight), [tickerStats]);
-
-    const matrixData = useMemo(() => sortedByContrib.map(stat => {
-        const row: any = {
-            ticker: stat.ticker,
-            total: stat.totalContrib,
-            totalContribution: stat.totalContrib,
-            totalPerformance: stat.ytdReturn,
-            latestWeight: stat.latestWeight,
-        }; // Use latestWeight explicitly
-        allMonths.forEach(monthDate => {
-            const m = monthDate.getMonth();
-            const y = monthDate.getFullYear();
-            const key = `${y}-${m}`;
-            const monthlyEntry = stat.history.find(h => {
-                const d = new Date(h.date);
-                return d.getMonth() === m && d.getFullYear() === y;
-            });
-            if (monthlyEntry) {
-                row[key] = monthlyEntry.contribution;
-                row[`p-${key}`] = monthlyEntry.returnPct * 100;
-                row[`partial-${key}`] = !!monthlyEntry.partial;
-                row[`w-${key}`] = monthlyEntry.weight;
-            } else {
-                row[key] = null;
-                row[`p-${key}`] = null;
-                row[`partial-${key}`] = false;
-                row[`w-${key}`] = 0;
-            }
-        });
-        return row;
-    }).filter(row => {
-        // Filter out tickers where ALL months have null contributions (no data for this year)
-        const hasAnyNonNullContrib = allMonths.some(monthDate => {
-            const key = `${monthDate.getFullYear()}-${monthDate.getMonth()}`;
-            return row[key] !== null;
-        });
-
-        // Filter out CASH and *CASH*
-        const tickerUpper = row.ticker.toUpperCase();
-        const isNotCash = tickerUpper !== 'CASH' && tickerUpper !== '*CASH*';
-
-        return hasAnyNonNullContrib && isNotCash;
-    }), [sortedByContrib, allMonths]);
-
-    const toBackcastDateKey = (date: Date) => {
-        const year = date.getFullYear();
-        const month = String(date.getMonth() + 1).padStart(2, '0');
-        const day = String(date.getDate()).padStart(2, '0');
-        return `${year}-${month}-${day}`;
-    };
-
-    const fallbackMonthlyPeriods = useMemo(() => (
-        allMonths.map((_, monthIndex) => {
-            const startDate = monthIndex === 0
-                ? new Date(selectedYear - 1, 11, 31)
-                : new Date(selectedYear, monthIndex, 0);
-            const endDate = new Date(selectedYear, monthIndex + 1, 0);
-
-            return {
-                start: toBackcastDateKey(startDate),
-                end: toBackcastDateKey(endDate),
-            };
-        })
-    ), [allMonths, selectedYear]);
-
-    const monthlyPeriods = useMemo(() => {
-        if (!analysisResponse?.monthlyPeriods?.length) return fallbackMonthlyPeriods;
-
-        const periodsByMonth = new Map<number, typeof analysisResponse.monthlyPeriods[number]>();
-        analysisResponse.monthlyPeriods.forEach(period => {
-            const endDate = new Date(`${period.end}T00:00:00`);
-            if (endDate.getFullYear() !== selectedYear) return;
-            periodsByMonth.set(endDate.getMonth(), period);
-        });
-
-        return fallbackMonthlyPeriods.map((fallbackPeriod, monthIndex) => (
-            periodsByMonth.get(monthIndex) ?? fallbackPeriod
-        ));
-    }, [analysisResponse, fallbackMonthlyPeriods, selectedYear]);
-
-    const getBackcastReturnForRange = useCallback((startDateKey: string, endDateKey: string): number | null => {
-        if (!sharedBackcast?.series || sharedBackcast.series.length === 0) return null;
-
-        const startPoints = sharedBackcast.series.filter(pt => pt.date <= startDateKey);
-        const endPoints = sharedBackcast.series.filter(pt => pt.date <= endDateKey);
-        if (startPoints.length === 0 || endPoints.length === 0) return null;
-
-        const startValue = startPoints[startPoints.length - 1].portfolio;
-        const endValue = endPoints[endPoints.length - 1].portfolio;
-        if (startValue === 0) return null;
-
-        return ((endValue - startValue) / startValue) * 100;
-    }, [sharedBackcast]);
-
-    const compoundedTotalLabel = 'Total';
-
-    // Geometric portfolio total return from the backcast series for the current time window.
-    // This is the same value shown on the performance graph, ensuring cross-view consistency.
-    // Must be defined BEFORE heatmapTotals which references it.
-    const portfolioTotalReturn = useMemo((): number | null => {
-        let startStr: string;
-        let endStr: string;
-        if (timeRange === 'YTD') {
-            startStr = `${selectedYear - 1}-12-31`;
-            endStr = '9999-12-31';
-        } else {
-            const quarterStart: Record<string, number> = { Q1: 0, Q2: 3, Q3: 6, Q4: 9 };
-            const startMonth = quarterStart[timeRange];
-            const start = new Date(selectedYear, startMonth, 1);
-            const end = new Date(selectedYear, startMonth + 3, 0);
-            startStr = toBackcastDateKey(start);
-            endStr = toBackcastDateKey(end);
-        }
-        return getBackcastReturnForRange(startStr, endStr);
-    }, [getBackcastReturnForRange, timeRange, selectedYear]);
-
-    const portfolioYtdReturn = useMemo((): number | null => {
-        if (!sharedBackcast?.series || sharedBackcast.series.length === 0) return null;
-        const startStr = `${selectedYear - 1}-12-31`;
-        const endStr = '9999-12-31';
-        return getBackcastReturnForRange(startStr, endStr);
-    }, [getBackcastReturnForRange, selectedYear, sharedBackcast]);
-
-    const portfolioYtdReturnDenominator = useMemo(() => (
-        portfolioYtdReturn !== null && Math.abs(portfolioYtdReturn) > 1e-9
-            ? portfolioYtdReturn
-            : null
-    ), [portfolioYtdReturn]);
-
-    // (backcastQuarterReturns removed â€” total row now uses sum of contributions for internal consistency)
-    const backcastQuarterReturns = useMemo((): Record<string, number> => {
-        return {};
-    }, [getBackcastReturnForRange, primaryYear]);
-
-    const waterfallData = useMemo(() => {
-        if (sortedByWeight.length === 0) return [];
-        const top10 = sortedByWeight.slice(0, 10);
-        const top10Tickers = new Set(top10.map(i => i.ticker));
-        const others = sortedByWeight.filter(i => !top10Tickers.has(i.ticker));
-        const othersSum = others.reduce((sum, i) => sum + i.totalContrib, 0);
-
-        const dataPoints: any[] = [];
-        let currentVal = 0;
-
-        top10.forEach(item => {
-            const start = currentVal;
-            const end = currentVal + item.totalContrib;
-            const portfolioItem = data.find(d => d.ticker === item.ticker);
-            dataPoints.push({
-                name: item.ticker,
-                value: [start < end ? start : end, start < end ? end : start],
-                delta: item.totalContrib,
-                isTotal: false,
-                color: item.totalContrib >= 0 ? '#16a34a' : '#dc2626',
-                sector: portfolioItem?.sector,
-                weight: item.latestWeight,
-                totalReturn: item.totalReturn,
-                beta: item.beta,
-            });
-            currentVal = end;
-        });
-
-        if (Math.abs(othersSum) > 0.001 || others.length > 0) {
-            const start = currentVal;
-            const end = currentVal + othersSum;
-            dataPoints.push({ name: 'Others', value: [start < end ? start : end, start < end ? end : start], delta: othersSum, isTotal: false, color: othersSum >= 0 ? '#16a34a' : '#dc2626' });
-            currentVal = end;
-        }
-
-        const totalVal = portfolioTotalReturn ?? currentVal;
-        dataPoints.push({ name: compoundedTotalLabel, value: [0, totalVal], delta: totalVal, isTotal: true, color: tc.isDark ? '#38bdf8' : '#0A2351' });
-        return dataPoints;
-    }, [sortedByWeight, tc.isDark, portfolioTotalReturn]);
-
-    const waterfallDomain = useMemo(() => {
-        if (waterfallData.length === 0) return [0, 10];
-        let min = 0;
-        let max = 0;
-        waterfallData.forEach(d => {
-            if (d.value[0] < min) min = d.value[0];
-            if (d.value[1] < min) min = d.value[1];
-            if (d.value[0] > max) max = d.value[0];
-            if (d.value[1] > max) max = d.value[1];
-        });
-
-        // Add a more generous buffer (15%) to both top and bottom so labels don't get cut off
-        const range = max - min;
-        const buffer = range * 0.15;
-
-        return [min - buffer, max + buffer];
-    }, [waterfallData]);
-
-    const sectorBenchmarkReturns = useMemo(() => {
-        if (!activeSectorHistory || Object.keys(activeSectorHistory).length === 0) return {};
-
-        const results: Record<string, number> = {};
-        const quarters: Record<string, number[]> = { 'Q1': [0, 2], 'Q2': [3, 5], 'Q3': [6, 8], 'Q4': [9, 11] };
-
-        Object.keys(activeSectorHistory).forEach(sector => {
-            const hist = activeSectorHistory[sector];
-            if (!hist || hist.length < 2) return;
-
-            // Safer Year parsing (avoid JS Date UTC issues)
-            const yearHist = hist.filter(h => h.date.startsWith(selectedYear.toString()));
-            if (yearHist.length < 2) return;
-
-            // Sort by date
-            const sortedYearHist = [...yearHist].sort((a,b) => a.date.localeCompare(b.date));
-
-            let startPoint, endPoint;
-
-            if (timeRange === 'YTD') {
-                startPoint = sortedYearHist[0];
-                endPoint = sortedYearHist[sortedYearHist.length - 1];
-            } else {
-                const months = quarters[timeRange];
-                const periodHist = yearHist.filter(h => {
-                    // Month is index 5-6 in YYYY-MM-DD
-                    const m = parseInt(h.date.substring(5, 7)) - 1;
-                    return m >= months[0] && m <= months[1];
-                });
-                if (periodHist.length < 2) return;
-                const sortedPeriodHist = [...periodHist].sort((a,b) => a.date.localeCompare(b.date));
-                startPoint = sortedPeriodHist[0];
-                endPoint = sortedPeriodHist[sortedPeriodHist.length - 1];
-            }
-
-            if (startPoint && endPoint && startPoint.value > 0) {
-                results[sector] = (endPoint.value / startPoint.value - 1) * 100;
-            }
-        });
-
-        return results;
-    }, [activeSectorHistory, selectedYear, timeRange]);
-
-    // CA sector benchmark returns (used for blending when regionFilter === 'ALL')
-    const caSectorBenchmarkReturns = useMemo(() => {
-        if (!caSectorHistory || Object.keys(caSectorHistory).length === 0) return {};
-
-        const results: Record<string, number> = {};
-        const quarters: Record<string, number[]> = { 'Q1': [0, 2], 'Q2': [3, 5], 'Q3': [6, 8], 'Q4': [9, 11] };
-
-        Object.keys(caSectorHistory).forEach(sector => {
-            const hist = caSectorHistory[sector];
-            if (!hist || hist.length < 2) return;
-
-            const yearHist = hist.filter((h: any) => h.date.startsWith(selectedYear.toString()));
-            if (yearHist.length < 2) return;
-
-            const sortedYearHist = [...yearHist].sort((a: any, b: any) => a.date.localeCompare(b.date));
-
-            let startPoint, endPoint;
-
-            if (timeRange === 'YTD') {
-                startPoint = sortedYearHist[0];
-                endPoint = sortedYearHist[sortedYearHist.length - 1];
-            } else {
-                const months = quarters[timeRange];
-                const periodHist = yearHist.filter((h: any) => {
-                    const m = parseInt(h.date.substring(5, 7)) - 1;
-                    return m >= months[0] && m <= months[1];
-                });
-                if (periodHist.length < 2) return;
-                const sortedPeriodHist = [...periodHist].sort((a: any, b: any) => a.date.localeCompare(b.date));
-                startPoint = sortedPeriodHist[0];
-                endPoint = sortedPeriodHist[sortedPeriodHist.length - 1];
-            }
-
-            if (startPoint && endPoint && startPoint.value > 0) {
-                results[sector] = (endPoint.value / startPoint.value - 1) * 100;
-            }
-        });
-
-        return results;
-    }, [caSectorHistory, selectedYear, timeRange]);
-
-    const overallBenchmarkReturn = useMemo(() => {
-        if (benchmarkMode === 'SECTOR') return null;
-        const key = benchmarkMode === 'SP500' ? 'SP500' : 'TSX';
-        const hist = sectorHistory.OVERALL?.[key];
-        if (!hist || hist.length < 2) return null;
-
-        const yearHist = hist.filter(h => h.date.startsWith(selectedYear.toString()));
-        if (yearHist.length < 2) return null;
-        const sorted = [...yearHist].sort((a, b) => a.date.localeCompare(b.date));
-
-        let startPoint, endPoint;
-        if (timeRange === 'YTD') {
-            startPoint = sorted[0];
-            endPoint = sorted[sorted.length - 1];
-        } else {
-            const quarters: Record<string, number[]> = { 'Q1': [0, 2], 'Q2': [3, 5], 'Q3': [6, 8], 'Q4': [9, 11] };
-            const [m0, m1] = quarters[timeRange];
-            const periodHist = sorted.filter(h => {
-                const m = parseInt(h.date.substring(5, 7)) - 1;
-                return m >= m0 && m <= m1;
-            });
-            if (periodHist.length < 2) return null;
-            startPoint = periodHist[0];
-            endPoint = periodHist[periodHist.length - 1];
-        }
-
-        if (startPoint && endPoint && startPoint.value > 0) {
-            return (endPoint.value / startPoint.value - 1) * 100;
-        }
-        return null;
-    }, [sectorHistory, benchmarkMode, selectedYear, timeRange]);
-
-    const sectorAttributionData = useMemo(() => {
-        const sectorMapping: Record<string, string> = {
-            "Information Technology": "Information Technology",
-            "Information Tech": "Information Technology",
-            "Technology": "Information Technology",
-            "Financials": "Financials",
-            "Financial Services": "Financials",
-            "Finance": "Financials",
-            "Health Care": "Health Care",
-            "Healthcare": "Health Care",
-            "Consumer Discretionary": "Consumer Discretionary",
-            "Consumer Cyclical": "Consumer Discretionary",
-            "Cyclical Consumer": "Consumer Discretionary",
-            "Communication Services": "Communication Services",
-            "Communications": "Communication Services",
-            "Industrials": "Industrials",
-            "Industrial": "Industrials",
-            "Consumer Staples": "Consumer Staples",
-            "Consumer Defensive": "Consumer Staples",
-            "Energy": "Energy",
-            "Oil & Gas": "Energy",
-            "Utilities": "Utilities",
-            "Utility": "Utilities",
-            "Real Estate": "Real Estate",
-            "Materials": "Materials",
-            "Basic Materials": "Materials"
-        };
-
-        const CANONICAL_TO_DISPLAY: Record<string, string> = {
-            "Materials": "Materials",
-            "Consumer Discretionary": "Discretionary",
-            "Financials": "Financials",
-            "Real Estate": "Real Estate",
-            "Communication Services": "Communications",
-            "Energy": "Energy",
-            "Industrials": "Industrials",
-            "Information Technology": "Technology",
-            "Consumer Staples": "Staples",
-            "Health Care": "Health Care",
-            "Utilities": "Utilities"
-        };
-
-        const US_SECTOR_BENCHMARK_ETF: Record<string, string> = {
-            "Materials": "XLB",
-            "Consumer Discretionary": "XLY",
-            "Financials": "XLF",
-            "Real Estate": "XLRE",
-            "Communication Services": "XLC",
-            "Energy": "XLE",
-            "Industrials": "XLI",
-            "Information Technology": "XLK",
-            "Consumer Staples": "XLP",
-            "Health Care": "XLV",
-            "Utilities": "XLU"
-        };
-
-        const CA_SECTOR_BENCHMARK_ETF: Record<string, string> = {
-            "Financials": "XFN.TO",
-            "Energy": "XEG.TO",
-            "Materials": "XMA.TO",
-            "Industrials": "ZIN.TO",
-            "Information Technology": "XIT.TO",
-            "Utilities": "XUT.TO",
-            "Real Estate": "XRE.TO",
-            "Consumer Staples": "XST.TO",
-            "Consumer Discretionary": "XCD.TO",
-            "Health Care": "XIC.TO",           // No pure CA healthcare ETF â†’ TSX fallback
-            "Communication Services": "XIC.TO", // No CA comm services ETF â†’ TSX fallback
-        };
-
-        const activeBenchmarkETFs = regionFilter === 'CA' ? CA_SECTOR_BENCHMARK_ETF : US_SECTOR_BENCHMARK_ETF;
-
-        const FIXED_SECTOR_ORDER = [
-            "Materials",
-            "Consumer Discretionary",
-            "Financials",
-            "Real Estate",
-            "Communication Services",
-            "Energy",
-            "Industrials",
-            "Information Technology",
-            "Consumer Staples",
-            "Health Care",
-            "Utilities"
-        ];
-
-        // 1. Map Benchmark Weights to Canonical Names (region-aware)
-        const benchmarkWeights: Record<string, number> = {};
-        benchmarkExposure.forEach(item => {
-            const normalized = sectorMapping[item.sector];
-            if (normalized) {
-                if (regionFilter === 'CA') benchmarkWeights[normalized] = item.TSX || 0;
-                else if (regionFilter === 'US') benchmarkWeights[normalized] = item.ACWI || 0;
-                else benchmarkWeights[normalized] = item.Index;
-            }
-        });
-
-        const sectorGroups: Record<string, { stocks: any[], sumWeight: number, sumWeightedReturn: number, stockOnlyWeight: number, stockOnlyWeightedReturn: number }> = {};
-        // Track US vs CA weight per sector for blended benchmarking
-        const sectorRegionWeights: Record<string, { usWeight: number, caWeight: number }> = {};
-
-        // Filter tickers by region, excluding ETFs and MFs (for stock-level attribution)
-        const filteredTickers = uniqueTickers.filter(ticker => {
-            if (ticker === 'CASH' || ticker === '*CASH*') return false;
-            const entry = data.find(d => d.ticker === ticker);
-            if (entry?.isEtf || entry?.isMutualFund) return false;
-
-            if (regionFilter === 'CA') return ticker.endsWith('.TO');
-            if (regionFilter === 'US') return !ticker.endsWith('.TO');
-            return true;
-        });
-
-        filteredTickers.forEach(ticker => {
-            const stats = tickerStats.find(t => t.ticker === ticker);
-            if (!stats) return;
-
-            const sectorName = tickerSectors[ticker] || 'Other';
-            const canonicalName = sectorMapping[sectorName] || 'Other';
-
-            if (!sectorGroups[canonicalName]) {
-                sectorGroups[canonicalName] = { stocks: [], sumWeight: 0, sumWeightedReturn: 0, stockOnlyWeight: 0, stockOnlyWeightedReturn: 0 };
-            }
-
-            // Accumulate regional weights for blending
-            if (!sectorRegionWeights[canonicalName]) {
-                sectorRegionWeights[canonicalName] = { usWeight: 0, caWeight: 0 };
-            }
-            if (ticker.endsWith('.TO')) {
-                sectorRegionWeights[canonicalName].caWeight += stats.latestWeight;
-            } else {
-                sectorRegionWeights[canonicalName].usWeight += stats.latestWeight;
-            }
-
-            // returnPct from server is in decimal form (0.05 = 5%), convert to percentage for consistency with benchmark returns
-            const periodReturn = stats.history.reduce((sum, h) => sum + (h.returnPct || 0), 0) * 100;
-
-            sectorGroups[canonicalName].stocks.push({
-                ticker,
-                returnPct: periodReturn,
-                weight: stats.latestWeight
-            });
-            sectorGroups[canonicalName].sumWeight += stats.latestWeight;
-            sectorGroups[canonicalName].sumWeightedReturn += (periodReturn * stats.latestWeight);
-            // Track direct stock holdings separately (excludes ETF/MF distributed weight)
-            sectorGroups[canonicalName].stockOnlyWeight += stats.latestWeight;
-            sectorGroups[canonicalName].stockOnlyWeightedReturn += (periodReturn * stats.latestWeight);
-        });
-
-        // Include ETF/MF sector weight contributions (distributes their weight across sectors)
-        uniqueTickers.forEach(ticker => {
-            if (ticker === 'CASH' || ticker === '*CASH*') return;
-            const entry = data.find(d => d.ticker === ticker);
-            if (!entry?.isEtf && !entry?.isMutualFund) return;
-
-            if (regionFilter === 'CA' && !ticker.endsWith('.TO')) return;
-            if (regionFilter === 'US' && ticker.endsWith('.TO')) return;
-
-            const stats = tickerStats.find(t => t.ticker === ticker);
-            if (!stats) return;
-
-            const sectorBreakdown = customSectors?.[ticker];
-            if (sectorBreakdown) {
-                // Distribute ETF/MF weight across sectors using custom sector breakdown
-                Object.entries(sectorBreakdown).forEach(([rawSector, pct]) => {
-                    const canonicalName = sectorMapping[rawSector] || (FIXED_SECTOR_ORDER.includes(rawSector) ? rawSector : null);
-                    if (!canonicalName || typeof pct !== 'number') return;
-
-                    if (!sectorGroups[canonicalName]) {
-                        sectorGroups[canonicalName] = { stocks: [], sumWeight: 0, sumWeightedReturn: 0, stockOnlyWeight: 0, stockOnlyWeightedReturn: 0 };
-                    }
-                    sectorGroups[canonicalName].sumWeight += stats.latestWeight * (pct / 100);
-                });
-            }
-        });
-
-        // 2a. Resolve effective benchmark returns (sector ETFs or broad index override)
-        // When regionFilter === 'ALL' and benchmarkMode === 'SECTOR', blend US/CA benchmark returns
-        // weighted by the portfolio's actual regional mix per sector.
-        const effectiveBenchmarkReturns: Record<string, number> = {};
-        const blendedBenchmarkETFLabels: Record<string, string> = {};
-        if (benchmarkMode !== 'SECTOR' && overallBenchmarkReturn !== null) {
-            FIXED_SECTOR_ORDER.forEach(sector => {
-                effectiveBenchmarkReturns[sector] = overallBenchmarkReturn;
-            });
-        } else if (regionFilter === 'ALL') {
-            // Blend US + CA sector benchmark returns based on portfolio weight mix
-            FIXED_SECTOR_ORDER.forEach(sector => {
-                const usReturn = sectorBenchmarkReturns[sector];       // US ETF return
-                const caReturn = caSectorBenchmarkReturns[sector];     // CA ETF return
-                const regionW = sectorRegionWeights[sector] || { usWeight: 0, caWeight: 0 };
-                const totalW = regionW.usWeight + regionW.caWeight;
-
-                if (totalW < 0.001) {
-                    // No portfolio holdings â€” fall back to US benchmark return
-                    if (usReturn !== undefined) effectiveBenchmarkReturns[sector] = usReturn;
-                    return;
-                }
-
-                const usFrac = regionW.usWeight / totalW;
-                const caFrac = regionW.caWeight / totalW;
-
-                const usETF = US_SECTOR_BENCHMARK_ETF[sector];
-                const caETF = CA_SECTOR_BENCHMARK_ETF[sector];
-
-                if (usReturn !== undefined && caReturn !== undefined && usFrac > 0.001 && caFrac > 0.001) {
-                    // Both regions present â€” blend
-                    effectiveBenchmarkReturns[sector] = usFrac * usReturn + caFrac * caReturn;
-                    const usPct = Math.round(usFrac * 100);
-                    const caPct = Math.round(caFrac * 100);
-                    blendedBenchmarkETFLabels[sector] = `${usPct}% ${usETF} + ${caPct}% ${caETF}`;
-                } else if (caReturn !== undefined && caFrac > 0.999) {
-                    // All CA
-                    effectiveBenchmarkReturns[sector] = caReturn;
-                    blendedBenchmarkETFLabels[sector] = caETF;
-                } else if (usReturn !== undefined) {
-                    // All US or CA return unavailable
-                    effectiveBenchmarkReturns[sector] = usReturn;
-                    blendedBenchmarkETFLabels[sector] = usETF;
-                } else if (caReturn !== undefined) {
-                    effectiveBenchmarkReturns[sector] = caReturn;
-                    blendedBenchmarkETFLabels[sector] = caETF;
-                }
-            });
-        } else {
-            Object.assign(effectiveBenchmarkReturns, sectorBenchmarkReturns);
-        }
-
-        const overallBenchmarkETF = benchmarkMode === 'SP500' ? 'SPY' : benchmarkMode === 'TSX' ? 'XIC.TO' : null;
-
-        // 2b. Calculate Total Benchmark Return (Weighted sum of sector benchmark returns)
-        let totalBenchReturnSum = 0;
-        let totalBenchWeight = 0;
-        Object.keys(benchmarkWeights).forEach(sector => {
-            const bWeight = benchmarkWeights[sector];
-            const bReturn = effectiveBenchmarkReturns[sector];
-            if (bReturn !== undefined) {
-                totalBenchReturnSum += (bWeight * bReturn);
-                totalBenchWeight += bWeight;
-            }
-        });
-        const totalBenchmarkReturn = totalBenchWeight > 0 ? (totalBenchReturnSum / totalBenchWeight) : 0;
-
-        // 3. Combine into Attribution Data
-        const chartData = FIXED_SECTOR_ORDER
-            .filter(sector => {
-                const group = sectorGroups[sector];
-                const bReturn = effectiveBenchmarkReturns[sector];
-                const bWeight = benchmarkWeights[sector];
-                return (group && group.sumWeight > 0.001) || (bWeight !== undefined && bWeight > 0);
-            })
-            .map(sector => {
-                const group = sectorGroups[sector] || { stocks: [], sumWeight: 0, sumWeightedReturn: 0, stockOnlyWeight: 0, stockOnlyWeightedReturn: 0 };
-                const benchReturn = effectiveBenchmarkReturns[sector] || 0;
-                const benchWeight = benchmarkWeights[sector] || 0;
-
-                // Selection/Interaction use only direct stock holdings (not ETF-distributed weight).
-                // ETF weight contributes to sector exposure (Allocation) but not stock-picking (Selection).
-                const hasDirectHoldings = group.stockOnlyWeight > 0.001;
-                const stockReturn = hasDirectHoldings ? group.stockOnlyWeightedReturn / group.stockOnlyWeight : 0;
-
-                // Selection Effect = W_b * (R_p - R_b)
-                // Only meaningful when we hold direct stocks in this sector;
-                // ETF-only exposure has no stock-picking component.
-                const selectionEffect = hasDirectHoldings
-                    ? (benchWeight * (stockReturn - benchReturn)) / 100
-                    : 0;
-
-                // Allocation Effect = (W_p - W_b) * (R_b - R_total_b)
-                // Always valid â€” uses total weight (stocks + ETF-distributed) to capture full sector exposure.
-                const allocationEffect = ((group.sumWeight - benchWeight) * (benchReturn - totalBenchmarkReturn)) / 100;
-
-                // Interaction Effect = (W_p - W_b) * (R_p - R_b)
-                // Only meaningful when we hold direct stocks in this sector.
-                const interactionEffect = hasDirectHoldings
-                    ? ((group.sumWeight - benchWeight) * (stockReturn - benchReturn)) / 100
-                    : 0;
-
-                // Portfolio return shown in tooltip: use stock return when available, otherwise 0
-                const displayReturn = hasDirectHoldings ? stockReturn : 0;
-
-                return {
-                    sector,
-                    displayName: CANONICAL_TO_DISPLAY[sector] || sector,
-                    benchmarkETF: overallBenchmarkETF ?? (blendedBenchmarkETFLabels[sector] || activeBenchmarkETFs[sector] || 'â€”'),
-                    selectionEffect,
-                    allocationEffect,
-                    interactionEffect,
-                    benchmarkReturn: benchReturn,
-                    benchmarkWeight: benchWeight,
-                    portfolioWeight: group.sumWeight,
-                    portfolioReturn: displayReturn,
-                    hasDirectHoldings,
-                    stocks: group.stocks.map(s => ({
-                        ticker: s.ticker,
-                        returnPct: s.returnPct,
-                        weight: s.weight,
-                        // Per-stock decomposition of sector selection effect:
-                        // Each stock's contribution = W_b * w_i * (R_i - R_b) / (W_p_stocks * 100)
-                        selectionContribution: hasDirectHoldings
-                            ? (benchWeight * s.weight * (s.returnPct - benchReturn)) / (group.stockOnlyWeight * 100)
-                            : 0
-                    }))
-                };
-            });
-
-        const maxSelection = chartData.length > 0 ? Math.max(...chartData.map(i => Math.abs(i.selectionEffect))) : 1;
-        const maxAllocation = chartData.length > 0 ? Math.max(...chartData.map(i => Math.abs(i.allocationEffect))) : 1;
-        const maxInteraction = chartData.length > 0 ? Math.max(...chartData.map(i => Math.abs(i.interactionEffect))) : 1;
-
-        // Clamp to minimum 0.01 to prevent domain collapse to [0,0] when all values are zero
-        const selectionDomainLimit = Math.max(maxSelection * 1.5, 0.01);
-        const allocationDomainLimit = Math.max(maxAllocation * 1.5, 0.01);
-        const interactionDomainLimit = Math.max(maxInteraction * 1.5, 0.01);
-
-        return {
-            data: chartData,
-            selectionDomain: [-selectionDomainLimit, selectionDomainLimit] as [number, number],
-            allocationDomain: [-allocationDomainLimit, allocationDomainLimit] as [number, number],
-            interactionDomain: [-interactionDomainLimit, interactionDomainLimit] as [number, number]
-        };
-    }, [uniqueTickers, tickerStats, tickerSectors, sectorBenchmarkReturns, caSectorBenchmarkReturns, regionFilter, data, benchmarkExposure, benchmarkMode, overallBenchmarkReturn, customSectors]);
-
-    const topMoversChartData = useMemo(() => {
-        // Flatten all selection contributions from sectorAttributionData
-        const allHoldings = sectorAttributionData.data.flatMap(s => s.stocks);
-
-        const topPos = [...allHoldings].filter(i => i.selectionContribution > 0).sort((a, b) => b.selectionContribution - a.selectionContribution).slice(0, 5);
-        const topNeg = [...allHoldings].filter(i => i.selectionContribution < 0).sort((a, b) => a.selectionContribution - b.selectionContribution).slice(0, 5); // Bottom 5 negative
-
-        // Combine them: top performers first, then worst performers
-        const combined = [...topPos, ...topNeg.reverse()]; // Reverse topNeg to show most negative at the bottom
-        const maxAbs = combined.length > 0 ? Math.max(...combined.map(i => Math.abs(i.selectionContribution))) : 1;
-        const domainLimit = maxAbs * 1.3;
-        const chartData = combined.map(i => ({ ticker: i.ticker, value: i.selectionContribution, fill: i.selectionContribution >= 0 ? '#22c55e' : '#ef4444' }));
-        return { data: chartData, domain: [-domainLimit, domainLimit] };
-    }, [sectorAttributionData.data]);
-
-    // Debug logging
-
-
-    if (isAttributionLoading) {
-        const steps = [
-            { key: 'benchmark', label: 'Benchmark Exposure',     sub: 'Index sector & geography weights' },
-            { key: 'history',   label: 'Sector Return History',  sub: 'Historical sector benchmarks' },
-            { key: 'sectors',   label: 'Holdings Classification', sub: 'Sector mapping for your holdings' },
-        ];
-        const doneCount = Object.values(loadProgress).filter(s => s === 'done').length;
-        return (
-            <div className="max-w-[100vw] mx-auto p-4 md:p-6 overflow-x-hidden min-h-screen flex flex-col items-center justify-center select-none">
-                <style>{`
-                    @keyframes attrBarPulse {
-                        0%, 100% { transform: scaleY(0.12); opacity: 0.1; }
-                        50%      { transform: scaleY(1);    opacity: 1;   }
-                    }
-                    @keyframes attrScanLine {
-                        0%   { left: -2px; }
-                        100% { left: calc(100% + 2px); }
-                    }
-                `}</style>
-                <div className="flex flex-col items-center gap-8 w-full max-w-sm">
-                    <div className="relative overflow-hidden rounded" style={{ width: '176px', height: '60px' }}>
-                        <div className="flex items-end h-full gap-1.5">
-                            {[28, 50, 36, 66, 42, 78, 54, 92, 46, 72, 58, 88, 64].map((h, i) => (
-                                <div key={i} className="flex-1 rounded-t-sm origin-bottom" style={{
-                                    height: `${h}%`,
-                                    background: i === 12 ? '#3b82f6' : '#374151',
-                                    animation: `attrBarPulse 2.2s ease-in-out ${i * 0.14}s infinite`,
-                                }} />
-                            ))}
-                        </div>
-                        <div className="absolute top-0 bottom-0 w-px" style={{
-                            background: 'linear-gradient(to bottom, transparent, rgba(59,130,246,0.65), transparent)',
-                            animation: 'attrScanLine 2.2s linear infinite',
-                        }} />
-                    </div>
-
-                    <p className="text-[11px] font-mono text-wallstreet-500 tracking-[0.25em] uppercase">
-                        Loading Attribution Data
-                    </p>
-
-                    <div className="w-full bg-wallstreet-700 rounded-full h-1.5 overflow-hidden">
-                        <div className="bg-wallstreet-accent h-full rounded-full transition-all duration-500 ease-out"
-                            style={{ width: `${(doneCount / steps.length) * 100}%` }} />
-                    </div>
-
-                    <div className="w-full space-y-3">
-                        {steps.map(({ key, label, sub }) => {
-                            const status = loadProgress[key];
-                            return (
-                                <div key={key} className="flex items-center gap-3">
-                                    <div className="w-5 h-5 flex items-center justify-center flex-shrink-0">
-                                        {status === 'done' ? (
-                                            <svg className="w-5 h-5 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                                                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                                            </svg>
-                                        ) : status === 'error' ? (
-                                            <svg className="w-5 h-5 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                                                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                                            </svg>
-                                        ) : (
-                                            <div className="w-3.5 h-3.5 border-2 border-wallstreet-600 border-t-wallstreet-accent rounded-full animate-spin" />
-                                        )}
-                                    </div>
-                                    <div className="min-w-0">
-                                        <p className={`text-sm font-mono font-medium ${status === 'done' ? 'text-wallstreet-text' : status === 'error' ? 'text-red-500' : 'text-wallstreet-500'}`}>{label}</p>
-                                        <p className="text-xs text-wallstreet-500 truncate">{sub}</p>
-                                    </div>
-                                </div>
-                            );
-                        })}
-                    </div>
-                </div>
-            </div>
-        );
-    }
-
-    if (!data || data.length === 0) {
+    if (!analysisResponse) {
         return (
             <div className="flex flex-col items-center justify-center h-full p-12 text-center">
                 <div className="bg-wallstreet-800 p-8 rounded-xl border border-wallstreet-700 shadow-sm max-w-lg">
                     <AlertTriangle size={48} className="text-wallstreet-accent mx-auto mb-4" />
                     <h2 className="text-xl font-bold text-wallstreet-text mb-2">No Attribution Data Found</h2>
-                    <p className="text-wallstreet-500 mb-6">Import a dataset with Return and Contribution columns.</p>
+                    <p className="text-wallstreet-500 mb-6">Load a workspace with canonical attribution data.</p>
                 </div>
             </div>
         );
     }
 
-    // Safety check for data integrity
-    const hasValidData = data.some(d => d.contribution !== undefined);
-    if (!hasValidData) {
-        console.warn("Data missing contribution field:", data[0]);
+    if (!analysisResponse.monthlySheet.length || !analysisResponse.periodSheet.length) {
         return (
             <div className="flex flex-col items-center justify-center h-full p-12 text-center">
                 <div className="bg-wallstreet-800 p-8 rounded-xl border border-wallstreet-700 shadow-sm max-w-lg">
                     <AlertTriangle size={48} className="text-wallstreet-accent mx-auto mb-4" />
-                    <h2 className="text-xl font-bold text-wallstreet-text mb-2">Invalid Data Format</h2>
-                    <p className="text-wallstreet-500 mb-6">Data loaded but missing 'contribution' field.</p>
+                    <h2 className="text-xl font-bold text-wallstreet-text mb-2">Canonical Attribution Missing</h2>
+                    <p className="text-wallstreet-500 mb-6">The workspace loaded, but the canonical attribution sheets are empty.</p>
                 </div>
             </div>
         );
@@ -1348,6 +847,7 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
             <AttributionHeader
                 selectedYear={selectedYear}
                 setSelectedYear={setSelectedYear}
+                availableYears={availableYears}
                 fetchedAt={fetchedAt}
                 currentViewMode={viewMode}
                 onViewModeChange={setViewMode}
@@ -1368,10 +868,10 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
 
                     <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 h-auto lg:h-[500px]">
 
-                        <WaterfallChart waterfallData={waterfallData} waterfallDomain={waterfallDomain as [number, number]} />
+                        <WaterfallChart waterfallData={canonicalWaterfallData} waterfallDomain={canonicalWaterfallDomain} />
 
                         <SectorAttributionCharts
-                            sectorAttributionData={sectorAttributionData}
+                            sectorAttributionData={canonicalSectorAttributionData}
                             regionFilter={regionFilter}
                             setRegionFilter={(region) => {
                                 setRegionFilter(region);
@@ -1382,13 +882,19 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
                             }}
                             benchmarkMode={benchmarkMode}
                             setBenchmarkMode={setBenchmarkMode}
-                            isAttributionLoading={isAttributionLoading}
+                            isAttributionLoading={false}
                         />
                     </div>
 
 
 
-                    <HeatmapSection matrixData={matrixData} allMonths={allMonths} tc={tc} />
+                    <HeatmapSection
+                        matrixData={matrixData}
+                        allMonths={allMonths}
+                        portfolioMonthlyPerformance={portfolioMonthlyPerformance}
+                        portfolioTotalPerformance={portfolioTotalReturn}
+                        tc={tc}
+                    />
                 </div>
             ) : (
                         <div className="space-y-4">
@@ -1418,354 +924,21 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ data, selected
                         </div>
 
                         {tableMode === 'monthly' ? (
-                        <div className="space-y-6 print-area">
-                        {/* Page 1: Q1 + Q2 */}
-                        <div className="print-page">
-                        {/* Print-only title */}
-                        <div className="hidden print-title-block">
-                            <h1 className="font-bold text-center">Top Contributors &amp; Disruptors â€” {primaryYear}</h1>
-                        </div>
-                        {/* Row 1: Jan, Feb, Mar, Q1 */}
-                        {allMonths.length >= 3 && (
-                            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 items-end print-row">
-                                {[0, 1, 2].map(monthIdx => {
-                                    const date = allMonths[monthIdx];
-                                    if (!date) return <div key={monthIdx} className="hidden" />;
-                                    const monthlyData = cleanData.filter((d: PortfolioItem) => {
-                                        const dDate = new Date(d.date);
-                                        return dDate.getFullYear() === date.getFullYear() && dDate.getMonth() === date.getMonth() && !d.ticker.toUpperCase().includes('CASH');
-                                    });
-                                    if (monthlyData.length === 0) return <div key={monthIdx} className="hidden" />;
-                                    const items = buildTableItemsFromHistory(monthlyData);
-
-                                    // Status Indicators
-                                    const now = new Date();
-                                    const isCurrentMonth = date.getMonth() === now.getMonth() && date.getFullYear() === now.getFullYear();
-
-                                    let displayTitle = date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-                                    let status: 'COMPLETED' | 'IN_PROGRESS' = 'COMPLETED';
-                                    if (isCurrentMonth) {
-                                        displayTitle += ' (MTD)';
-                                        status = 'IN_PROGRESS';
-                                    }
-
-                                    return <AttributionTable key={date.toISOString()} title={displayTitle} items={items} status={status} />;
-                                })}
-                                {(() => {
-                                    const q1Data = cleanData.filter(d => {
-                                        const m = new Date(d.date).getMonth();
-                                        const y = new Date(d.date).getFullYear();
-                                        return [0, 1, 2].includes(m) && y === primaryYear;
-                                    });
-                                    const uniqueMonths = new Set(q1Data.map(d => new Date(d.date).getMonth()));
-                                    if (q1Data.length === 0 || uniqueMonths.size < 3) return null;
-
-                                    // Quarter Status
-                                    const now = new Date();
-                                    const currentQuarter = Math.floor(now.getMonth() / 3) + 1;
-                                    const isCurrentQuarter = primaryYear === now.getFullYear() && currentQuarter === 1;
-
-                                    let qTitle = `Q1 ${primaryYear}`;
-                                    let qStatus: 'COMPLETED' | 'IN_PROGRESS' = 'COMPLETED';
-                                    if (isCurrentQuarter) {
-                                        qTitle += ' (QTD)';
-                                        qStatus = 'IN_PROGRESS';
-                                    }
-
-                                    return <AttributionTable key="Q1" title={qTitle} items={buildTableItemsFromHistory(q1Data)} isQuarter={true} status={qStatus} />;
-                                })()}
-                            </div>
-                        )}
-
-                        {/* Row 2: Apr, May, Jun, Q2 */}
-                        {allMonths.length >= 6 && (
-                            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 items-end print-row">
-                                {[3, 4, 5].map(monthIdx => {
-                                    const date = allMonths[monthIdx];
-                                    if (!date) return <div key={monthIdx} className="hidden" />;
-                                    const monthlyData = cleanData.filter((d: PortfolioItem) => {
-                                        const dDate = new Date(d.date);
-                                        return dDate.getFullYear() === date.getFullYear() && dDate.getMonth() === date.getMonth() && !d.ticker.toUpperCase().includes('CASH');
-                                    });
-                                    if (monthlyData.length === 0) return <div key={monthIdx} className="hidden" />;
-                                    const items = buildTableItemsFromHistory(monthlyData);
-
-                                    // Status Indicators
-                                    const now = new Date();
-                                    const isCurrentMonth = date.getMonth() === now.getMonth() && date.getFullYear() === now.getFullYear();
-
-                                    let displayTitle = date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-                                    let status: 'COMPLETED' | 'IN_PROGRESS' = 'COMPLETED';
-                                    if (isCurrentMonth) {
-                                        displayTitle += ' (MTD)';
-                                        status = 'IN_PROGRESS';
-                                    }
-
-                                    return <AttributionTable key={date.toISOString()} title={displayTitle} items={items} status={status} />;
-                                })}
-                                {(() => {
-                                    const q2Data = cleanData.filter(d => {
-                                        const m = new Date(d.date).getMonth();
-                                        const y = new Date(d.date).getFullYear();
-                                        return [3, 4, 5].includes(m) && y === primaryYear;
-                                    });
-                                    const uniqueMonths = new Set(q2Data.map(d => new Date(d.date).getMonth()));
-                                    if (q2Data.length === 0 || uniqueMonths.size < 3) return null;
-
-                                    // Quarter Status
-                                    const now = new Date();
-                                    const currentQuarter = Math.floor(now.getMonth() / 3) + 1;
-                                    const isCurrentQuarter = primaryYear === now.getFullYear() && currentQuarter === 2;
-
-                                    let qTitle = `Q2 ${primaryYear}`;
-                                    let qStatus: 'COMPLETED' | 'IN_PROGRESS' = 'COMPLETED';
-                                    if (isCurrentQuarter) {
-                                        qTitle += ' (QTD)';
-                                        qStatus = 'IN_PROGRESS';
-                                    }
-
-                                    return <AttributionTable key="Q2" title={qTitle} items={buildTableItemsFromHistory(q2Data)} isQuarter={true} status={qStatus} />;
-                                })()}
-                            </div>
-                        )}
-
-                        </div>{/* end print-page 1 */}
-
-                        {/* Page 2: Q3 + Q4 */}
-                        <div className="print-page">
-                        {/* Row 3: Jul, Aug, Sep, Q3 */}
-                        {allMonths.length >= 9 && (
-                            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 items-end print-row">
-                                {[6, 7, 8].map(monthIdx => {
-                                    const date = allMonths[monthIdx];
-                                    if (!date) return <div key={monthIdx} className="hidden" />;
-                                    const monthlyData = cleanData.filter((d: PortfolioItem) => {
-                                        const dDate = new Date(d.date);
-                                        return dDate.getFullYear() === date.getFullYear() && dDate.getMonth() === date.getMonth() && !d.ticker.toUpperCase().includes('CASH');
-                                    });
-                                    if (monthlyData.length === 0) return <div key={monthIdx} className="hidden" />;
-                                    const items = buildTableItemsFromHistory(monthlyData);
-
-                                    // Status Indicators
-                                    const now = new Date();
-                                    const isCurrentMonth = date.getMonth() === now.getMonth() && date.getFullYear() === now.getFullYear();
-
-                                    let displayTitle = date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-                                    let status: 'COMPLETED' | 'IN_PROGRESS' = 'COMPLETED';
-                                    if (isCurrentMonth) {
-                                        displayTitle += ' (MTD)';
-                                        status = 'IN_PROGRESS';
-                                    }
-
-                                    return <AttributionTable key={date.toISOString()} title={displayTitle} items={items} status={status} />;
-                                })}
-                                {(() => {
-                                    const q3Data = cleanData.filter(d => {
-                                        const m = new Date(d.date).getMonth();
-                                        const y = new Date(d.date).getFullYear();
-                                        return [6, 7, 8].includes(m) && y === primaryYear;
-                                    });
-                                    const uniqueMonths = new Set(q3Data.map(d => new Date(d.date).getMonth()));
-                                    if (q3Data.length === 0 || uniqueMonths.size < 3) return null;
-
-                                    // Quarter Status
-                                    const now = new Date();
-                                    const currentQuarter = Math.floor(now.getMonth() / 3) + 1;
-                                    const isCurrentQuarter = primaryYear === now.getFullYear() && currentQuarter === 3;
-
-                                    let qTitle = `Q3 ${primaryYear}`;
-                                    let qStatus: 'COMPLETED' | 'IN_PROGRESS' = 'COMPLETED';
-                                    if (isCurrentQuarter) {
-                                        qTitle += ' (QTD)';
-                                        qStatus = 'IN_PROGRESS';
-                                    }
-
-                                    return <AttributionTable key="Q3" title={qTitle} items={buildTableItemsFromHistory(q3Data)} isQuarter={true} status={qStatus} />;
-                                })()}
-                            </div>
-                        )}
-
-                        {/* Row 4: Oct, Nov, Dec, Q4 */}
-                        {allMonths.length >= 12 && (
-                            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 items-end print-row">
-                                {[9, 10, 11].map(monthIdx => {
-                                    const date = allMonths[monthIdx];
-                                    if (!date) return <div key={monthIdx} className="hidden" />;
-                                    const monthlyData = cleanData.filter((d: PortfolioItem) => {
-                                        const dDate = new Date(d.date);
-                                        return dDate.getFullYear() === date.getFullYear() && dDate.getMonth() === date.getMonth() && !d.ticker.toUpperCase().includes('CASH');
-                                    });
-                                    if (monthlyData.length === 0) return <div key={monthIdx} className="hidden" />;
-                                    const items = buildTableItemsFromHistory(monthlyData);
-
-                                    // Status Indicators
-                                    const now = new Date();
-                                    const isCurrentMonth = date.getMonth() === now.getMonth() && date.getFullYear() === now.getFullYear();
-
-                                    let displayTitle = date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-                                    let status: 'COMPLETED' | 'IN_PROGRESS' = 'COMPLETED';
-                                    if (isCurrentMonth) {
-                                        displayTitle += ' (MTD)';
-                                        status = 'IN_PROGRESS';
-                                    }
-
-                                    return <AttributionTable key={date.toISOString()} title={displayTitle} items={items} status={status} />;
-                                })}
-                                {(() => {
-                                    const q4Data = cleanData.filter(d => {
-                                        const m = new Date(d.date).getMonth();
-                                        const y = new Date(d.date).getFullYear();
-                                        return [9, 10, 11].includes(m) && y === primaryYear;
-                                    });
-                                    const uniqueMonths = new Set(q4Data.map(d => new Date(d.date).getMonth()));
-                                    if (q4Data.length === 0 || uniqueMonths.size < 3) return null;
-
-                                    // Quarter Status
-                                    const now = new Date();
-                                    const currentQuarter = Math.floor(now.getMonth() / 3) + 1;
-                                    const isCurrentQuarter = primaryYear === now.getFullYear() && currentQuarter === 4;
-
-                                    let qTitle = `Q4 ${primaryYear}`;
-                                    let qStatus: 'COMPLETED' | 'IN_PROGRESS' = 'COMPLETED';
-                                    if (isCurrentQuarter) {
-                                        qTitle += ' (QTD)';
-                                        qStatus = 'IN_PROGRESS';
-                                    }
-
-                                    return <AttributionTable key="Q4" title={qTitle} items={buildTableItemsFromHistory(q4Data)} isQuarter={true} status={qStatus} />;
-                                })()}
-                            </div>
-                        )}
-                        </div>{/* end print-page 2 */}
-                    </div>
+                            <CanonicalContributorPagesSection
+                                pages={canonicalContributorPages}
+                                year={selectedYear}
+                            />
                         ) : tableMode === 'month' ? (
-                        !analysisResponse || monthlyPeriods.length === 0 ? (
-                            <div className="flex items-center justify-center p-12">
-                                <div className="bg-wallstreet-800 p-6 rounded-xl border border-wallstreet-700 text-center">
-                                    <p className="text-wallstreet-500 text-sm font-mono">No monthly data available. Reload the portfolio to generate monthly sheets.</p>
-                                </div>
-                            </div>
+                            <CanonicalMatrixTable
+                                layout={canonicalMonthlyMatrixLayout}
+                                emptyMessage="No monthly data available. Reload the portfolio to generate monthly sheets."
+                                showContributionShare={true}
+                            />
                         ) : (
-                            <div className="overflow-x-auto rounded-xl border border-wallstreet-700">
-                                <table className="w-full text-xs font-mono border-collapse">
-                                    <thead>
-                                        <tr className="bg-wallstreet-800 border-b border-wallstreet-700">
-                                            <th className="text-left px-4 py-3 text-wallstreet-500 font-bold sticky left-0 bg-wallstreet-800 min-w-[90px]">Ticker</th>
-                                            {monthlyPeriods.map((p, i) => {
-                                                const e = new Date(p.end + 'T00:00:00');
-                                                const monthLabel = e.toLocaleDateString('en-US', { month: 'long' }).toUpperCase();
-                                                return (
-                                                    <th key={i} colSpan={3} className="text-center px-2 py-3 text-wallstreet-500 font-bold border-l border-wallstreet-700 whitespace-nowrap">
-                                                        {monthLabel}
-                                                    </th>
-                                                );
-                                            })}
-                                            <th colSpan={3} className="text-center px-2 py-3 text-wallstreet-accent font-bold border-l border-wallstreet-700">YTD</th>
-                                        </tr>
-                                        <tr className="bg-wallstreet-900 border-b border-wallstreet-700">
-                                            <th className="sticky left-0 bg-wallstreet-900 px-4 py-2 text-wallstreet-500"></th>
-                                            {monthlyPeriods.map((_, i) => (
-                                                <React.Fragment key={i}>
-                                                    <th className="px-2 py-2 text-right text-wallstreet-500 border-l border-wallstreet-700">Wt%</th>
-                                                    <th className="px-2 py-2 text-right text-wallstreet-500">Ret%</th>
-                                                    <th className="px-2 py-2 text-right text-wallstreet-500">Contrib</th>
-                                                </React.Fragment>
-                                            ))}
-                                            <th className="px-2 py-2 text-right text-wallstreet-500 border-l border-wallstreet-700">Ret%</th>
-                                            <th className="px-2 py-2 text-right text-wallstreet-accent font-bold">Contrib</th>
-                                            <th className="px-2 py-2 text-right text-wallstreet-accent font-bold">% of Contribution</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                                {matrixData.map((row, ri) => (
-                                            <tr key={row.ticker} className={`border-b border-wallstreet-800 hover:bg-wallstreet-700/40 transition-colors ${ri % 2 === 0 ? '' : 'bg-wallstreet-800/30'}`}>
-                                                <td className="sticky left-0 px-4 py-2.5 font-bold text-wallstreet-text bg-wallstreet-900">{row.ticker}</td>
-                                                {monthlyPeriods.map((p, pi) => {
-                                                    const d = new Date(p.end + 'T00:00:00');
-                                                    const key = `${d.getFullYear()}-${d.getMonth()}`;
-                                                    const weight = row[`w-${key}`];
-                                                    const ret = row[`p-${key}`];
-                                                    const contrib = row[key];
-                                                    const hasData = ret !== null && ret !== undefined && contrib !== null && contrib !== undefined;
-                                                    return (
-                                                        <React.Fragment key={pi}>
-                                                            <td className="px-2 py-2.5 text-right text-wallstreet-500 border-l border-wallstreet-800">{hasData ? `${(weight ?? 0).toFixed(1)}%` : '-'}</td>
-                                                            <td className={`px-2 py-2.5 text-right ${!hasData ? 'text-wallstreet-500' : ret >= 0 ? 'text-green-400' : 'text-red-400'}`}>{hasData ? `${ret.toFixed(2)}%` : '-'}</td>
-                                                            <td className={`px-2 py-2.5 text-right font-semibold ${!hasData ? 'text-wallstreet-500' : contrib >= 0 ? 'text-green-400' : 'text-red-400'}`}>{hasData ? `${contrib >= 0 ? '' : '('}${Math.abs(contrib * 100).toFixed(2)}%${contrib < 0 ? ')' : ''}` : '-'}</td>
-                                                        </React.Fragment>
-                                                    );
-                                                })}
-                                                <td className={`px-2 py-2.5 text-right border-l border-wallstreet-700 ${row.totalPerformance >= 0 ? 'text-green-400' : 'text-red-400'}`}>{row.totalPerformance.toFixed(2)}%</td>
-                                                <td className={`px-2 py-2.5 text-right font-bold ${row.totalContribution >= 0 ? 'text-green-400' : 'text-red-400'}`}>{row.totalContribution >= 0 ? '' : '('}{Math.abs(row.totalContribution * 100).toFixed(2)}%{row.totalContribution < 0 ? ')' : ''}</td>
-                                                <td className={`px-2 py-2.5 text-right font-bold border-l border-wallstreet-700 ${portfolioYtdReturnDenominator !== null ? (((row.totalContribution * 10000) / portfolioYtdReturnDenominator) >= 0 ? 'text-green-400' : 'text-red-400') : 'text-wallstreet-500'}`}>
-                                                    {portfolioYtdReturnDenominator !== null
-                                                        ? `${((row.totalContribution * 10000) / portfolioYtdReturnDenominator) >= 0 ? '' : '('}${Math.abs((row.totalContribution * 10000) / portfolioYtdReturnDenominator).toFixed(2)}%${((row.totalContribution * 10000) / portfolioYtdReturnDenominator) < 0 ? ')' : ''}`
-                                                        : '-'}
-                                                </td>
-                                            </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
-                            </div>
-                        )
-                        ) : (
-                        /* Period View â€” sourced from analysisResponse.periodSheet */
-                        !analysisResponse || analysisResponse.periodSheet.length === 0 ? (
-                            <div className="flex items-center justify-center p-12">
-                                <div className="bg-wallstreet-800 p-6 rounded-xl border border-wallstreet-700 text-center">
-                                    <p className="text-wallstreet-500 text-sm font-mono">No period data available. Reload the portfolio to generate period sheets.</p>
-                                </div>
-                            </div>
-                        ) : (
-                            <div className="overflow-x-auto rounded-xl border border-wallstreet-700">
-                                <table className="w-full text-xs font-mono border-collapse">
-                                    <thead>
-                                        <tr className="bg-wallstreet-800 border-b border-wallstreet-700">
-                                            <th className="text-left px-4 py-3 text-wallstreet-500 font-bold sticky left-0 bg-wallstreet-800 min-w-[90px]">Ticker</th>
-                                            {analysisResponse.periods.map((p, i) => {
-                                                const s = new Date(p.start + 'T00:00:00');
-                                                const e = new Date(p.end + 'T00:00:00');
-                                                const fmt = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-                                                return (
-                                                    <th key={i} colSpan={3} className="text-center px-2 py-3 text-wallstreet-500 font-bold border-l border-wallstreet-700 whitespace-nowrap">
-                                                        {fmt(s)} - {fmt(e)}
-                                                    </th>
-                                                );
-                                            })}
-                                            <th colSpan={2} className="text-center px-2 py-3 text-wallstreet-accent font-bold border-l border-wallstreet-700">YTD</th>
-                                        </tr>
-                                        <tr className="bg-wallstreet-900 border-b border-wallstreet-700">
-                                            <th className="sticky left-0 bg-wallstreet-900 px-4 py-2 text-wallstreet-500"></th>
-                                            {analysisResponse.periods.map((_, i) => (
-                                                <React.Fragment key={i}>
-                                                    <th className="px-2 py-2 text-right text-wallstreet-500 border-l border-wallstreet-700">Wt%</th>
-                                                    <th className="px-2 py-2 text-right text-wallstreet-500">Ret%</th>
-                                                    <th className="px-2 py-2 text-right text-wallstreet-500">Contrib</th>
-                                                </React.Fragment>
-                                            ))}
-                                            <th className="px-2 py-2 text-right text-wallstreet-500 border-l border-wallstreet-700">Ret%</th>
-                                            <th className="px-2 py-2 text-right text-wallstreet-accent font-bold">Contrib</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {analysisResponse.periodSheet.map((row, ri) => (
-                                            <tr key={row.ticker} className={`border-b border-wallstreet-800 hover:bg-wallstreet-700/40 transition-colors ${ri % 2 === 0 ? '' : 'bg-wallstreet-800/30'}`}>
-                                                <td className="sticky left-0 px-4 py-2.5 font-bold text-wallstreet-text bg-wallstreet-900">{row.ticker}</td>
-                                                {row.periods.map((pd, pi) => (
-                                                    <React.Fragment key={pi}>
-                                                        <td className="px-2 py-2.5 text-right text-wallstreet-500 border-l border-wallstreet-800">{(pd.weight * 100).toFixed(1)}%</td>
-                                                        <td className={`px-2 py-2.5 text-right ${pd.returnPct >= 0 ? 'text-green-400' : 'text-red-400'}`}>{(pd.returnPct * 100).toFixed(2)}%</td>
-                                                        <td className={`px-2 py-2.5 text-right font-semibold ${pd.contribution >= 0 ? 'text-green-400' : 'text-red-400'}`}>{pd.contribution >= 0 ? '' : '('}{Math.abs(pd.contribution * 100).toFixed(2)}%{pd.contribution < 0 ? ')' : ''}</td>
-                                                    </React.Fragment>
-                                                ))}
-                                                <td className={`px-2 py-2.5 text-right border-l border-wallstreet-700 ${row.ytdReturn >= 0 ? 'text-green-400' : 'text-red-400'}`}>{(row.ytdReturn * 100).toFixed(2)}%</td>
-                                                <td className={`px-2 py-2.5 text-right font-bold ${row.ytdContrib >= 0 ? 'text-green-400' : 'text-red-400'}`}>{row.ytdContrib >= 0 ? '' : '('}{Math.abs(row.ytdContrib * 100).toFixed(2)}%{row.ytdContrib < 0 ? ')' : ''}</td>
-                                            </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
-                            </div>
-                        )
+                            <CanonicalMatrixTable
+                                layout={canonicalPeriodMatrixLayout}
+                                emptyMessage="No period data available. Reload the portfolio to generate period sheets."
+                            />
                         )}
                         </div>
                 )}

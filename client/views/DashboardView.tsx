@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { PortfolioItem } from '../types';
+import { PortfolioItem, RiskContributionResponse } from '../types';
 import { PortfolioTable } from '../components/PortfolioTable';
 import { KPICard } from '../components/KPICard';
 import { PortfolioEvolutionChart } from '../components/PortfolioEvolutionChart';
@@ -13,6 +13,7 @@ interface DashboardViewProps {
   customSectors?: Record<string, Record<string, number>>;
   assetGeo?: Record<string, string>;
   isActive?: boolean;
+  workspaceRisk?: RiskContributionResponse | null;
 }
 
 const COLORS = [
@@ -23,7 +24,7 @@ const COLORS = [
 
 const isCashHolding = (item: PortfolioItem) => !!item.isCash || item.sector === 'CASH' || item.ticker.toUpperCase() === '*CASH*';
 
-export const DashboardView: React.FC<DashboardViewProps> = ({ data, customSectors, assetGeo, isActive }) => {
+export const DashboardView: React.FC<DashboardViewProps> = ({ data, customSectors, assetGeo, isActive, workspaceRisk }) => {
   const { dates, latestDate, currentHoldings, totalWeight } = useMemo(() => {
     const dates = Array.from(new Set(data.map(d => d.date))).sort() as string[];
     const latestDate = dates[dates.length - 1];
@@ -207,7 +208,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ data, customSector
       const errors: string[] = [];
 
       try {
-        const { fetchSectors, fetchBetas, fetchDividends, loadSectorWeights, loadAssetGeo, fetchIndexExposure, fetchRiskContribution } = await import('../services/api');
+        const { fetchSectors, fetchBetas, fetchDividends, loadSectorWeights, loadAssetGeo, fetchIndexExposure } = await import('../services/api');
         if (cancelled) return;
 
         // Fetch Sectors with error handling
@@ -226,7 +227,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ data, customSector
 
         // Fetch Market Betas with error handling
         // NOTE: These are market betas to S&P 500, used only for individual stock display in PortfolioTable
-        // Portfolio-level beta comes from risk-contribution endpoint (see below)
+        // Portfolio-level beta comes from the canonical workspace risk payload (see below)
         try {
           const directStockTickers = currentHoldings
             .filter(isDirectStock)
@@ -255,17 +256,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ data, customSector
           if (!cancelled) setLoadProgress(prev => ({ ...prev, market: 'error' }));
         }
 
-        // Fetch Portfolio Beta from Risk Contribution endpoint
-        // This gives us the true portfolio-to-benchmark beta
-        try {
-          const riskData = await fetchRiskContribution(currentHoldings);
-          if (cancelled) return;
-          if (riskData && !riskData.error && riskData.portfolioBeta !== undefined) {
-            setPortfolioBeta(riskData.portfolioBeta);
-          }
+        if (workspaceRisk && workspaceRisk.portfolioBeta !== undefined) {
+          setPortfolioBeta(workspaceRisk.portfolioBeta);
           setLoadProgress(prev => ({ ...prev, risk: 'done' }));
-        } catch (e) {
-          console.error("Failed to fetch portfolio beta:", e);
+        } else {
           errors.push("portfolio beta");
           if (!cancelled) setLoadProgress(prev => ({ ...prev, risk: 'error' }));
         }
@@ -336,7 +330,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ data, customSector
     return () => {
       cancelled = true;
     };
-  }, [data, customSectors, assetGeo, currentHoldings]);
+  }, [data, customSectors, assetGeo, currentHoldings, workspaceRisk]);
 
   // Derive enrichedCurrentHoldings by merging sectorMap at render time
   const enrichedCurrentHoldings = useMemo(() => {

@@ -1,12 +1,10 @@
-# Portfolio Analytics — Python Backend
+# Portfolio Analytics Backend
 
-FastAPI server that powers the portfolio analytics platform. Fetches market data, computes FX-adjusted returns and contributions, and serves ~20 endpoints consumed by the React frontend.
-
----
+FastAPI server for the portfolio analytics app. The live frontend now consumes a single canonical workspace payload from `POST /portfolio-workspace`.
 
 ## Quick Start
 
-**Prerequisites:** Python 3.8+, internet access (fetches live prices from Yahoo Finance)
+Prerequisites: Python 3.8+ and internet access for Yahoo Finance lookups.
 
 ```bash
 cd server
@@ -14,80 +12,64 @@ pip install -r requirements.txt
 python main.py
 ```
 
-Server runs at **http://localhost:8000**
-
-> **Tip:** Use `uvicorn main:app --reload` during development for auto-reloading on file changes.
-
----
-
-## Tech Stack
-
-| Library | Purpose |
-|---------|---------|
-| FastAPI | REST API framework |
-| uvicorn | ASGI server |
-| pandas | Data manipulation |
-| yfinance | Market data (Yahoo Finance) |
-| python-dateutil | Date parsing |
-
----
+Server runs at `http://localhost:8000`.
 
 ## Key Endpoints
 
 | Endpoint | Description |
-|----------|-------------|
-| `POST /analyze` | Main portfolio analysis (upload weights file) |
-| `POST /analyze-manual` | Portfolio analysis from manually entered data |
-| `GET /fetch-performance` | Per-ticker return & contribution data |
-| `GET /fetch-sectors` | Sector allocation breakdown |
-| `GET /sector-history` | Sector performance over time |
+| --- | --- |
+| `POST /portfolio-workspace` | Canonical portfolio workspace used by the live app |
+| `POST /analyze-manual` | Legacy attribution analysis response kept for compatibility |
+| `POST /portfolio-backcast` | Legacy compatibility wrapper backed by the canonical workspace |
+| `POST /risk-contribution` | Legacy compatibility wrapper backed by the canonical workspace |
+| `POST /rolling-metrics` | Legacy compatibility wrapper backed by the canonical workspace |
+| `GET /fetch-sectors` | Sector classification lookup |
+| `GET /sector-history` | Sector benchmark history |
 | `GET /index-history` | Benchmark index history |
-| `GET /fetch-betas` | Beta calculations vs benchmarks |
-| `GET /fetch-dividends` | Dividend data |
-| `GET /currency-performance` | FX performance (CAD=X) |
-| `POST /upload-nav` | Upload custom mutual fund NAV data |
-| `GET /check-nav-lag` | Check for NAV reporting lag |
+| `GET /index-exposure` | Benchmark sector and geography weights |
 | `POST /save-portfolio-config` | Persist portfolio configuration |
 | `GET /load-portfolio-config` | Load saved configuration |
-| `POST /portfolio-backcast` | Historical backcasting analysis |
-
----
+| `POST /upload-nav` | Upload custom mutual fund NAV data |
+| `GET /check-nav-lag` | Check for NAV reporting lag |
 
 ## Project Structure
 
-```
+```text
 server/
-├── main.py                  # FastAPI app & all endpoints
-├── market_data.py           # Return calculations, FX adjustment
-├── data_loader.py           # Historic NAV CSV loading
-├── cache_manager.py         # Market data cache (pickle)
-├── fetch_price_history.py   # Yahoo Finance integration
-├── index_scraper.py         # Index data scraping
-├── constants.py             # Benchmarks, tickers, config
-├── requirements.txt
-└── data/
-    ├── historic_navs/       # Mutual fund NAV CSVs
-    ├── price_history/       # Cached price data
-    ├── manual_navs.json     # Manually entered NAVs
-    ├── portfolio_config.json
-    ├── custom_sectors.json
-    └── sector_history_cache.json
+|-- main.py                  # FastAPI app bootstrap
+|-- routes/                  # API routers
+|-- services/                # Canonical workspace and shared calculations
+|-- market_data.py           # Return calculations, FX adjustment
+|-- data_loader.py           # Historic NAV CSV loading
+|-- cache_manager.py         # Market data cache (pickle)
+|-- fetch_price_history.py   # Yahoo Finance integration
+|-- index_scraper.py         # Index data scraping
+|-- constants.py             # Benchmarks, tickers, config
+|-- requirements.txt
+`-- data/
+    |-- historic_navs/       # Mutual fund NAV CSVs
+    |-- price_history/       # Cached price data
+    |-- manual_navs.json     # Manually entered NAVs
+    |-- portfolio_config.json
+    |-- custom_sectors.json
+    `-- sector_history_cache.json
 ```
 
----
+## Runtime Model
 
-## How It Works
+1. The client sends holdings snapshots to `POST /portfolio-workspace`.
+2. The server normalizes the analysis timeline and resolves prices or mutual fund NAVs.
+3. The canonical workspace builder computes:
+   - `holdings`
+   - `attribution`
+   - `performance`
+   - `risk`
+   - `audit`
+4. Supporting routes such as sector history and index exposure enrich view-specific benchmark context.
+5. Legacy routes remain available only as compatibility shims or debugging references.
 
-1. **Upload** — client sends portfolio weights (tickers × dates) via multipart form or JSON
-2. **Fetch** — server pulls closing prices from Yahoo Finance; falls back to cached NAVs for mutual funds
-3. **Calculate** — for each period between weight dates:
-   - `Return = (P_end / P_start) - 1`
-   - `Contribution = Weight × Return`
-   - Non-CAD assets get FX-adjusted: `(1 + R_asset) × (1 + R_USD/CAD) - 1`
-4. **Benchmarks** — S&P 500, Dow Jones, Nasdaq, ACWI, TSX, USD/CAD are appended automatically
-5. **Cache** — fetched prices are cached locally to speed up repeat requests
+## Special Cases
 
-**Special cases:**
-- `*cash*` ticker → forced 0% return in all periods
-- Mutual fund NAVs → loaded from `data/historic_navs/` CSVs instead of Yahoo Finance
-- All returns are expressed in **CAD**
+- `*cash*` tickers are forced to 0% return in all periods.
+- Mutual fund NAVs come from `data/historic_navs/` or manual NAV inputs instead of Yahoo Finance.
+- All returns are expressed in CAD after FX adjustment where required.

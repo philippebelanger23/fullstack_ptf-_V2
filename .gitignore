@@ -1,0 +1,14 @@
+# Python build artifacts
+__pycache__/
+*.py[cod]
+
+# Test/runtime caches
+.pytest_cache/
+server/.pytest_cache/
+pytest-cache-files-*/
+server/.cache/
+
+# Local logs
+server.log
+server.err
+scraper_debug.log

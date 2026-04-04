@@ -21,6 +21,9 @@ from market_data import (
 )
 from cache_manager import load_cache, save_cache, clear_cache, get_cache_info
 from services.period_normalizer import normalize_portfolio_periods
+from services.path_utils import resolve_storage_path
+from services.workspace_service import build_portfolio_workspace
+from services.yfinance_setup import configure_yfinance_cache
 from models import (
     PortfolioItem,
     ManualAnalysisRequest,
@@ -31,6 +34,8 @@ from models import (
     MonthlySheetRow,
     PortfolioAnalysisResponse,
 )
+
+configure_yfinance_cache()
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -104,7 +109,7 @@ def get_company_name_map(tickers: list[str], mutual_fund_tickers: set[str], cash
     Resolve display names for stocks and ETFs.
     Mutual funds stay ticker-based in the One Pager, so they are excluded here.
     """
-    cache_file = Path("data/company_names_cache.json")
+    cache_file = resolve_storage_path("data/company_names_cache.json")
     server_cache: dict[str, str] = {}
     cache_dirty = False
 
@@ -200,7 +205,7 @@ def run_portfolio_analysis(
 
     # Load custom sector weights if available
     custom_sectors = {}
-    sector_path = Path("data/custom_sectors.json")
+    sector_path = resolve_storage_path("data/custom_sectors.json")
     if sector_path.exists():
         try:
             with open(sector_path, "r") as f:
@@ -431,6 +436,15 @@ async def analyze_manual(request: ManualAnalysisRequest):
 
     except Exception as e:
         logger.error(f"Error in manual analysis: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/portfolio-workspace")
+async def portfolio_workspace(request: ManualAnalysisRequest):
+    try:
+        return build_portfolio_workspace(request.items)
+    except Exception as e:
+        logger.error(f"Error building portfolio workspace: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 

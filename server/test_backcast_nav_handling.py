@@ -13,7 +13,7 @@ import services.backcast_service as backcast_service
 def test_fetch_returns_df_includes_nav_tickers_without_yahoo_fetch(monkeypatch):
     captured = {}
 
-    def fake_download(fetch_list, period=None, interval=None, progress=None):
+    def fake_download(fetch_list, period=None, interval=None, progress=None, timeout=None, threads=None):
         captured["fetch_list"] = list(fetch_list)
         idx = pd.to_datetime(["2026-03-30", "2026-03-31", "2026-04-01"])
         columns = pd.MultiIndex.from_tuples(

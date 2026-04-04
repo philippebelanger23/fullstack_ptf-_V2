@@ -12,7 +12,7 @@ export const getDateRangeForPeriod = (period: Period): { start: Date; end?: Date
     now.setHours(0, 0, 0, 0);
     switch (period) {
         case '2025':
-            return { start: new Date(2025, 0, 1), end: new Date(2025, 11, 31) };
+            return { start: new Date(2024, 11, 31), end: new Date(2025, 11, 31) };
         case 'YTD':
             return { start: new Date(now.getFullYear() - 1, 11, 31) };
         case '3M':

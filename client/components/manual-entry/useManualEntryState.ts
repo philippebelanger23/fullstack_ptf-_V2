@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { PortfolioItem } from '../../types';
 import { loadPortfolioConfig, savePortfolioConfig, convertConfigToItems } from '../../services/api';
+import { getAvailableReportingYears, isDateInSelectedYearWindow } from '../../utils/selectedYear';
 
 export interface AllocationPeriod {
     id: string;
@@ -1323,6 +1324,7 @@ export interface UseManualEntryStateReturn {
     savedSuccess: boolean;
     newTickerInput: string;
     setNewTickerInput: React.Dispatch<React.SetStateAction<string>>;
+    availableYears: number[];
     filteredPeriods: AllocationPeriod[];
     sortedTickers: TickerRow[];
     displayTickers: TickerRow[];
@@ -1343,7 +1345,7 @@ export interface UseManualEntryStateReturn {
 export function useManualEntryState(
     isOpen: boolean,
     existingData: PortfolioItem[] | undefined,
-    selectedYear: 2025 | 2026,
+    selectedYear: number,
     onSubmit: (data: PortfolioItem[]) => void,
     onClose: () => void
 ): UseManualEntryStateReturn {
@@ -1542,13 +1544,16 @@ export function useManualEntryState(
         }
     };
 
-    const filteredPeriods = periods.filter(p => {
-        if (selectedYear === 2025) {
-            return p.startDate >= '2024-12-31' && p.startDate <= '2025-12-31';
-        } else {
-            return p.startDate >= '2025-12-31' && p.startDate <= '2026-12-31';
-        }
-    });
+    const availableYears = useMemo(() => (
+        getAvailableReportingYears(
+            periods.map(period => period.startDate),
+            [selectedYear, new Date().getFullYear()],
+        )
+    ), [periods, selectedYear]);
+
+    const filteredPeriods = useMemo(() => (
+        periods.filter(period => isDateInSelectedYearWindow(period.startDate, selectedYear))
+    ), [periods, selectedYear]);
 
     // Sort tickers: cash first, then active positions, then 0% positions at the bottom
     const sortedTickers = [...tickers].sort((a, b) => {
@@ -1597,6 +1602,7 @@ export function useManualEntryState(
         savedSuccess,
         newTickerInput,
         setNewTickerInput,
+        availableYears,
         filteredPeriods,
         sortedTickers,
         displayTickers,

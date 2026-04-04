@@ -13,10 +13,20 @@ import yfinance as yf
 from fastapi import APIRouter, File, HTTPException, Query, UploadFile
 
 from cache_manager import load_cache, save_cache
-from market_data import get_price_on_date, get_fx_return, get_nav_price_on_or_before, needs_fx_adjustment
+from market_data import (
+    extract_history_price_series,
+    get_price_on_date,
+    get_fx_return,
+    get_nav_price_on_or_before,
+    needs_fx_adjustment,
+)
 from models import PortfolioConfig
 from routes.portfolio import get_aggregated_nav_data
 from services.config_manager import load_json, save_json
+from services.path_utils import resolve_storage_path
+from services.yfinance_setup import configure_yfinance_cache
+
+configure_yfinance_cache()
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -25,7 +35,7 @@ logger = logging.getLogger(__name__)
 @router.post("/save-portfolio-config")
 async def save_portfolio_config(config: PortfolioConfig):
     try:
-        config_path = Path("data/portfolio_config.json")
+        config_path = resolve_storage_path("data/portfolio_config.json")
         save_json(config_path, config.dict(), description="portfolio config")
         return {"success": True}
     except Exception as e:
@@ -36,7 +46,7 @@ async def save_portfolio_config(config: PortfolioConfig):
 @router.get("/load-portfolio-config")
 async def load_portfolio_config():
     try:
-        config_path = Path("data/portfolio_config.json")
+        config_path = resolve_storage_path("data/portfolio_config.json")
         data = load_json(config_path, default={"tickers": [], "periods": []}, description="portfolio config")
         return data
     except Exception as e:
@@ -49,7 +59,7 @@ async def save_sector_weights(request: dict):
     """Save custom sector weight breakdowns (e.g. for ETFs/MFs)"""
     try:
         weights = request.get("weights", {})
-        path = Path("data/custom_sectors.json")
+        path = resolve_storage_path("data/custom_sectors.json")
         save_json(path, weights, description="sector weights")
         return {"success": True}
     except Exception as e:
@@ -60,7 +70,7 @@ async def save_sector_weights(request: dict):
 @router.get("/load-sector-weights")
 async def load_sector_weights():
     try:
-        path = Path("data/custom_sectors.json")
+        path = resolve_storage_path("data/custom_sectors.json")
         return load_json(path, default={}, description="sector weights")
     except Exception as e:
         logger.error(f"Error loading sector weights: {e}")
@@ -72,7 +82,7 @@ async def save_asset_geo(request: dict):
     """Save custom geographical classifications (e.g. CA, US, INTL)"""
     try:
         geo = request.get("geo", {})
-        path = Path("data/custom_geography.json")
+        path = resolve_storage_path("data/custom_geography.json")
         save_json(path, geo, description="asset geography")
         return {"success": True}
     except Exception as e:
@@ -83,7 +93,7 @@ async def save_asset_geo(request: dict):
 @router.get("/load-asset-geo")
 async def load_asset_geo():
     try:
-        path = Path("data/custom_geography.json")
+        path = resolve_storage_path("data/custom_geography.json")
         return load_json(path, default={}, description="asset geography")
     except Exception as e:
         logger.error(f"Error loading asset geography: {e}")
@@ -103,7 +113,7 @@ async def save_manual_nav(request: dict):
 
         nav_value = float(nav_value)
 
-        manual_path = Path("data/manual_navs.json")
+        manual_path = resolve_storage_path("data/manual_navs.json")
         data = {}
         if manual_path.exists():
             with open(manual_path, "r") as f:
@@ -221,7 +231,7 @@ async def nav_audit():
         result = {}
 
         # 1. Load manual NAVs
-        manual_path = Path("data/manual_navs.json")
+        manual_path = resolve_storage_path("data/manual_navs.json")
         manual_navs = {}
         if manual_path.exists():
             with open(manual_path, "r") as f:
@@ -322,8 +332,9 @@ async def price_audit(
             hist = yf.Ticker(ticker.upper()).history(
                 start=start_ts,
                 end=end_ts + pd.Timedelta(days=1),
+                auto_adjust=False,
             )
-            close_col = hist["Close"] if not hist.empty else pd.Series(dtype=float)
+            close_col = extract_history_price_series(hist).dropna() if not hist.empty else pd.Series(dtype=float)
             prices_series = [
                 {"date": str(idx.date()), "close": round(float(val), 4)}
                 for idx, val in close_col.items()
@@ -335,7 +346,7 @@ async def price_audit(
 
         return {
             "ticker": ticker_upper,
-            "source": "historic NAV CSV" if ticker_upper in nav_dict else "yfinance Ticker.history(...)[\"Close\"]",
+            "source": "historic NAV CSV" if ticker_upper in nav_dict else "yfinance adjusted close",
             "start_date": start_date,
             "end_date": end_date,
             "price_start": round(float(price_start), 4),
@@ -360,7 +371,7 @@ async def upload_nav(ticker: str, file: UploadFile = File(...)):
     """Upload a CSV NAV file for a specific mutual fund ticker."""
     try:
         ticker = ticker.upper()
-        path = Path("data/historic_navs")
+        path = resolve_storage_path("data/historic_navs")
         path.mkdir(parents=True, exist_ok=True)
 
         file_path = path / f"{ticker}.csv"

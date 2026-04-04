@@ -1,17 +1,18 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { AlertCircle, ArrowRight, Trash2, Database, Edit, FileSpreadsheet, CheckCircle2, AlertTriangle, Upload, PieChart, RefreshCw, Layers, ChevronDown, ChevronUp, HelpCircle, Search, Eye, Plus, Save } from 'lucide-react';
-import { PortfolioItem, PortfolioAnalysisResponse } from '../types';
-import { analyzeManualPortfolioFull, checkNavLag, loadSectorWeights, saveSectorWeights, uploadNav, saveAssetGeo, fetchNavAudit, saveManualNav, clearMarketCache } from '../services/api';
+import { PortfolioItem, PortfolioWorkspaceResponse } from '../types';
+import { fetchPortfolioWorkspace, checkNavLag, loadSectorWeights, saveSectorWeights, uploadNav, saveAssetGeo, fetchNavAudit, saveManualNav, clearMarketCache } from '../services/api';
 import { ManualEntryModal } from '../components/ManualEntryModal';
 import { SectorWeightsModal } from '../components/SectorWeightsModal';
+import { isDateInSelectedYearWindow } from '../utils/selectedYear';
 
 interface UploadViewProps {
-  onDataLoaded: (data: PortfolioItem[], fileInfo?: { name: string, count: number }, files?: { weightsFile: File | null, navFile: File | null }, response?: PortfolioAnalysisResponse) => void;
+  onDataLoaded: (workspace: PortfolioWorkspaceResponse | null, fileInfo?: { name: string, count: number }) => void;
   onProceed: () => void;
   currentData: PortfolioItem[];
   fileHistory?: { name: string, count: number }[];
-  selectedYear: 2025 | 2026;
-  setSelectedYear: (year: 2025 | 2026) => void;
+  selectedYear: number;
+  setSelectedYear: (year: number) => void;
   customSectors: Record<string, Record<string, number>>;
   setCustomSectors: React.Dispatch<React.SetStateAction<Record<string, Record<string, number>>>>;
   assetGeo: Record<string, string>;
@@ -181,12 +182,10 @@ export const UploadView: React.FC<UploadViewProps> = ({
   const handleFullRefresh = async () => {
     setIsCheckingLag(true);
     try {
-      // 1. Re-analyze portfolio to pick up any new NAVs on disk
-      const response = await analyzeManualPortfolioFull(currentData);
-      onDataLoaded(response.items, { name: "Manual Entry (Refreshed)", count: response.items.length }, undefined, response);
+      const workspace = await fetchPortfolioWorkspace(currentData);
+      onDataLoaded(workspace, { name: "Manual Entry (Refreshed)", count: workspace.holdings.items.length });
 
-      // 2. Re-check lag status with forceRefresh=true
-      await runLagCheck(results, true);
+      await runLagCheck(workspace.holdings.items, true);
     } catch (err) {
       console.error("Full refresh failed", err);
       setError("Failed to refresh data. Please try again.");
@@ -201,8 +200,8 @@ export const UploadView: React.FC<UploadViewProps> = ({
     setError(null);
     try {
       await clearMarketCache();
-      const response = await analyzeManualPortfolioFull(currentData);
-      onDataLoaded(response.items, { name: "Manual Entry", count: response.items.length }, undefined, response);
+      const workspace = await fetchPortfolioWorkspace(currentData);
+      onDataLoaded(workspace, { name: "Manual Entry", count: workspace.holdings.items.length });
     } catch (err: any) {
       console.error("Price refresh failed:", err);
       setError("Failed to refresh prices: " + (err.message || "Unknown error"));
@@ -215,16 +214,13 @@ export const UploadView: React.FC<UploadViewProps> = ({
     setIsAnalyzing(true);
     setError(null);
     try {
-      const response = await analyzeManualPortfolioFull(items);
-      onDataLoaded(response.items, { name: "Manual Entry", count: response.items.length }, undefined, response);
-      await runLagCheck(response.items);
+      const workspace = await fetchPortfolioWorkspace(items);
+      onDataLoaded(workspace, { name: "Manual Entry", count: workspace.holdings.items.length });
+      await runLagCheck(workspace.holdings.items);
       setIsAssetSectionOpen(true); // Open section automatically after entry
     } catch (err: any) {
-      console.error("Manual analysis failed, falling back to basic data:", err);
-      // Fallback: Still load the basic data so the user can see and fix the error
-      onDataLoaded(items, { name: "Manual Entry (Basic)", count: items.length });
-      setIsAssetSectionOpen(true);
-      setError("Analysis failed: " + (err.message || "Unknown error") + ". Showing basic list for correction.");
+      console.error("Workspace build failed:", err);
+      setError("Analysis failed: " + (err.message || "Unknown error"));
     } finally {
       setIsAnalyzing(false);
     }
@@ -242,11 +238,11 @@ export const UploadView: React.FC<UploadViewProps> = ({
 
       // Proactively re-analyze and refresh lag check with force refresh
       // forceRefresh=true ensures server re-reads NAV files from disk
-      const response = await analyzeManualPortfolioFull(currentData);
-      onDataLoaded(response.items, { name: "Manual Entry (Updated)", count: response.items.length }, undefined, response);
+      const workspace = await fetchPortfolioWorkspace(currentData);
+      onDataLoaded(workspace, { name: "Manual Entry (Updated)", count: workspace.holdings.items.length });
 
       // Run lag check to update status with new data (force refresh)
-      await runLagCheck(response.items, true);
+      await runLagCheck(workspace.holdings.items, true);
     } catch (err: any) {
       setError(`Upload failed for ${ticker}: ${err.message}`);
     } finally {
@@ -314,6 +310,27 @@ export const UploadView: React.FC<UploadViewProps> = ({
   const totalCompletedSectors = activeTickersData.filter(a => a.isComplete).length;
   const totalAssets = activeTickersData.length;
   const anyLagging = Object.values(lagStatus).some(s => s.lagging);
+  const hasSelectedYearMutualFunds = useMemo(() => (
+    currentData.some(item => (
+      item.isMutualFund &&
+      !!item.weight &&
+      item.weight > 0 &&
+      isDateInSelectedYearWindow(item.date, selectedYear)
+    ))
+  ), [currentData, selectedYear]);
+
+  const activeSelectedYearMfTickers = useMemo(() => (
+    new Set(
+      currentData
+        .filter(item => (
+          item.isMutualFund &&
+          !!item.weight &&
+          item.weight > 0 &&
+          isDateInSelectedYearWindow(item.date, selectedYear)
+        ))
+        .map(item => item.ticker.toUpperCase())
+    )
+  ), [currentData, selectedYear]);
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-start pt-8 p-8 relative overflow-hidden">
@@ -534,12 +551,7 @@ export const UploadView: React.FC<UploadViewProps> = ({
         )}
 
         {/* NAV Audit Section — only show if MFs with weight exist in the selected year */}
-        {currentData.some(i => {
-          if (!i.isMutualFund || !i.weight) return false;
-          const yearStart = selectedYear === 2025 ? '2024-12-31' : '2025-12-31';
-          const yearEnd = selectedYear === 2025 ? '2025-12-31' : '2026-12-31';
-          return i.date >= yearStart && i.date <= yearEnd;
-        }) && (
+        {hasSelectedYearMutualFunds && (
           <div className="bg-wallstreet-800/80 backdrop-blur-2xl rounded-2xl border border-wallstreet-700 shadow-xl overflow-hidden">
             <button
               onClick={handleOpenNavAudit}
@@ -562,18 +574,11 @@ export const UploadView: React.FC<UploadViewProps> = ({
                 ) : (
                   <div className="space-y-3">
                     {(() => {
-                      const yearStart = selectedYear === 2025 ? '2024-12-31' : '2025-12-31';
-                      const yearEnd = selectedYear === 2025 ? '2025-12-31' : '2026-12-31';
-                      const activeMfTickers = new Set(
-                        currentData
-                          .filter(i => i.isMutualFund && i.weight && i.weight > 0 && i.date >= yearStart && i.date <= yearEnd)
-                          .map(i => i.ticker.toUpperCase())
-                      );
                       return Object.entries(navAuditData)
-                        .filter(([ticker]) => activeMfTickers.has(ticker.toUpperCase()))
+                        .filter(([ticker]) => activeSelectedYearMfTickers.has(ticker.toUpperCase()))
                         .map(([ticker, entries]) => {
                           const isExpanded = auditExpandedTicker === ticker;
-                          const yearEntries = entries.filter(e => e.date >= yearStart && e.date <= yearEnd);
+                          const yearEntries = entries.filter(entry => isDateInSelectedYearWindow(entry.date, selectedYear));
                           const allEntries = entries;
                           const mostRecentNav = allEntries.length > 0 ? allEntries[allEntries.length - 1] : null;
                           const latestYearEntry = yearEntries[yearEntries.length - 1];
@@ -583,7 +588,10 @@ export const UploadView: React.FC<UploadViewProps> = ({
 
                           // Portfolio holding status for this ticker
                           const tickerHoldings = currentData
-                            .filter(i => i.ticker.toUpperCase() === ticker.toUpperCase() && i.date >= yearStart && i.date <= yearEnd)
+                            .filter(item => (
+                              item.ticker.toUpperCase() === ticker.toUpperCase() &&
+                              isDateInSelectedYearWindow(item.date, selectedYear)
+                            ))
                             .sort((a, b) => a.date.localeCompare(b.date));
                           const latestHolding = tickerHoldings[tickerHoldings.length - 1];
                           const isCurrentlyHeld = latestHolding && latestHolding.weight > 0;

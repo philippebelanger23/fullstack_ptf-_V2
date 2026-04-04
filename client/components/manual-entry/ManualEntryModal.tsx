@@ -10,8 +10,8 @@ interface ManualEntryModalProps {
     onClose: () => void;
     onSubmit: (data: PortfolioItem[]) => void;
     existingData?: PortfolioItem[];
-    selectedYear: 2025 | 2026;
-    setSelectedYear: (year: 2025 | 2026) => void;
+    selectedYear: number;
+    setSelectedYear: (year: number) => void;
 }
 
 export const ManualEntryModal: React.FC<ManualEntryModalProps> = ({
@@ -30,6 +30,7 @@ export const ManualEntryModal: React.FC<ManualEntryModalProps> = ({
         savedSuccess,
         newTickerInput,
         setNewTickerInput,
+        availableYears,
         filteredPeriods,
         displayTickers,
         handleAddTicker,
@@ -75,11 +76,8 @@ export const ManualEntryModal: React.FC<ManualEntryModalProps> = ({
                         <Dropdown
                             labelPrefix="Year"
                             value={selectedYear}
-                            onChange={(val) => setSelectedYear(Number(val) as 2025 | 2026)}
-                            options={[
-                                { value: 2025, label: 2025 },
-                                { value: 2026, label: 2026 }
-                            ]}
+                            onChange={(val) => setSelectedYear(Number(val))}
+                            options={availableYears.map((year) => ({ value: year, label: year }))}
                         />
                     </div>
                     <button onClick={onClose} className="p-2 hover:bg-wallstreet-900 rounded-full transition-colors">

@@ -2,6 +2,10 @@ export interface PortfolioItem {
   ticker: string;
   weight: number; // percent-form (12.5 = 12.5%)
   date: string;
+  periodIndex?: number; // stable canonical sub-period index
+  periodStart?: string; // canonical boundary start date
+  periodEnd?: string; // canonical boundary end date
+  periodKey?: string; // `${periodStart}|${periodEnd}`
   companyName?: string;
   sector?: string;
   notes?: string;
@@ -13,6 +17,7 @@ export interface PortfolioItem {
   sectorWeights?: Record<string, number>; // Custom sector breakdown percentage
   startPrice?: number; // Price at start of sub-period
   endPrice?: number; // Price at end of sub-period
+  priceCovered?: boolean; // true when both canonical boundary prices were resolved
 }
 
 export enum ViewState {
@@ -161,6 +166,7 @@ export interface MonthlySheetRow {
 
 export interface PortfolioAnalysisResponse {
   items: PortfolioItem[]; // flat list used by all other views
+  periodItems?: PortfolioItem[]; // lossless per-period holding rows
   periodSheet: PeriodSheetRow[]; // sub-period granularity
   monthlySheet: MonthlySheetRow[]; // calendar-month granularity
   periods: PeriodBoundary[]; // sub-period date boundaries
@@ -184,4 +190,149 @@ export interface RollingMetricsResponse {
     126: RollingMetricPoint[];
   };
   error?: string;
+}
+
+export interface PortfolioWorkspaceInput {
+  normalizedDates: string[];
+  activeTickers: string[];
+  latestHoldingsDate: string | null;
+}
+
+export interface PortfolioWorkspaceTimeline {
+  expandedDates: string[];
+  periods: PeriodBoundary[];
+  monthlyPeriods: PeriodBoundary[];
+}
+
+export interface PortfolioWorkspaceHoldings {
+  periodItems: PortfolioItem[];
+  items: PortfolioItem[];
+  latestItems: PortfolioItem[];
+}
+
+export interface TopContributorRow {
+  ticker: string;
+  weight: number;
+  returnPct: number;
+  contribution: number;
+}
+
+export interface TopContributorTable {
+  label: string;
+  rows: TopContributorRow[];
+}
+
+export interface TopContributorLayout {
+  monthlyTables: TopContributorTable[];
+  quarterTable: TopContributorTable | null;
+}
+
+export interface AttributionWaterfallBar {
+  name: string;
+  value: [number, number];
+  delta: number;
+  isTotal: boolean;
+  weight?: number;
+  totalReturn?: number;
+  sector?: string | null;
+  companyName?: string | null;
+  isEtf?: boolean;
+  isMutualFund?: boolean;
+}
+
+export interface AttributionWaterfallLayout {
+  bars: AttributionWaterfallBar[];
+  domain: [number, number];
+  portfolioReturn: number;
+}
+
+export interface SectorAttributionStock {
+  ticker: string;
+  returnPct: number;
+  weight: number;
+  selectionContribution: number;
+}
+
+export interface SectorAttributionRow {
+  sector: string;
+  displayName: string;
+  benchmarkETF: string;
+  selectionEffect: number;
+  allocationEffect: number;
+  interactionEffect: number;
+  benchmarkReturn: number;
+  benchmarkWeight: number;
+  portfolioWeight: number;
+  portfolioReturn: number;
+  hasDirectHoldings: boolean;
+  stocks: SectorAttributionStock[];
+}
+
+export interface SectorAttributionLayout {
+  data: SectorAttributionRow[];
+  selectionDomain: [number, number];
+  allocationDomain: [number, number];
+  interactionDomain: [number, number];
+}
+
+export interface AttributionOverviewRangeLayout {
+  waterfall: AttributionWaterfallLayout;
+  sectorAttribution: Record<string, Record<string, SectorAttributionLayout>>;
+}
+
+export interface PortfolioWorkspaceAttribution extends PortfolioAnalysisResponse {
+  topContributors: TopContributorLayout[];
+  overviewLayouts?: Record<string, Record<string, AttributionOverviewRangeLayout>>;
+  portfolioPeriodReturns: Record<string, number>;
+  portfolioMonthlyReturns: Record<string, number>;
+  portfolioYtdReturn: number;
+}
+
+export interface PerformanceWorkspaceSection {
+  defaultBenchmark: string;
+  variants: Record<string, BackcastResponse>;
+  rollingMetrics: Record<string, RollingMetricsResponse>;
+}
+
+export interface MutualFundTraceRow {
+  startDate?: string;
+  endDate?: string;
+  label?: string;
+  weight?: number;
+  priceStart?: number | null;
+  priceEnd?: number | null;
+  startValue?: number | null;
+  endValue?: number | null;
+  returnPct: number;
+  contribution: number;
+  needsFx?: boolean;
+  priceCovered?: boolean;
+}
+
+export interface MutualFundTrace {
+  rawNavInputs: { date: string | null; nav: number }[];
+  reportingBoundaries: (string | null)[];
+  resolvedBoundaryPrices: { date: string | null; value: number | null }[];
+  subperiodRows: MutualFundTraceRow[];
+  monthlyRows: MutualFundTraceRow[];
+  quarterRows: MutualFundTraceRow[];
+  ytdRow: MutualFundTraceRow;
+}
+
+export interface PortfolioWorkspaceAudit {
+  navAudit: Record<string, { date: string; nav: number; source: string; returnPct: number | null }[]>;
+  mutualFundTraces: Record<string, MutualFundTrace>;
+  coverage: {
+    missingBoundaryPrices: { ticker: string; start: string | null; end: string | null }[];
+  };
+}
+
+export interface PortfolioWorkspaceResponse {
+  input: PortfolioWorkspaceInput;
+  timeline: PortfolioWorkspaceTimeline;
+  holdings: PortfolioWorkspaceHoldings;
+  attribution: PortfolioWorkspaceAttribution;
+  performance: PerformanceWorkspaceSection;
+  risk: RiskContributionResponse;
+  audit: PortfolioWorkspaceAudit;
 }

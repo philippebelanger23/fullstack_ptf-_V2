@@ -1,58 +1,41 @@
-"""
-Fetch daily adjusted close data from yfinance for all Manual Entry tickers.
-Saves to CSV files in server/data/price_history/
-Reports any tickers that couldn't be fetched.
-"""
+"""Warm cached-yfinance price history for the active portfolio and benchmarks."""
 
-import yfinance as yf
-import pandas as pd
+import json
 from pathlib import Path
-from datetime import datetime
 
-# All tickers from ManualEntryModal.tsx
-TICKERS = [
-    # Canadian tickers
-    "MKB.TO",
-    "FNV.TO",
-    "CTC-A.TO",
-    "BNS.TO",
-    "RY.TO",
-    "TD.TO",
-    "T.TO",
-    "CCO.TO",
-    "ENB.TO",
-    "SU.TO",
-    "CVE.TO",
-    "CP.TO",
-    "WCN.TO",
-    "AFN.TO",
-    "WSP.TO",
-    "MRU.TO",
-    "ATD.TO",
-    "XUS.TO",
-    "TECH-B.TO",
-    "CM.TO",
-    "CPX.TO",
-    
-    # US tickers
-    "BRK-B",
-    "BA",
-    "GOOGL",
-    "CRWD",
-    "MSFT",
-    "UNH",
-    "CRM",
-    "AMZN",
-    "PANW",
-    "COST",
-    
-    # Mutual Funds / ETFs that may not have ticker data
-    "BIP791",
-    "DJT03868", 
-    "TDB3173",
-    "DYN245",
-    "MFC8625",
-]
+import pandas as pd
+import yfinance as yf
+
+from constants import BENCHMARK_TICKERS
+from market_data import extract_history_price_series
+from services.path_utils import resolve_storage_path
+from services.yfinance_setup import configure_yfinance_cache
+
+configure_yfinance_cache()
+
+
+def load_target_tickers() -> list[str]:
+    config_path = resolve_storage_path("data/portfolio_config.json")
+    targets: set[str] = set()
+
+    if config_path.exists():
+        try:
+            payload = json.loads(config_path.read_text(encoding="utf-8"))
+            for item in payload.get("tickers", []):
+                ticker = str(item.get("ticker", "")).upper().strip()
+                if not ticker or ticker == "*CASH*" or item.get("isMutualFund"):
+                    continue
+                targets.add(ticker)
+        except Exception as exc:
+            print(f"Warning: could not read {config_path}: {exc}")
+
+    targets.update(
+        ticker.upper().strip()
+        for ticker in BENCHMARK_TICKERS.values()
+        if ticker and ticker != "CAD=X"
+    )
+
+    return sorted(targets)
 
 def fetch_and_save_price_data(output_dir: Path = Path("data/price_history")):
     """
@@ -61,29 +44,29 @@ def fetch_and_save_price_data(output_dir: Path = Path("data/price_history")):
     """
     output_dir.mkdir(parents=True, exist_ok=True)
     
+    tickers = load_target_tickers()
     successful = []
     failed = []
     
-    print(f"Fetching daily adjusted close data for {len(TICKERS)} tickers...")
+    print(f"Fetching daily adjusted close data for {len(tickers)} tickers...")
     print("-" * 60)
     
-    for ticker in TICKERS:
+    for ticker in tickers:
         try:
             print(f"Fetching {ticker}...", end=" ")
             
-            # Match the canonical engine: use Ticker.history() Close values.
-            data = yf.Ticker(ticker).history(period="5y", interval="1d")
+            # Match the canonical engine: use adjusted close values.
+            data = yf.Ticker(ticker).history(period="5y", interval="1d", timeout=5, auto_adjust=False)
 
             if data.empty:
                 print(f"FAILED - No data returned")
                 failed.append((ticker, "No data returned"))
                 continue
 
-            if 'Close' in data.columns:
-                close_prices = data['Close']
-            else:
-                print(f"FAILED - No Close column found")
-                failed.append((ticker, "No Close column"))
+            close_prices = extract_history_price_series(data).dropna()
+            if close_prices.empty:
+                print(f"FAILED - No adjusted close column found")
+                failed.append((ticker, "No adjusted close column"))
                 continue
             
             # Create DataFrame with date and close price
@@ -107,7 +90,7 @@ def fetch_and_save_price_data(output_dir: Path = Path("data/price_history")):
     print("\n" + "=" * 60)
     print(f"SUMMARY")
     print("=" * 60)
-    print(f"Successfully fetched: {len(successful)}/{len(TICKERS)} tickers")
+    print(f"Successfully fetched: {len(successful)}/{len(tickers)} tickers")
     
     if successful:
         print(f"\nSuccessful tickers:")

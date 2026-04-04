@@ -2,8 +2,9 @@ import React from 'react';
 import type { Period, PeriodMetrics } from './PerformanceKPIs';
 import type { BackcastResponse } from '../../types';
 import { UnifiedPerformancePanel } from './UnifiedPerformancePanel';
+import type { PerformanceChartView } from '../../selectors/performanceSelectors';
 
-export type ChartView = 'absolute' | 'relative' | 'drawdowns';
+export type ChartView = PerformanceChartView;
 
 const BENCHMARKS = [
     { key: '75/25', label: '75/25', title: '75% ACWI (CAD) + 25% XIC.TO', color: '#10b981' },

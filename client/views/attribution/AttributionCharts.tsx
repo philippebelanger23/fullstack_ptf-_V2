@@ -43,6 +43,14 @@ interface WaterfallChartProps {
 
 const WaterfallChartBase: React.FC<WaterfallChartProps> = ({ waterfallData, waterfallDomain }) => {
     const tc = useThemeColors();
+    const getBarFill = useCallback((entry: any) => {
+        if (entry?.isTotal) {
+            return tc.isDark ? '#38bdf8' : '#0A2351';
+        }
+        const delta = Number(entry?.delta ?? 0);
+        if (Math.abs(delta) < 0.0001) return '#94a3b8';
+        return delta >= 0 ? '#16a34a' : '#dc2626';
+    }, [tc.isDark]);
     return (
     <div className="lg:col-span-4 bg-wallstreet-800 p-6 rounded-xl border border-wallstreet-700 shadow-sm flex flex-col">
         <div className="mb-4">
@@ -78,7 +86,7 @@ const WaterfallChartBase: React.FC<WaterfallChartProps> = ({ waterfallData, wate
                     }} />
                     <ReferenceLine y={0} stroke={tc.referenceLine} />
                     <Bar dataKey="value" radius={[2, 2, 2, 2]}>
-                        {waterfallData.map((entry, index) => <Cell key={`cell-${index}`} fill={entry.color} />)}
+                        {waterfallData.map((entry, index) => <Cell key={`cell-${index}`} fill={getBarFill(entry)} />)}
                         <LabelList dataKey="delta" position="top" formatter={(val: number) => Math.abs(val) > 0.001 ? (val < 0 ? `(${Math.abs(val).toFixed(2)}%)` : `+${val.toFixed(2)}%`) : ''} style={{ fill: tc.tickFill, fontSize: '11px', fontWeight: 'black', fontFamily: "'JetBrains Mono', monospace" }} />
                     </Bar>
                 </BarChart>

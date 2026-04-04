@@ -8,8 +8,33 @@ import { AttributionView } from './views/attribution/AttributionView';
 import { IndexView } from './views/IndexView';
 import { PerformanceView } from './views/PerformanceView';
 import { RiskContributionView } from './views/RiskContributionView';
-import { PortfolioItem, ViewState, BackcastResponse, PortfolioAnalysisResponse } from './types';
-import { loadPortfolioConfig, analyzeManualPortfolioFull, convertConfigToItems, loadSectorWeights, loadAssetGeo, fetchPortfolioBackcast } from './services/api';
+import { PortfolioItem, ViewState, BackcastResponse, PortfolioWorkspaceAttribution, PortfolioWorkspaceResponse } from './types';
+import { loadPortfolioConfig, convertConfigToItems, loadSectorWeights, loadAssetGeo, fetchPortfolioWorkspace } from './services/api';
+
+const AUTOLOAD_WORKSPACE_TIMEOUT_MS = 30000;
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, timeoutLabel: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    let settled = false;
+    const timer = window.setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      reject(new Error(`${timeoutLabel} timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+
+    promise.then((value) => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timer);
+      resolve(value);
+    }).catch((error) => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timer);
+      reject(error);
+    });
+  });
+}
 
 class GlobalErrorBoundary extends Component<{ children: React.ReactNode }, { hasError: boolean, error: Error | null, errorInfo: ErrorInfo | null }> {
   constructor(props: any) {
@@ -64,9 +89,9 @@ class GlobalErrorBoundary extends Component<{ children: React.ReactNode }, { has
 
 function App() {
   const [currentView, setCurrentView] = useState<ViewState>(ViewState.UPLOAD);
-  const [portfolioData, setPortfolioData] = useState<PortfolioItem[]>([]);
-  // Full attribution sheets from /analyze-manual — periodSheet, monthlySheet, boundaries, benchmarks
-  const [analysisResponse, setAnalysisResponse] = useState<PortfolioAnalysisResponse | null>(null);
+  const [workspace, setWorkspace] = useState<PortfolioWorkspaceResponse | null>(null);
+  const [bootError, setBootError] = useState<string | null>(null);
+  // Historical upload metadata retained for the current workspace session.
   const [fileHistory, setFileHistory] = useState<{ name: string, count: number }[]>([]);
 
   // Lifted state for Correlation Analysis to prevent regeneration
@@ -74,7 +99,7 @@ function App() {
   const [correlationStatus, setCorrelationStatus] = useState<'idle' | 'analyzing' | 'complete' | 'error'>('idle');
 
   // Shared state for year selection
-  const [selectedYear, setSelectedYear] = useState<2025 | 2026>(2026);
+  const [selectedYear, setSelectedYear] = useState<number>(() => new Date().getFullYear());
 
   // Asset Completion & Persistence State
   const [customSectors, setCustomSectors] = useState<Record<string, Record<string, number>>>({});
@@ -87,63 +112,14 @@ function App() {
   // Single canonical backcast — fetched once whenever portfolioData changes, shared to all views.
   // includeAttribution=true adds per-period, per-ticker return data derived from the same daily
   // series, ensuring all views (waterfall, performance graph, one pager) are consistent.
-  const [backcastData, setBackcastData] = useState<BackcastResponse | null>(null);
-  const [backcastLoading, setBackcastLoading] = useState(false);
-  // Pre-fetched non-default benchmarks so the Performance tab switches are instant.
-  const [prefetchedBackcasts, setPrefetchedBackcasts] = useState<Record<string, BackcastResponse>>({});
-  const [isBootstrapping, setIsBootstrapping] = useState(true);
-  const [showBootOverlay, setShowBootOverlay] = useState(true);
-
-  useEffect(() => {
-    if (portfolioData.length === 0) {
-      setBackcastData(null);
-      setPrefetchedBackcasts({});
-      return;
-    }
-    let cancelled = false;
-    setBackcastLoading(true);
-    // Fetch 75/25 (with attribution for waterfall) plus all benchmark variants in parallel.
-    Promise.all([
-      fetchPortfolioBackcast(portfolioData, '75/25', true),
-      fetchPortfolioBackcast(portfolioData, 'TSX'),
-      fetchPortfolioBackcast(portfolioData, 'SP500'),
-      fetchPortfolioBackcast(portfolioData, 'ACWI'),
-    ])
-      .then(([r7525, rTSX, rSP500, rACWI]) => {
-        if (cancelled) return;
-        if (!r7525.error) setBackcastData(r7525);
-        const pre: Record<string, BackcastResponse> = {};
-        if (!rTSX.error) pre['TSX'] = rTSX;
-        if (!rSP500.error) pre['SP500'] = rSP500;
-        if (!rACWI.error) pre['ACWI'] = rACWI;
-        setPrefetchedBackcasts(pre);
-      })
-      .catch(e => console.error('Backcast prefetch failed:', e))
-      .finally(() => { if (!cancelled) setBackcastLoading(false); });
-    return () => { cancelled = true; };
-  }, [portfolioData]);
-
-  // Merge period attribution from the backcast (daily-chain returns) into portfolioData.
-  // Only returnPct and contribution are overridden — all metadata (isMutualFund, sectorWeights,
-  // startPrice, etc.) is preserved from /analyze-manual. Views that receive mergedPortfolioData
-  // will automatically show returns consistent with the performance graph.
-  const mergedPortfolioData = useMemo(() => {
-    if (!backcastData?.periodAttribution || backcastData.periodAttribution.length === 0) {
-      return portfolioData;
-    }
-    const attrMap = new Map<string, { returnPct: number; contribution: number }>();
-    backcastData.periodAttribution.forEach(item => {
-      attrMap.set(`${item.ticker}|${item.date}`, {
-        returnPct: item.returnPct,
-        contribution: item.contribution,
-      });
-    });
-    return portfolioData.map(item => {
-      const key = `${item.ticker}|${item.date}`;
-      const override = attrMap.get(key);
-      return override ? { ...item, returnPct: override.returnPct, contribution: override.contribution } : item;
-    });
-  }, [portfolioData, backcastData]);
+  const [isBootstrapping, setIsBootstrapping] = useState(false);
+  const [showBootOverlay, setShowBootOverlay] = useState(false);
+  const portfolioData = useMemo<PortfolioItem[]>(() => workspace?.holdings.items ?? [], [workspace]);
+  const attributionData = useMemo<PortfolioWorkspaceAttribution | null>(() => workspace?.attribution ?? null, [workspace]);
+  const performanceVariant = useMemo<BackcastResponse | null>(() => workspace?.performance?.variants?.['75/25'] ?? null, [workspace]);
+  const workspaceRisk = useMemo(() => workspace?.risk ?? null, [workspace]);
+  // Portfolio items come from the canonical workspace payload.
+  // Shared attribution and performance selectors derive container-specific views from that spine.
 
   // Logic to determine if all active ETFs/MFs have sector data and no lags
   const getIsAssetSpecsComplete = () => {
@@ -180,42 +156,53 @@ function App() {
 
   // Auto-load persisted manual configuration on reach
   useEffect(() => {
+    let cancelled = false;
     const autoLoad = async () => {
       try {
-        // Load custom sectors first so they are available for the analysis
+        // Load reference metadata opportunistically. This should never block the app shell.
         const [sectors, geo] = await Promise.all([
           loadSectorWeights(),
           loadAssetGeo(),
         ]);
+        if (cancelled) return;
         setCustomSectors(sectors);
         setAssetGeo(geo);
 
         const config = await loadPortfolioConfig();
+        if (cancelled) return;
         if (config.tickers && config.tickers.length > 0 && config.periods && config.periods.length > 0) {
-          // Convert the grid state into a flat list of items per the backend requirement
           const flatItems = convertConfigToItems(config.tickers, config.periods);
-
           if (flatItems.length > 0) {
-            console.log("Auto-loading saved portfolio...");
+            setBootError(null);
+            setIsBootstrapping(true);
             try {
-              const response = await analyzeManualPortfolioFull(flatItems);
-              handleDataLoaded(response.items, { name: "Manual Entry", count: response.items.length }, undefined, response);
-
+              const nextWorkspace = await withTimeout(
+                fetchPortfolioWorkspace(flatItems),
+                AUTOLOAD_WORKSPACE_TIMEOUT_MS,
+                'Workspace autoload'
+              );
+              if (cancelled) return;
+              handleDataLoaded(nextWorkspace, { name: "Manual Entry", count: nextWorkspace.holdings.items.length });
             } catch (analysisErr) {
-              console.error("Backend analysis failed during auto-load, falling back to basic data:", analysisErr);
-              // Fallback: Create basic items so the UI can still show the management list
-              handleDataLoaded(flatItems, { name: "Manual Entry (Basic)", count: flatItems.length });
+              console.error("Backend workspace build failed during auto-load:", analysisErr);
+              if (!cancelled) {
+                setBootError(analysisErr instanceof Error ? analysisErr.message : 'Workspace auto-load failed.');
+              }
+            } finally {
+              if (!cancelled) setIsBootstrapping(false);
             }
           }
         }
       } catch (err) {
         console.error("Auto-load failed totally:", err);
-      } finally {
-        setIsBootstrapping(false);
+        if (!cancelled) {
+          setBootError(err instanceof Error ? err.message : 'Workspace auto-load failed.');
+        }
       }
     };
 
     autoLoad();
+    return () => { cancelled = true; };
   }, []);
 
   useEffect(() => {
@@ -238,13 +225,13 @@ function App() {
     { key: 'views', label: 'Building Workspace', sub: 'Charts, tables, and shared state' },
   ] as const;
 
-  const handleDataLoaded = (data: PortfolioItem[], fileInfo?: { name: string, count: number }, _files?: any, response?: PortfolioAnalysisResponse) => {
-    setPortfolioData(data);
-    setAnalysisResponse(response ?? null);
+  const handleDataLoaded = (nextWorkspace: PortfolioWorkspaceResponse | null, fileInfo?: { name: string, count: number }) => {
+    setWorkspace(nextWorkspace);
+    setBootError(null);
     setCorrelationResult(null);
     setCorrelationStatus('idle');
 
-    if (data.length === 0) {
+    if (!nextWorkspace || nextWorkspace.holdings.items.length === 0) {
       setFileHistory([]);
     } else if (fileInfo) {
       if (fileInfo.name === "Manual Entry") {
@@ -371,6 +358,12 @@ function App() {
         <main className="flex-1 overflow-y-auto max-h-screen relative">
           <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-wallstreet-100 via-wallstreet-900 to-wallstreet-900 -z-10 pointer-events-none"></div>
 
+          {bootError && portfolioData.length === 0 && (
+            <div className="mx-8 mt-8 rounded-xl border border-red-200 bg-red-50/95 px-4 py-3 text-sm text-red-900 shadow-sm">
+              Workspace auto-load failed: {bootError}
+            </div>
+          )}
+
           {/* Always render Upload */}
           {viewPane(ViewState.UPLOAD,
             <UploadView
@@ -390,19 +383,23 @@ function App() {
 
           {/* Mount once visited, then keep alive */}
           {visited.has(ViewState.DASHBOARD) && viewPane(ViewState.DASHBOARD,
-            <DashboardView data={mergedPortfolioData} customSectors={customSectors} assetGeo={assetGeo} isActive={currentView === ViewState.DASHBOARD} />
+            <DashboardView data={portfolioData} customSectors={customSectors} assetGeo={assetGeo} isActive={currentView === ViewState.DASHBOARD} workspaceRisk={workspaceRisk} />
           )}
           {visited.has(ViewState.INDEX) && viewPane(ViewState.INDEX,
             <IndexView />
           )}
           {visited.has(ViewState.ATTRIBUTION) && viewPane(ViewState.ATTRIBUTION,
-            <AttributionView data={mergedPortfolioData} selectedYear={selectedYear} setSelectedYear={setSelectedYear} customSectors={customSectors} tablesRequest={attributionTablesRequest} sharedBackcast={backcastData} analysisResponse={analysisResponse} />
+            <AttributionView selectedYear={selectedYear} setSelectedYear={setSelectedYear} tablesRequest={attributionTablesRequest} attributionData={attributionData} />
           )}
           {visited.has(ViewState.PERFORMANCE) && viewPane(ViewState.PERFORMANCE,
-            <PerformanceView isActive={currentView === ViewState.PERFORMANCE} sharedBackcast={backcastData} sharedBackcastLoading={backcastLoading} prefetchedBackcasts={prefetchedBackcasts} />
+            <PerformanceView
+              isActive={currentView === ViewState.PERFORMANCE}
+              variants={workspace?.performance?.variants}
+              defaultBenchmark={workspace?.performance?.defaultBenchmark}
+            />
           )}
           {visited.has(ViewState.RISK_CONTRIBUTION) && viewPane(ViewState.RISK_CONTRIBUTION,
-            <RiskContributionView />
+            <RiskContributionView workspaceRisk={workspaceRisk} />
           )}
           {visited.has(ViewState.CORRELATION) && viewPane(ViewState.CORRELATION,
             <CorrelationView
@@ -415,12 +412,13 @@ function App() {
           )}
           {visited.has(ViewState.ANALYSIS) && viewPane(ViewState.ANALYSIS,
             <ReportView
-              data={mergedPortfolioData}
+              data={portfolioData}
               customSectors={customSectors}
               assetGeo={assetGeo}
               isActive={currentView === ViewState.ANALYSIS}
-              sharedBackcast={backcastData}
-              sharedBackcastLoading={backcastLoading}
+              performanceVariant={performanceVariant}
+              workspaceRisk={workspaceRisk}
+              attributionData={attributionData}
               onNavigate={(view) => {
                 if (view === ViewState.ATTRIBUTION) setAttributionTablesRequest(r => r + 1);
                 setCurrentView(view);

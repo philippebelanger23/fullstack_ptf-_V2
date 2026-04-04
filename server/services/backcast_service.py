@@ -16,17 +16,25 @@ import logging
 from datetime import datetime
 from typing import List
 from pathlib import Path
+from time import perf_counter
 
 import numpy as np
 import pandas as pd
 import yfinance as yf
 
-from market_data import needs_fx_adjustment
+from market_data import extract_download_price_frame, needs_fx_adjustment, load_local_close_frame
 from constants import BENCHMARK_BLEND_TICKERS
 from data_loader import load_historic_nav_csvs, load_manual_navs_json, merge_nav_sources
 from services.attribution_math import apply_fx_adjustment, geometric_chain
+from services.yfinance_setup import configure_yfinance_cache
 
 logger = logging.getLogger(__name__)
+
+configure_yfinance_cache()
+
+
+def _normalize_close_download(downloaded: pd.DataFrame | pd.Series, tickers: list[str]) -> pd.DataFrame:
+    return extract_download_price_frame(downloaded, tickers)
 
 
 # =============================================================================
@@ -341,6 +349,8 @@ def fetch_returns_df(
     period: str = "1y",
     mutual_fund_tickers: set = None,
     nav_dict: dict | None = None,
+    start_date: pd.Timestamp | str | None = None,
+    end_date: pd.Timestamp | str | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame, list]:
     """
     Download price data for *portfolio_tickers* plus benchmark tickers.
@@ -354,12 +364,66 @@ def fetch_returns_df(
     mf = (mutual_fund_tickers or set()) | nav_tickers
     yf_tickers = [t for t in portfolio_tickers if t not in mf]
     fetch_list = list(set(yf_tickers + BENCHMARK_BLEND_TICKERS))
-    data = yf.download(fetch_list, period=period, interval="1d", progress=False)
-    if data.empty:
-        raise ValueError("Failed to fetch price data")
-    closes = data["Close"] if "Close" in data.columns else data
+    normalized_start = pd.Timestamp(start_date).normalize() if start_date is not None else None
+    normalized_end = pd.Timestamp(end_date).normalize() if end_date is not None else None
+    local_closes = load_local_close_frame(fetch_list)
+    if not local_closes.empty:
+        if normalized_start is not None:
+            local_closes = local_closes.loc[local_closes.index >= normalized_start]
+        if normalized_end is not None:
+            local_closes = local_closes.loc[local_closes.index < normalized_end]
+    missing_fetch_list = [ticker for ticker in fetch_list if ticker not in local_closes.columns]
+    logger.info(
+        "backcast.fetch_returns_df start: portfolio_tickers=%s, yfinance_tickers=%s, local_tickers=%s, nav_tickers=%s, period=%s, start=%s, end=%s",
+        len(portfolio_tickers),
+        len(missing_fetch_list),
+        len(local_closes.columns),
+        len(nav_tickers),
+        period,
+        normalized_start.strftime("%Y-%m-%d") if normalized_start is not None else None,
+        normalized_end.strftime("%Y-%m-%d") if normalized_end is not None else None,
+    )
+    downloaded_closes = pd.DataFrame()
+    if missing_fetch_list:
+        started_at = perf_counter()
+        try:
+            download_kwargs = {
+                "interval": "1d",
+                "progress": False,
+                "timeout": 5,
+                "threads": False,
+            }
+            if normalized_start is not None or normalized_end is not None:
+                download_kwargs["start"] = normalized_start
+                download_kwargs["end"] = normalized_end if normalized_end is not None else pd.Timestamp.today().normalize() + pd.Timedelta(days=1)
+            else:
+                download_kwargs["period"] = period
+            data = yf.download(missing_fetch_list, **download_kwargs)
+            downloaded_closes = _normalize_close_download(data, missing_fetch_list)
+        except Exception as exc:
+            logger.warning("backcast.fetch_returns_df download failed: %s", exc)
+            downloaded_closes = pd.DataFrame()
+        logger.info(
+            "backcast.fetch_returns_df download end: duration=%.3fs, rows=%s",
+            perf_counter() - started_at,
+            len(downloaded_closes.index),
+        )
 
-    closes.index = pd.to_datetime(closes.index).normalize()
+    closes_parts = [frame for frame in [local_closes, downloaded_closes] if not frame.empty]
+    if closes_parts:
+        closes = pd.concat(closes_parts, axis=1)
+        closes = closes.loc[:, ~closes.columns.duplicated(keep="first")].sort_index()
+    else:
+        closes = pd.DataFrame()
+
+    if closes.empty and not nav_tickers:
+        raise ValueError("Failed to fetch price data")
+
+    if closes.empty:
+        nav_dates = sorted({pd.to_datetime(dt).normalize() for ticker_navs in nav_dict.values() for dt in ticker_navs.keys()})
+        closes = pd.DataFrame(index=pd.DatetimeIndex(nav_dates))
+    else:
+        closes.index = pd.to_datetime(closes.index).normalize()
     for ticker in portfolio_tickers:
         if ticker in nav_tickers:
             nav_series = pd.Series(nav_dict[ticker]).sort_index()

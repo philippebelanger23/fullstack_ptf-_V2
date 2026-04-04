@@ -41,4 +41,17 @@ if __name__ == "__main__":
     if sys.platform == "win32":
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run(
+        "main:app",
+        host="0.0.0.0",
+        port=8000,
+        reload=True,
+        reload_excludes=[
+            ".cache/*",
+            ".pytest_cache/*",
+            "pytest-cache-files-*",
+            "**/__pycache__/*",
+            "server/data/*.json",
+            "server/data/historic_navs/*.csv",
+        ],
+    )

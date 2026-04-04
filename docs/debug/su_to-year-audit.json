@@ -1,0 +1,346 @@
+{
+  "summary": {
+    "hypothesis": "Canonical workspace builder appears year-agnostic; remaining failures are more likely caused by client-side hardcoded year handling than by workspace_service period construction.",
+    "focus_years": [
+      "2024",
+      "2025",
+      "2026"
+    ],
+    "ticker": "SU.TO",
+    "latest_holdings_date": "2026-04-04"
+  },
+  "coverage": {
+    "config_period_years": {
+      "2024": 1,
+      "2025": 25,
+      "2026": 6
+    },
+    "attribution_period_years": {
+      "2025": 25,
+      "2026": 10
+    },
+    "attribution_monthly_years": {
+      "2025": 12,
+      "2026": 4
+    },
+    "holding_item_years": {
+      "2025": 1100,
+      "2026": 440
+    },
+    "ticker_holding_years": {
+      "2025": 25,
+      "2026": 10
+    }
+  },
+  "samples": {
+    "config_last_start_dates": [
+      "2025-12-17",
+      "2025-12-31",
+      "2026-01-08",
+      "2026-01-14",
+      "2026-01-21",
+      "2026-02-26",
+      "2026-03-11",
+      "2026-03-25"
+    ],
+    "attribution_last_periods": [
+      {
+        "start": "2026-01-14",
+        "end": "2026-01-21"
+      },
+      {
+        "start": "2026-01-21",
+        "end": "2026-01-31"
+      },
+      {
+        "start": "2026-01-31",
+        "end": "2026-02-26"
+      },
+      {
+        "start": "2026-02-26",
+        "end": "2026-02-28"
+      },
+      {
+        "start": "2026-02-28",
+        "end": "2026-03-11"
+      },
+      {
+        "start": "2026-03-11",
+        "end": "2026-03-25"
+      },
+      {
+        "start": "2026-03-25",
+        "end": "2026-03-31"
+      },
+      {
+        "start": "2026-03-31",
+        "end": "2026-04-04"
+      }
+    ],
+    "attribution_last_monthly_periods": [
+      {
+        "start": "2025-08-31",
+        "end": "2025-09-30"
+      },
+      {
+        "start": "2025-09-30",
+        "end": "2025-10-31"
+      },
+      {
+        "start": "2025-10-31",
+        "end": "2025-11-30"
+      },
+      {
+        "start": "2025-11-30",
+        "end": "2025-12-31"
+      },
+      {
+        "start": "2025-12-31",
+        "end": "2026-01-31"
+      },
+      {
+        "start": "2026-01-31",
+        "end": "2026-02-28"
+      },
+      {
+        "start": "2026-02-28",
+        "end": "2026-03-31"
+      },
+      {
+        "start": "2026-03-31",
+        "end": "2026-04-04"
+      }
+    ],
+    "ticker_last_holdings": [
+      {
+        "ticker": "SU.TO",
+        "weight": 3.0,
+        "date": "2026-01-21",
+        "periodIndex": 27,
+        "periodStart": "2026-01-14",
+        "periodEnd": "2026-01-21",
+        "periodKey": "2026-01-14|2026-01-21",
+        "returnPct": 0.013350720070432587,
+        "contribution": 0.04005216021129776,
+        "companyName": "Suncor Energy",
+        "sector": null,
+        "notes": null,
+        "isMutualFund": false,
+        "isEtf": false,
+        "isCash": false,
+        "sectorWeights": null,
+        "startPrice": 68.91000366210938,
+        "endPrice": 69.83000183105469,
+        "priceCovered": true
+      },
+      {
+        "ticker": "SU.TO",
+        "weight": 3.0,
+        "date": "2026-01-31",
+        "periodIndex": 28,
+        "periodStart": "2026-01-21",
+        "periodEnd": "2026-01-31",
+        "periodKey": "2026-01-21|2026-01-31",
+        "returnPct": 0.022769556455005224,
+        "contribution": 0.06830866936501567,
+        "companyName": "Suncor Energy",
+        "sector": null,
+        "notes": null,
+        "isMutualFund": false,
+        "isEtf": false,
+        "isCash": false,
+        "sectorWeights": null,
+        "startPrice": 69.83000183105469,
+        "endPrice": 71.42,
+        "priceCovered": true
+      },
+      {
+        "ticker": "SU.TO",
+        "weight": 3.0,
+        "date": "2026-02-26",
+        "periodIndex": 29,
+        "periodStart": "2026-01-31",
+        "periodEnd": "2026-02-26",
+        "periodKey": "2026-01-31|2026-02-26",
+        "returnPct": 0.0,
+        "contribution": 0.0,
+        "companyName": "Suncor Energy",
+        "sector": null,
+        "notes": null,
+        "isMutualFund": false,
+        "isEtf": false,
+        "isCash": false,
+        "sectorWeights": null,
+        "startPrice": 71.42,
+        "endPrice": null,
+        "priceCovered": false
+      },
+      {
+        "ticker": "SU.TO",
+        "weight": 3.0,
+        "date": "2026-02-28",
+        "periodIndex": 30,
+        "periodStart": "2026-02-26",
+        "periodEnd": "2026-02-28",
+        "periodKey": "2026-02-26|2026-02-28",
+        "returnPct": 0.0,
+        "contribution": 0.0,
+        "companyName": "Suncor Energy",
+        "sector": null,
+        "notes": null,
+        "isMutualFund": false,
+        "isEtf": false,
+        "isCash": false,
+        "sectorWeights": null,
+        "startPrice": null,
+        "endPrice": null,
+        "priceCovered": false
+      },
+      {
+        "ticker": "SU.TO",
+        "weight": 3.0,
+        "date": "2026-03-11",
+        "periodIndex": 31,
+        "periodStart": "2026-02-28",
+        "periodEnd": "2026-03-11",
+        "periodKey": "2026-02-28|2026-03-11",
+        "returnPct": 0.0,
+        "contribution": 0.0,
+        "companyName": "Suncor Energy",
+        "sector": null,
+        "notes": null,
+        "isMutualFund": false,
+        "isEtf": false,
+        "isCash": false,
+        "sectorWeights": null,
+        "startPrice": null,
+        "endPrice": null,
+        "priceCovered": false
+      },
+      {
+        "ticker": "SU.TO",
+        "weight": 3.0,
+        "date": "2026-03-25",
+        "periodIndex": 32,
+        "periodStart": "2026-03-11",
+        "periodEnd": "2026-03-25",
+        "periodKey": "2026-03-11|2026-03-25",
+        "returnPct": 0.0,
+        "contribution": 0.0,
+        "companyName": "Suncor Energy",
+        "sector": null,
+        "notes": null,
+        "isMutualFund": false,
+        "isEtf": false,
+        "isCash": false,
+        "sectorWeights": null,
+        "startPrice": null,
+        "endPrice": null,
+        "priceCovered": false
+      },
+      {
+        "ticker": "SU.TO",
+        "weight": 3.0,
+        "date": "2026-03-31",
+        "periodIndex": 33,
+        "periodStart": "2026-03-25",
+        "periodEnd": "2026-03-31",
+        "periodKey": "2026-03-25|2026-03-31",
+        "returnPct": 0.0,
+        "contribution": 0.0,
+        "companyName": "Suncor Energy",
+        "sector": null,
+        "notes": null,
+        "isMutualFund": false,
+        "isEtf": false,
+        "isCash": false,
+        "sectorWeights": null,
+        "startPrice": null,
+        "endPrice": null,
+        "priceCovered": false
+      },
+      {
+        "ticker": "SU.TO",
+        "weight": 3.0,
+        "date": "2026-04-04",
+        "periodIndex": 34,
+        "periodStart": "2026-03-31",
+        "periodEnd": "2026-04-04",
+        "periodKey": "2026-03-31|2026-04-04",
+        "returnPct": 0.0,
+        "contribution": 0.0,
+        "companyName": "Suncor Energy",
+        "sector": null,
+        "notes": null,
+        "isMutualFund": false,
+        "isEtf": false,
+        "isCash": false,
+        "sectorWeights": null,
+        "startPrice": null,
+        "endPrice": null,
+        "priceCovered": false
+      }
+    ]
+  },
+  "workspace_checks": {
+    "has_2025_periods": true,
+    "has_2026_periods": true,
+    "has_2025_months": true,
+    "has_2026_months": true,
+    "portfolio_ytd_return": 0.11739667536527976
+  },
+  "findings": {
+    "client": [
+      {
+        "path": "client/App.tsx",
+        "issue": "selectedYear state is hard typed as 2025 | 2026 and defaults to 2026."
+      },
+      {
+        "path": "client/views/UploadView.tsx",
+        "issue": "NAV audit filters branch as selectedYear === 2025 else 2026 using hardcoded boundary dates."
+      },
+      {
+        "path": "client/components/manual-entry/ManualEntryModal.tsx",
+        "issue": "Manual entry year selector only exposes 2025 and 2026."
+      },
+      {
+        "path": "client/components/manual-entry/useManualEntryState.ts",
+        "issue": "Manual-entry period filtering branches as 2025 else 2026 instead of deriving years from data."
+      },
+      {
+        "path": "client/views/performance/PerformanceKPIs.tsx",
+        "issue": "Performance period type includes literal '2025' instead of a year-generic full-year mode."
+      },
+      {
+        "path": "client/views/performance/PerformanceCharts.tsx",
+        "issue": "Performance period buttons expose literal '2025' only."
+      },
+      {
+        "path": "client/views/ReportView.tsx",
+        "issue": "One-pager/report period labels and selectors still expose 'Full Year 2025'."
+      },
+      {
+        "path": "client/utils/dateUtils.ts",
+        "issue": "Date-range helper has a literal case for '2025' with fixed 2024-12-31 -> 2025-12-31 bounds."
+      },
+      {
+        "path": "client/components/IndexPerformanceChart.tsx",
+        "issue": "Index chart period model includes a literal 2025 mode."
+      }
+    ],
+    "server": [
+      {
+        "path": "server/services/period_normalizer.py",
+        "issue": "Canonical period normalization is year-agnostic and extends periods based on input dates and current day."
+      },
+      {
+        "path": "server/services/workspace_service.py",
+        "issue": "Canonical monthly and period builders group by actual period end dates, not hardcoded years."
+      },
+      {
+        "path": "server/import_excel_navs.py",
+        "issue": "Excel NAV import keeps a literal col.year >= 2025 gate and stale 'added entries for 2025' logging."
+      }
+    ]
+  }
+}

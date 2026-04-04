@@ -8,6 +8,10 @@ from pathlib import Path
 import yfinance as yf
 from dateutil.relativedelta import relativedelta
 from fastapi import APIRouter
+from market_data import extract_history_price_series
+from services.yfinance_setup import configure_yfinance_cache
+
+configure_yfinance_cache()
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -93,12 +97,13 @@ async def fetch_performance(request: dict):
 
         for ticker in unique_tickers:
             try:
-                hist = tickers_obj.tickers[ticker].history(period="1y")
+                hist = tickers_obj.tickers[ticker].history(period="1y", auto_adjust=False)
+                price_series = extract_history_price_series(hist).dropna()
 
-                if hist.empty:
+                if hist.empty or price_series.empty:
                     continue
 
-                current_price = hist["Close"].iloc[-1]
+                current_price = float(price_series.iloc[-1])
 
                 def get_pct_change(days_ago=None, months_ago=None, start_year=False):
                     if start_year:
@@ -108,15 +113,14 @@ async def fetch_performance(request: dict):
                     else:
                         return 0.0
 
-                    hist_dates = hist.index.date
-
-                    target_idx = hist.index[hist.index.date <= start_date]
+                    target_idx = price_series.index[price_series.index.date <= start_date]
                     if target_idx.empty:
                         if start_year:
-                            return (current_price - hist["Close"].iloc[0]) / hist["Close"].iloc[0]
+                            first_price = float(price_series.iloc[0])
+                            return (current_price - first_price) / first_price
                         return None
 
-                    start_price = hist.loc[target_idx[-1]]["Close"]
+                    start_price = float(price_series.loc[target_idx[-1]])
                     return (current_price - start_price) / start_price
 
                 perf = {}

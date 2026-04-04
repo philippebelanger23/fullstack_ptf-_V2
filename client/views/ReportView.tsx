@@ -10,16 +10,15 @@ import { CorrelationHeatmap } from './risk/CorrelationHeatmap';
 import type { ChartView } from './performance/PerformanceCharts';
 import type { Period } from './performance/PerformanceKPIs';
 import { UnifiedPerformancePanel } from './performance/UnifiedPerformancePanel';
-import { buildTableItemsFromHistory } from './attribution/canonicalAttribution';
 import {
-    loadPortfolioConfig, convertConfigToItems,
-    fetchPortfolioBackcast, fetchRiskContribution, fetchIndexExposure, fetchSectors,
+    fetchIndexExposure, fetchSectors,
     loadSectorWeights, loadAssetGeo
 } from '../services/api';
 import { formatPct } from '../utils/formatters';
-import { getDateRangeForPeriod } from '../utils/dateUtils';
+import { buildOnePagerAttributionItems } from '../selectors/attributionSelectors';
+import { buildChartDataFromSeries, filterSeriesByPeriod } from '../selectors/performanceSelectors';
 import {
-    PortfolioItem, BackcastResponse, RiskContributionResponse, ViewState,
+    PortfolioItem, BackcastResponse, PortfolioWorkspaceAttribution, RiskContributionResponse, ViewState,
 } from '../types';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -30,8 +29,9 @@ interface ReportViewProps {
     assetGeo?: Record<string, string>;
     onNavigate?: (view: ViewState) => void;
     isActive?: boolean;
-    sharedBackcast?: BackcastResponse | null;
-    sharedBackcastLoading?: boolean;
+    performanceVariant?: BackcastResponse | null;
+    workspaceRisk?: RiskContributionResponse | null;
+    attributionData?: PortfolioWorkspaceAttribution | null;
 }
 
 const fmtDate = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
@@ -113,7 +113,7 @@ const PanelActions: React.FC<{
 
 // ── Main Component ─────────────────────────────────────────────────────────────
 
-export const ReportView: React.FC<ReportViewProps> = ({ data, customSectors, assetGeo, onNavigate, isActive, sharedBackcast, sharedBackcastLoading }) => {
+export const ReportView: React.FC<ReportViewProps> = ({ data, customSectors, assetGeo, onNavigate, isActive, performanceVariant, workspaceRisk, attributionData }) => {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [backcast, setBackcast] = useState<BackcastResponse | null>(null);
@@ -139,12 +139,6 @@ export const ReportView: React.FC<ReportViewProps> = ({ data, customSectors, ass
     const effectiveCustomSectors = customSectors || localCustomSectorWeights;
     const effectiveAssetGeo = assetGeo || localAssetGeo;
 
-    // When shared backcast updates (e.g. portfolio reloaded), sync it in directly
-    useEffect(() => {
-        if (sharedBackcast != null) setBackcast(sharedBackcast);
-        else if (sharedBackcastLoading) setLoading(true);
-    }, [sharedBackcast, sharedBackcastLoading]);
-
     // ── Data fetching ─────────────────────────────────────────────────────────
     // Re-runs whenever the tab becomes active OR the portfolio data changes.
     // The `cancelled` flag inside prevents duplicate in-flight requests on
@@ -156,7 +150,7 @@ export const ReportView: React.FC<ReportViewProps> = ({ data, customSectors, ass
         const fetchData = async () => {
             setLoading(true);
             setError(null);
-            setLoadProgress({ backcast: 'pending', risk: 'pending', benchmark: 'pending', sectors: 'pending' });
+            setLoadProgress({ backcast: 'done', risk: 'done', benchmark: 'pending', sectors: 'pending' });
             const trackFetch = async <T,>(key: string, fn: () => Promise<T>): Promise<T> => {
                 try {
                     const result = await fn();
@@ -168,65 +162,49 @@ export const ReportView: React.FC<ReportViewProps> = ({ data, customSectors, ass
                 }
             };
             try {
-                const config = await loadPortfolioConfig();
-                if (cancelled) return;
-                if (!config.tickers || config.tickers.length === 0) {
+                if (!data.length) {
                     setError('No portfolio configured. Go to Upload to configure your portfolio.');
                     setLoading(false);
                     return;
                 }
-                const allItems = convertConfigToItems(config.tickers, config.periods);
-                if (allItems.length === 0) {
-                    setError('Portfolio has no holdings with positive weights.');
+                if (!performanceVariant || !workspaceRisk) {
+                    setLoading(true);
+                    return;
+                }
+                if (performanceVariant.error) {
+                    setError(performanceVariant.error);
                     setLoading(false);
                     return;
                 }
-                const latestDate = allItems.reduce((max, i) => i.date > max ? i.date : max, allItems[0].date);
-                const latestItems = allItems.filter(i => i.date === latestDate && i.weight > 0);
+                if (workspaceRisk.error) {
+                    setError(workspaceRisk.error);
+                    setLoading(false);
+                    return;
+                }
 
                 const tickersToFetch: string[] = Array.from(new Set(
-                    data.filter(d => d.ticker && !d.ticker.includes('$')).map(d => d.ticker.trim())
+                    data
+                        .filter(d => d.ticker && !d.isCash && !d.ticker.includes('$'))
+                        .map(d => d.ticker.trim())
                 ));
-                const backcastFetch = sharedBackcast != null
-                    ? (() => { if (!cancelled) setLoadProgress(prev => ({ ...prev, backcast: 'done' })); return Promise.resolve(sharedBackcast!); })()
-                    : trackFetch('backcast', () => fetchPortfolioBackcast(allItems));
-                const [backcastRes, riskRes, exposure, sectors] = await Promise.all([
-                    backcastFetch,
-                    trackFetch('risk', () => fetchRiskContribution(latestItems)),
+                const [exposure, sectors, loadedWeights, loadedGeo] = await Promise.all([
                     trackFetch('benchmark', fetchIndexExposure),
                     trackFetch('sectors', () => fetchSectors(tickersToFetch)),
+                    customSectors ? Promise.resolve(null) : loadSectorWeights(),
+                    assetGeo ? Promise.resolve(null) : loadAssetGeo(),
                 ]);
                 if (cancelled) return;
-                if (backcastRes.error) { setError(backcastRes.error); setLoading(false); return; }
-                if (riskRes.error) { setError(riskRes.error); setLoading(false); return; }
-                setBackcast(backcastRes);
-                setRiskData(riskRes);
+
+                setBackcast(performanceVariant);
+                setRiskData(workspaceRisk);
                 if (exposure?.sectors) setBenchmarkSectors(exposure.sectors);
                 if (exposure?.geography) setBenchmarkGeography(exposure.geography);
                 if (Object.keys(sectors).length > 0) setSectorMap(prev => ({ ...prev, ...sectors }));
-
-                // Load fallback sector weights if not provided via props
-                if (!customSectors) {
-                    try {
-                        const loadedWeights = await loadSectorWeights();
-                        if (Object.keys(loadedWeights).length > 0) {
-                            setLocalCustomSectorWeights(loadedWeights);
-                        }
-                    } catch (e) {
-                        console.error("Failed to load sector weights:", e);
-                    }
+                if (!customSectors && loadedWeights && Object.keys(loadedWeights).length > 0) {
+                    setLocalCustomSectorWeights(loadedWeights);
                 }
-
-                // Load fallback asset geo if not provided via props
-                if (!assetGeo) {
-                    try {
-                        const loadedGeo = await loadAssetGeo();
-                        if (Object.keys(loadedGeo).length > 0) {
-                            setLocalAssetGeo(loadedGeo);
-                        }
-                    } catch (e) {
-                        console.error("Failed to load asset geo:", e);
-                    }
+                if (!assetGeo && loadedGeo && Object.keys(loadedGeo).length > 0) {
+                    setLocalAssetGeo(loadedGeo);
                 }
             } catch (e) {
                 if (cancelled) return;
@@ -237,7 +215,7 @@ export const ReportView: React.FC<ReportViewProps> = ({ data, customSectors, ass
         };
         fetchData();
         return () => { cancelled = true; };
-    }, [isActive, data]);
+    }, [assetGeo, customSectors, data, isActive, performanceVariant, workspaceRisk]);
 
     // ── Derived data ──────────────────────────────────────────────────────────
 
@@ -256,55 +234,15 @@ export const ReportView: React.FC<ReportViewProps> = ({ data, customSectors, ass
     }, [data, effectiveCustomSectors, sectorMap]);
 
     const chartData = useMemo(() => {
-        if (!backcast?.series?.length) return [];
-        const { start, end } = getDateRangeForPeriod(selectedPeriod);
-        const startStr = start.toISOString().split('T')[0];
-        const endStr = end ? end.toISOString().split('T')[0] : '9999-12-31';
-        const filtered = backcast.series.filter(p => p.date >= startStr && p.date <= endStr);
-        if (!filtered.length) return [];
-        const s = filtered[0];
-        if (chartView === 'absolute') {
-            return filtered.map(p => ({
-                date: p.date,
-                Portfolio: ((p.portfolio - s.portfolio) / s.portfolio) * 100,
-                Benchmark: ((p.benchmark - s.benchmark) / s.benchmark) * 100,
-            }));
-        } else if (chartView === 'relative') {
-            return filtered.map(p => ({
-                date: p.date,
-                'Excess Return': ((p.portfolio - s.portfolio) / s.portfolio - (p.benchmark - s.benchmark) / s.benchmark) * 100,
-            }));
-        } else {
-            let maxPtf = s.portfolio, maxBmk = s.benchmark;
-            return filtered.map(p => {
-                maxPtf = Math.max(maxPtf, p.portfolio);
-                maxBmk = Math.max(maxBmk, p.benchmark);
-                return {
-                    date: p.date,
-                    Portfolio: ((p.portfolio - maxPtf) / maxPtf) * 100,
-                    Benchmark: ((p.benchmark - maxBmk) / maxBmk) * 100,
-                };
-            });
-        }
-    }, [backcast, selectedPeriod, chartView]);
+        return buildChartDataFromSeries(
+            filterSeriesByPeriod(backcast?.series, selectedPeriod),
+            chartView,
+        );
+    }, [backcast?.series, selectedPeriod, chartView]);
 
-    const periodAttribution = useMemo(() => {
-        if (!backcast?.periodAttribution?.length) return [];
-        const { start, end } = getDateRangeForPeriod(selectedPeriod);
-        const periodEnd = end ?? new Date();
-
-        const filteredHistory = backcast.periodAttribution.filter(item => {
-            const itemDate = new Date(`${item.date}T00:00:00`);
-            return itemDate >= start
-                && itemDate <= periodEnd
-                && !item.isCash
-                && item.ticker.toUpperCase() !== 'CASH'
-                && item.ticker.toUpperCase() !== '*CASH*';
-        });
-
-        return buildTableItemsFromHistory(filteredHistory)
-            .sort((a, b) => b.contribution - a.contribution);
-    }, [backcast, selectedPeriod]);
+    const periodAttribution = useMemo(() => (
+        buildOnePagerAttributionItems(attributionData, selectedPeriod)
+    ), [attributionData, selectedPeriod]);
 
     const getHoldingDisplayName = (item: PortfolioItem) => (
         item.isMutualFund ? item.ticker : (item.companyName?.trim() || item.ticker)

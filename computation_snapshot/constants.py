@@ -1,0 +1,21 @@
+"""Constants for portfolio returns analysis."""
+
+# Cache settings
+CACHE_DIR = ".cache"
+CACHE_FILE = ".cache/market_data_cache.pkl"
+
+# Benchmark tickers
+BENCHMARK_TICKERS = {
+    "USD/CAD": "CAD=X",
+    "S&P 500": "^GSPC",
+    "Dow Jones": "^DJI",
+    "Nasdaq": "^IXIC",
+    "ACWI": "ACWI",
+    "TSX60": "^GSPTSE"
+}
+
+BENCHMARK_ORDER = ["USD/CAD", "S&P 500", "Dow Jones", "Nasdaq", "ACWI", "TSX60"]
+
+# Special tickers
+CASH_TICKER = "$CASH$"
+FX_TICKER = "CAD=X"

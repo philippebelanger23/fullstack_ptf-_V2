@@ -10,7 +10,10 @@ import yfinance as yf
 from fastapi import APIRouter
 
 from cache_manager import load_cache, save_cache
-from market_data import get_ticker_performance
+from market_data import extract_download_price_frame, get_ticker_performance
+from services.yfinance_setup import configure_yfinance_cache
+
+configure_yfinance_cache()
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -197,15 +200,12 @@ def get_index_history():
     tickers = ["ACWI", "XIC.TO", "USDCAD=X"]
 
     try:
-        data = yf.download(tickers, period="5y", interval="1d", progress=False)
+        data = yf.download(tickers, period="5y", interval="1d", progress=False, auto_adjust=False)
 
         if data.empty:
             return {"ACWI": [], "XIC.TO": [], "Index": []}
 
-        if "Close" in data.columns:
-            closes = data["Close"]
-        else:
-            closes = data
+        closes = extract_download_price_frame(data, tickers)
 
         expected_cols = ["ACWI", "XIC.TO", "USDCAD=X"]
         existing_cols = [c for c in expected_cols if c in closes.columns]
@@ -327,14 +327,11 @@ def get_sector_history():
     logger.info(f"Fetching fresh sector history for {len(all_tickers)} tickers (US + CA)...")
 
     try:
-        data = yf.download(all_tickers, period="5y", interval="1d", progress=False)
+        data = yf.download(all_tickers, period="5y", interval="1d", progress=False, auto_adjust=False)
         if data.empty:
             return {"US": {}, "CA": {}}
 
-        if "Close" in data.columns:
-            closes = data["Close"]
-        else:
-            closes = data
+        closes = extract_download_price_frame(data, all_tickers)
 
         closes = closes.ffill().bfill()
         dates = closes.index.strftime("%Y-%m-%d").tolist()

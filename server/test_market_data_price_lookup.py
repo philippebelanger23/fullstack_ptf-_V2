@@ -16,18 +16,19 @@ class _FakeTicker:
         self.history_frame = history_frame
         self.calls = []
 
-    def history(self, start=None, end=None):
-        self.calls.append((start, end))
+    def history(self, start=None, end=None, **kwargs):
+        self.calls.append((start, end, kwargs))
         return self.history_frame
 
 
-def test_get_price_on_date_uses_ticker_history_close_and_cache(monkeypatch):
+def test_get_price_on_date_uses_ticker_history_adjusted_close_and_cache(monkeypatch):
     history_frame = pd.DataFrame(
-        {"Close": [91.5, 92.01]},
+        {"Adj Close": [91.5, 92.01], "Close": [93.0, 94.0]},
         index=pd.to_datetime(["2026-03-30", "2026-03-31"]),
     )
     fake_ticker = _FakeTicker(history_frame)
     monkeypatch.setattr(market_data.yf, "Ticker", lambda _ticker: fake_ticker)
+    monkeypatch.setattr(market_data, "get_local_price_on_or_before", lambda *args, **kwargs: None)
 
     cache = {}
     target_date = pd.Timestamp("2026-03-31")
@@ -37,10 +38,27 @@ def test_get_price_on_date_uses_ticker_history_close_and_cache(monkeypatch):
 
     assert price_1 == 92.01
     assert price_2 == 92.01
-    assert cache["history_close_v1::SU.TO_2026-03-31"] == 92.01
+    assert cache[market_data.build_history_close_cache_key("SU.TO", target_date)] == 92.01
     assert len(fake_ticker.calls) == 1
     assert fake_ticker.calls[0][0] == pd.Timestamp("2026-03-21")
     assert fake_ticker.calls[0][1] == pd.Timestamp("2026-04-01")
+    assert fake_ticker.calls[0][2]["timeout"] == 5
+    assert fake_ticker.calls[0][2]["auto_adjust"] is False
+
+
+def test_get_price_on_date_uses_local_price_history_before_yahoo(monkeypatch):
+    market_data.load_local_price_history.cache_clear()
+
+    def _fail_if_called(*args, **kwargs):
+        raise AssertionError("Yahoo lookup should not be used when local price history exists")
+
+    monkeypatch.setattr(market_data.yf, "Ticker", _fail_if_called)
+
+    cache = {}
+    price = market_data.get_price_on_date("SU.TO", pd.Timestamp("2026-01-21"), cache)
+
+    assert price == 69.83000183105469
+    assert cache[market_data.build_history_close_cache_key("SU.TO", pd.Timestamp("2026-01-21"))] == 69.83000183105469
 
 
 def test_calculate_returns_does_not_fall_back_to_yahoo_for_nav_ticker(monkeypatch):

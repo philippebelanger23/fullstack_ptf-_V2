@@ -1,10 +1,14 @@
 """Market data fetching and return calculations."""
 
+from functools import lru_cache
 import logging
+from time import perf_counter
 import pandas as pd
 import yfinance as yf
 from constants import CASH_TICKER, FX_TICKER, INDICES
 from cache_manager import load_cache, save_cache
+from services.path_utils import resolve_storage_path
+from services.yfinance_setup import configure_yfinance_cache
 from services.attribution_math import (
     apply_fx_adjustment,
     forward_compounded_contribution,
@@ -15,6 +19,131 @@ from services.attribution_math import (
 
 logger = logging.getLogger(__name__)
 NAV_LOOKBACK_WINDOW_DAYS = 10
+PRICE_HISTORY_LOOKBACK_WINDOW_DAYS = 10
+HISTORY_CLOSE_CACHE_VERSION = "v3"
+PREFERRED_PRICE_FIELDS = ("Adj Close", "Adj_Close", "Close")
+
+configure_yfinance_cache()
+
+
+def _price_history_filename(ticker: str) -> str:
+    return (
+        ticker.upper().strip()
+        .replace(".", "_")
+        .replace("-", "_")
+        .replace("^", "")
+        .replace("=", "_")
+    )
+
+
+def build_history_close_cache_key(ticker: str, date) -> str:
+    normalized_date = pd.to_datetime(date).normalize()
+    normalized_ticker = str(ticker).upper().strip()
+    return f"history_close_{HISTORY_CLOSE_CACHE_VERSION}::{normalized_ticker}_{normalized_date.strftime('%Y-%m-%d')}"
+
+
+def _extract_price_frame(downloaded: pd.DataFrame | pd.Series, tickers: list[str]) -> pd.DataFrame:
+    if downloaded is None or getattr(downloaded, "empty", True):
+        return pd.DataFrame()
+
+    if isinstance(downloaded, pd.Series):
+        return downloaded.to_frame(name=tickers[0])
+
+    if isinstance(downloaded.columns, pd.MultiIndex):
+        for field in PREFERRED_PRICE_FIELDS:
+            try:
+                prices = downloaded[field]
+            except KeyError:
+                try:
+                    prices = downloaded.xs(field, axis=1, level=0, drop_level=True)
+                except KeyError:
+                    continue
+            if isinstance(prices, pd.Series):
+                return prices.to_frame(name=tickers[0])
+            return prices
+
+    for field in PREFERRED_PRICE_FIELDS:
+        if field in downloaded.columns:
+            prices = downloaded[field]
+            if isinstance(prices, pd.Series):
+                return prices.to_frame(name=tickers[0])
+            return prices
+
+    return downloaded
+
+
+def extract_download_price_frame(downloaded: pd.DataFrame | pd.Series, tickers: list[str]) -> pd.DataFrame:
+    return _extract_price_frame(downloaded, tickers)
+
+
+def extract_history_price_series(history_frame: pd.DataFrame | pd.Series) -> pd.Series:
+    prices = _extract_price_frame(history_frame, ["price"])
+    if prices.empty:
+        return pd.Series(dtype=float)
+    if isinstance(prices, pd.Series):
+        return prices
+    first_col = prices.columns[0]
+    return prices[first_col]
+
+
+@lru_cache(maxsize=256)
+def load_local_price_history(ticker: str) -> pd.Series:
+    path = resolve_storage_path(f"data/price_history/{_price_history_filename(ticker)}.csv")
+    if not path.exists():
+        return pd.Series(dtype=float)
+
+    try:
+        frame = pd.read_csv(path)
+    except Exception as exc:
+        logger.warning("Failed to read local price history for %s: %s", ticker, exc)
+        return pd.Series(dtype=float)
+
+    date_col = next((col for col in frame.columns if str(col).lower() == "date"), None)
+    value_col = next((col for col in frame.columns if str(col).lower() in {"adj_close", "adj close", "close"}), None)
+    if date_col is None or value_col is None:
+        logger.warning("Local price history for %s is missing expected columns", ticker)
+        return pd.Series(dtype=float)
+
+    normalized_index = pd.to_datetime(frame[date_col]).dt.normalize()
+    series = pd.Series(frame[value_col].values, index=normalized_index, dtype=float)
+    series = series[~series.index.duplicated(keep="last")].sort_index().dropna()
+    return series
+
+
+def get_local_price_on_or_before(ticker: str, date, lookback_days: int = PRICE_HISTORY_LOOKBACK_WINDOW_DAYS) -> float | None:
+    series = load_local_price_history(ticker)
+    if series.empty:
+        return None
+
+    normalized_date = pd.to_datetime(date).normalize()
+    if normalized_date in series.index:
+        return float(series.loc[normalized_date])
+
+    prior = series.loc[series.index < normalized_date]
+    if prior.empty:
+        return None
+
+    prior_date = prior.index[-1]
+    if (normalized_date - prior_date).days > lookback_days:
+        return None
+
+    return float(prior.iloc[-1])
+
+
+def load_local_close_frame(tickers: list[str]) -> pd.DataFrame:
+    frames = []
+    for ticker in tickers:
+        series = load_local_price_history(ticker)
+        if series.empty:
+            continue
+        frames.append(series.rename(ticker))
+
+    if not frames:
+        return pd.DataFrame()
+
+    close_frame = pd.concat(frames, axis=1).sort_index()
+    close_frame.index = pd.to_datetime(close_frame.index).normalize()
+    return close_frame
 
 
 def needs_fx_adjustment(ticker: str, is_mutual_fund: bool = False, nav_dict: dict = None) -> bool:
@@ -51,21 +180,37 @@ def needs_fx_adjustment(ticker: str, is_mutual_fund: bool = False, nav_dict: dic
 
 def get_price_on_date(ticker, date, cache):
     """Get price for a ticker on a specific date, using cache if available."""
-    cache_key = f"history_close_v1::{ticker}_{date.strftime('%Y-%m-%d')}"
+    cache_key = build_history_close_cache_key(ticker, date)
     
     if cache_key in cache:
         return cache[cache_key]
+
+    local_price = get_local_price_on_or_before(ticker, date)
+    if local_price is not None:
+        cache[cache_key] = local_price
+        return local_price
     
     try:
         start_date = date - pd.Timedelta(days=10)
         stock = yf.Ticker(ticker)
-        hist = stock.history(start=start_date, end=date + pd.Timedelta(days=1))
+        started_at = perf_counter()
+        hist = stock.history(start=start_date, end=date + pd.Timedelta(days=1), timeout=5, auto_adjust=False)
+        elapsed = perf_counter() - started_at
+        if elapsed >= 1.0:
+            logger.info(
+                "market_data.get_price_on_date slow call: ticker=%s, date=%s, duration=%.3fs",
+                ticker,
+                date.strftime("%Y-%m-%d"),
+                elapsed,
+            )
 
         if hist.empty:
             raise ValueError(f"No data available for {ticker} on {date}")
 
-        close_price = hist["Close"]
-        price = float(close_price.iloc[-1])
+        price_series = extract_history_price_series(hist).dropna()
+        if price_series.empty:
+            raise ValueError(f"No adjusted-close data available for {ticker} on {date}")
+        price = float(price_series.iloc[-1])
         cache[cache_key] = price
         return price
     except Exception as e:

@@ -1,4 +1,4 @@
-import { PortfolioItem, BackcastMetrics, BackcastSeriesPoint, BackcastResponse, RiskPosition, SectorRisk, RiskContributionResponse, SectorHistoryData, RollingMetricsResponse, PortfolioAnalysisResponse } from '../types';
+import { PortfolioItem, SectorHistoryData, PortfolioWorkspaceResponse } from '../types';
 
 const API_Base_URL = ''; // Use relative path to leverage Vite proxy
 
@@ -178,9 +178,9 @@ export const fetchDividends = createCachedFetcher<number>(
 // NON-CACHED API FUNCTIONS
 // =============================================================================
 
-/** Full /analyze-manual call — returns both attribution sheets plus the flat items list. */
-export const analyzeManualPortfolioFull = async (items: PortfolioItem[]): Promise<PortfolioAnalysisResponse> => {
-    const response = await fetch(`${API_Base_URL}/analyze-manual`, {
+/** Build the canonical portfolio workspace used by the live app. */
+export const fetchPortfolioWorkspace = async (items: PortfolioItem[]): Promise<PortfolioWorkspaceResponse> => {
+    const response = await fetch(`${API_Base_URL}/portfolio-workspace`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ items }),
@@ -192,17 +192,6 @@ export const analyzeManualPortfolioFull = async (items: PortfolioItem[]): Promis
     }
 
     return await response.json();
-};
-
-/** Convenience wrapper — returns only the flat PortfolioItem[] for callers that don't need sheets. */
-export const analyzeManualPortfolio = async (items: PortfolioItem[]): Promise<PortfolioItem[]> => {
-    try {
-        const result = await analyzeManualPortfolioFull(items);
-        return result.items;
-    } catch (error) {
-        console.error("Manual Analysis Error:", error);
-        throw error;
-    }
 };
 
 export const triggerIndexRefresh = async (): Promise<{ exposure: string; history_cache: string }> => {
@@ -482,99 +471,6 @@ export const convertConfigToItems = (tickers: any[], periods: any[]): PortfolioI
     return flatItems;
 };
 
-// BackcastMetrics, BackcastSeriesPoint, BackcastResponse moved to types.ts
-
-export const fetchPortfolioBackcast = async (items: PortfolioItem[], benchmark: string = '75/25', includeAttribution: boolean = false): Promise<BackcastResponse> => {
-    const cacheKey = `POST /portfolio-backcast:${JSON.stringify({ items, benchmark, includeAttribution })}`;
-    return memoizedRequest(cacheKey, async () => {
-        try {
-            const response = await fetch(`${API_Base_URL}/portfolio-backcast`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ items, benchmark, includeAttribution }),
-            });
-
-            if (!response.ok) {
-                const errorText = await response.text();
-                throw new Error(`Server Error: ${response.status} - ${errorText}`);
-            }
-
-            return await response.json();
-        } catch (error) {
-            console.error("Portfolio Backcast Error:", error);
-            return {
-                metrics: {
-                    totalReturn: 0, benchmarkReturn: 0, alpha: 0, sharpeRatio: 0, sortinoRatio: 0,
-                    informationRatio: 0, trackingError: 0, volatility: 0, beta: 0, maxDrawdown: 0,
-                    benchmarkMaxDrawdown: 0, benchmarkVolatility: 0, benchmarkSharpe: 0, benchmarkSortino: 0
-                },
-                series: [],
-                missingTickers: [],
-                error: String(error)
-            };
-        }
-    });
-};
-
-export const fetchRollingMetrics = async (items: PortfolioItem[], benchmark: string = '75/25'): Promise<RollingMetricsResponse> => {
-    const cacheKey = `POST /rolling-metrics:${JSON.stringify({ items, benchmark })}`;
-    return memoizedRequest(cacheKey, async () => {
-        try {
-            const response = await fetch(`${API_Base_URL}/rolling-metrics`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ items, benchmark }),
-            });
-            if (!response.ok) {
-                throw new Error(`Server Error: ${response.status}`);
-            }
-            return await response.json();
-        } catch (error) {
-            console.error("Rolling Metrics Error:", error);
-            return { windows: { 21: [], 63: [], 126: [] }, error: String(error) };
-        }
-    });
-};
-
-// =============================================================================
-// RISK CONTRIBUTION
-// =============================================================================
-
-// Re-export types from canonical source for backward compatibility
-export type { RiskPosition, SectorRisk, RiskContributionResponse } from '../types';
-
-export const fetchRiskContribution = async (items: PortfolioItem[]): Promise<RiskContributionResponse> => {
-    const cacheKey = `POST /risk-contribution:${JSON.stringify({ items })}`;
-    return memoizedRequest(cacheKey, async () => {
-        try {
-            const response = await fetch(`${API_Base_URL}/risk-contribution`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ items }),
-            });
-
-            if (!response.ok) {
-                const errorText = await response.text();
-                throw new Error(`Server Error: ${response.status} - ${errorText}`);
-            }
-
-            return await response.json();
-        } catch (error) {
-            console.error("Risk Contribution Error:", error);
-            return {
-                portfolioVol: 0, benchmarkVol: 0, portfolioBeta: 1,
-                diversificationRatio: 0, concentrationRatio: 0,
-                numEffectiveBets: 0, top3Concentration: 0,
-                var95: 0, cvar95: 0,
-                positions: [], sectorRisk: [], missingTickers: [],
-                error: String(error),
-            };
-        }
-    });
-};
-
 // =============================================================================
 // Cache management
 // =============================================================================
@@ -587,4 +483,3 @@ export const fetchCacheInfo = async (): Promise<{ exists: boolean; age_hours: nu
     const res = await fetch(`${API_Base_URL}/cache/info`);
     return res.json();
 };
-

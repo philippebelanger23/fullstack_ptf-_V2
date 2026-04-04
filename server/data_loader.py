@@ -5,6 +5,8 @@ import logging
 import pandas as pd
 from pathlib import Path
 
+from services.path_utils import resolve_storage_path
+
 logger = logging.getLogger(__name__)
 
 # Supported date formats for NAV CSVs (order matters - try most common first)
@@ -65,7 +67,7 @@ def load_historic_nav_csvs(directory_path):
         Dictionary mapping ticker -> {date: nav_value}
     """
     nav_dict = {}
-    dir_path = Path(directory_path)
+    dir_path = resolve_storage_path(directory_path)
     
     if not dir_path.exists():
         logger.warning(f"NAV directory does not exist: {directory_path}")
@@ -150,7 +152,7 @@ def load_historic_nav_csvs(directory_path):
 def load_manual_navs_json(file_path):
     """Load manual NAV JSON as {ticker: {Timestamp: float}}."""
     nav_dict = {}
-    path = Path(file_path)
+    path = resolve_storage_path(file_path)
 
     if not path.exists():
         return nav_dict
