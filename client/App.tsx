@@ -11,7 +11,7 @@ import { RiskContributionView } from './views/RiskContributionView';
 import { PortfolioItem, ViewState, BackcastResponse, PortfolioWorkspaceAttribution, PortfolioWorkspaceResponse } from './types';
 import { loadPortfolioConfig, convertConfigToItems, loadSectorWeights, loadAssetGeo, fetchPortfolioWorkspace } from './services/api';
 
-const AUTOLOAD_WORKSPACE_TIMEOUT_MS = 30000;
+const AUTOLOAD_WORKSPACE_TIMEOUT_MS = 60000;
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number, timeoutLabel: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {

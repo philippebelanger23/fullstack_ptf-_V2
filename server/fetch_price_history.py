@@ -1,6 +1,8 @@
 """Warm cached-yfinance price history for the active portfolio and benchmarks."""
 
 import json
+import logging
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pandas as pd
@@ -12,6 +14,15 @@ from services.path_utils import resolve_storage_path
 from services.yfinance_setup import configure_yfinance_cache
 
 configure_yfinance_cache()
+
+logger = logging.getLogger(__name__)
+
+# Bump this whenever the fetch logic changes (e.g. auto_adjust switch).
+# A mismatch between this and the stored version triggers a full re-fetch on startup.
+PRICE_HISTORY_VERSION = "v2"  # v2: switched to auto_adjust=True
+
+# Re-fetch if CSVs are older than this many hours (keeps deployed data current).
+MAX_CACHE_AGE_HOURS = 24
 
 
 def load_target_tickers() -> list[str]:
@@ -37,26 +48,74 @@ def load_target_tickers() -> list[str]:
 
     return sorted(targets)
 
-def fetch_and_save_price_data(output_dir: Path = Path("data/price_history")):
+
+def _meta_path(output_dir: Path) -> Path:
+    return output_dir / ".meta.json"
+
+
+def _read_meta(output_dir: Path) -> dict:
+    p = _meta_path(output_dir)
+    if not p.exists():
+        return {}
+    try:
+        return json.loads(p.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def _write_meta(output_dir: Path) -> None:
+    meta = {
+        "version": PRICE_HISTORY_VERSION,
+        "last_refresh": datetime.now(timezone.utc).isoformat(),
+    }
+    _meta_path(output_dir).write_text(json.dumps(meta, indent=2), encoding="utf-8")
+
+
+def is_refresh_needed(output_dir: Path) -> tuple[bool, str]:
+    """Return (needed, reason). Checks version mismatch and cache age."""
+    meta = _read_meta(output_dir)
+
+    if meta.get("version") != PRICE_HISTORY_VERSION:
+        stored = meta.get("version", "missing")
+        return True, f"version mismatch (stored={stored}, current={PRICE_HISTORY_VERSION})"
+
+    last_refresh_str = meta.get("last_refresh")
+    if not last_refresh_str:
+        return True, "no last_refresh timestamp recorded"
+
+    try:
+        last_refresh = datetime.fromisoformat(last_refresh_str)
+        age_hours = (datetime.now(timezone.utc) - last_refresh).total_seconds() / 3600
+        if age_hours > MAX_CACHE_AGE_HOURS:
+            return True, f"cache is {age_hours:.1f}h old (max {MAX_CACHE_AGE_HOURS}h)"
+    except Exception:
+        return True, "could not parse last_refresh timestamp"
+
+    return False, "cache is fresh"
+
+
+def fetch_and_save_price_data(output_dir: Path | None = None) -> list[tuple[str, str]]:
     """
     Fetch daily adjusted close data for all tickers and save to CSV.
-    Returns list of tickers that failed to fetch.
+    Returns list of (ticker, reason) tuples for tickers that failed.
     """
+    if output_dir is None:
+        output_dir = resolve_storage_path("data/price_history")
     output_dir.mkdir(parents=True, exist_ok=True)
-    
+
     tickers = load_target_tickers()
     successful = []
     failed = []
-    
+
     print(f"Fetching daily adjusted close data for {len(tickers)} tickers...")
     print("-" * 60)
-    
+
     for ticker in tickers:
         try:
             print(f"Fetching {ticker}...", end=" ")
-            
+
             # Match the canonical engine: use adjusted close values.
-            data = yf.Ticker(ticker).history(period="5y", interval="1d", timeout=5, auto_adjust=False)
+            data = yf.Ticker(ticker).history(period="5y", interval="1d", timeout=5, auto_adjust=True)
 
             if data.empty:
                 print(f"FAILED - No data returned")
@@ -68,43 +127,58 @@ def fetch_and_save_price_data(output_dir: Path = Path("data/price_history")):
                 print(f"FAILED - No adjusted close column found")
                 failed.append((ticker, "No adjusted close column"))
                 continue
-            
+
             # Create DataFrame with date and close price
             df = pd.DataFrame({
                 'Date': close_prices.index.strftime('%Y-%m-%d'),
                 'Adj_Close': close_prices.values
             })
-            
+
             # Save to CSV
             safe_filename = ticker.replace(".", "_").replace("-", "_")
             csv_path = output_dir / f"{safe_filename}.csv"
             df.to_csv(csv_path, index=False)
-            
+
             print(f"OK - {len(df)} rows saved to {csv_path.name}")
             successful.append(ticker)
-            
+
         except Exception as e:
             print(f"FAILED - {str(e)[:60]}")
             failed.append((ticker, str(e)))
-    
+
     print("\n" + "=" * 60)
-    print(f"SUMMARY")
-    print("=" * 60)
-    print(f"Successfully fetched: {len(successful)}/{len(tickers)} tickers")
-    
-    if successful:
-        print(f"\nSuccessful tickers:")
-        for t in successful:
-            print(f"  ✓ {t}")
-    
+    print(f"SUMMARY: {len(successful)}/{len(tickers)} tickers fetched successfully")
+
     if failed:
-        print(f"\n❌ Failed tickers ({len(failed)}):")
+        print(f"\nFailed tickers ({len(failed)}):")
         for ticker, reason in failed:
             print(f"  - {ticker}: {reason}")
-    else:
-        print("\nAll tickers fetched successfully!")
-    
+
+    _write_meta(output_dir)
     return failed
+
+
+def refresh_if_needed(output_dir: Path | None = None) -> bool:
+    """
+    Check staleness and refresh only if needed. Returns True if a refresh ran.
+    Safe to call on every startup — is a no-op when the cache is fresh.
+    """
+    if output_dir is None:
+        output_dir = resolve_storage_path("data/price_history")
+
+    needed, reason = is_refresh_needed(output_dir)
+    if not needed:
+        logger.info("price history cache is up to date (%s)", reason)
+        return False
+
+    logger.info("refreshing price history cache: %s", reason)
+    failed = fetch_and_save_price_data(output_dir)
+    if failed:
+        logger.warning("price history refresh: %d tickers failed: %s", len(failed), failed)
+    else:
+        logger.info("price history cache refresh complete")
+    return True
+
 
 if __name__ == "__main__":
     failed = fetch_and_save_price_data()

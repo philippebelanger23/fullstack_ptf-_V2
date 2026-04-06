@@ -1,3 +1,0 @@
-Snapshot created from the live computation path.
-This file exists only as a folder-level marker because direct shell writes and deletes
-were blocked in this workspace for this directory.

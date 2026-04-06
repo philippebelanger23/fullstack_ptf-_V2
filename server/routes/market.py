@@ -97,7 +97,7 @@ async def fetch_performance(request: dict):
 
         for ticker in unique_tickers:
             try:
-                hist = tickers_obj.tickers[ticker].history(period="1y", auto_adjust=False)
+                hist = tickers_obj.tickers[ticker].history(period="1y", auto_adjust=True)
                 price_series = extract_history_price_series(hist).dropna()
 
                 if hist.empty or price_series.empty:

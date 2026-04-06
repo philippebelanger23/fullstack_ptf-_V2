@@ -1,6 +1,8 @@
 import sys
 import asyncio
 import logging
+from contextlib import asynccontextmanager
+from concurrent.futures import ThreadPoolExecutor
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -15,7 +17,28 @@ from routes.risk import router as risk_router
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-app = FastAPI()
+_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="price-refresh")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Refresh price history cache in the background so startup is non-blocking.
+    # refresh_if_needed() is a no-op when the cache is already fresh.
+    loop = asyncio.get_event_loop()
+    loop.run_in_executor(_executor, _run_price_refresh)
+    yield
+    _executor.shutdown(wait=False)
+
+
+def _run_price_refresh():
+    try:
+        from fetch_price_history import refresh_if_needed
+        refresh_if_needed()
+    except Exception as exc:
+        logger.warning("startup price history refresh failed: %s", exc)
+
+
+app = FastAPI(lifespan=lifespan)
 
 # Configure CORS
 app.add_middleware(

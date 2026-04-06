@@ -79,6 +79,7 @@ export interface CanonicalContributorCardLayout {
     title: string;
     items: TableItem[];
     isQuarter: boolean;
+    isEmpty?: boolean;
     status: 'COMPLETED' | 'IN_PROGRESS';
 }
 
@@ -124,22 +125,25 @@ export const buildCanonicalContributorPages = (
 
     const quarterRows = attribution.topContributors
         .map((layout, layoutIndex) => {
-            const monthlyCards = layout.monthlyTables
-                .map((table, tableIndex) => {
-                    const tableDate = new Date(`${table.label} 1`);
-                    if (Number.isNaN(tableDate.getTime()) || tableDate.getFullYear() !== selectedYear) return null;
-                    const isCurrentMonth = tableDate.getFullYear() === currentYear && tableDate.getMonth() === currentMonth;
-                    return {
-                        key: `month-${layoutIndex}-${tableIndex}`,
-                        title: isCurrentMonth ? `${table.label} (MTD)` : table.label,
-                        items: table.rows.filter((row) => !isCashTicker(row.ticker)).map(toTableItem),
-                        isQuarter: false,
-                        status: isCurrentMonth ? 'IN_PROGRESS' : 'COMPLETED',
-                    } satisfies CanonicalContributorCardLayout;
-                })
-                .filter((card): card is CanonicalContributorCardLayout => Boolean(card));
+            // Place each monthly card in its correct slot within the quarter (0, 1, or 2)
+            const monthlySlots: (CanonicalContributorCardLayout | null)[] = [null, null, null];
 
-            if (monthlyCards.length === 0) return null;
+            layout.monthlyTables.forEach((table, tableIndex) => {
+                const tableDate = new Date(`${table.label} 1`);
+                if (Number.isNaN(tableDate.getTime()) || tableDate.getFullYear() !== selectedYear) return;
+                const isCurrentMonth = tableDate.getFullYear() === currentYear && tableDate.getMonth() === currentMonth;
+                const slotIndex = tableDate.getMonth() % 3; // 0, 1, or 2 within the quarter
+                monthlySlots[slotIndex] = {
+                    key: `month-${layoutIndex}-${tableIndex}`,
+                    title: isCurrentMonth ? `${table.label} (MTD)` : table.label,
+                    items: table.rows.filter((row) => !isCashTicker(row.ticker)).map(toTableItem),
+                    isQuarter: false,
+                    status: isCurrentMonth ? 'IN_PROGRESS' : 'COMPLETED',
+                };
+            });
+
+            const hasAnyMonth = monthlySlots.some(Boolean);
+            if (!hasAnyMonth) return null;
 
             const firstMonthDate = new Date(`${layout.monthlyTables[0].label} 1`);
             const quarterNumber = Math.floor(firstMonthDate.getMonth() / 3) + 1;
@@ -153,7 +157,24 @@ export const buildCanonicalContributorPages = (
                 } satisfies CanonicalContributorCardLayout
                 : null;
 
-            return quarterCard ? [...monthlyCards, quarterCard] : monthlyCards;
+            if (!quarterCard) {
+                // No quarterly table yet — just return the months that exist without padding
+                return monthlySlots.filter((card): card is CanonicalContributorCardLayout => Boolean(card));
+            }
+
+            // Pad missing month slots with invisible placeholders so the quarterly card always sits in column 4
+            const cards: CanonicalContributorCardLayout[] = monthlySlots.map((slot, i) =>
+                slot ?? {
+                    key: `placeholder-${layoutIndex}-${i}`,
+                    title: '',
+                    items: [],
+                    isQuarter: false,
+                    isEmpty: true,
+                    status: 'COMPLETED' as const,
+                },
+            );
+            cards.push(quarterCard);
+            return cards;
         })
         .filter((row): row is CanonicalContributorCardLayout[] => Boolean(row));
 

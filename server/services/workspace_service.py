@@ -239,7 +239,7 @@ def _prime_price_cache_for_dates(
                     progress=False,
                     timeout=5,
                     threads=False,
-                    auto_adjust=False,
+                    auto_adjust=True,
                 )
                 downloaded_closes = _normalize_close_frame(downloaded, missing_fetch_list)
             except Exception as exc:
@@ -1555,6 +1555,7 @@ def _build_performance_section(
     nav_dict: dict[str, dict[pd.Timestamp, float]],
     start_date: pd.Timestamp | None = None,
     end_date: pd.Timestamp | None = None,
+    prefetched_returns_df: pd.DataFrame | None = None,
 ) -> dict[str, Any]:
     benchmark_names = ["75/25", "TSX", "SP500", "ACWI"]
     timestamp = datetime.now(timezone.utc).isoformat()
@@ -1576,13 +1577,21 @@ def _build_performance_section(
     all_tickers = list({ticker for _, weights, _ in period_weights for ticker in weights if not is_cash_ticker(ticker)})
     all_mutual_fund_tickers = {ticker for _, _, mf_tickers in period_weights for ticker in mf_tickers}
     try:
-        returns_df, _, missing_tickers = fetch_returns_df(
-            all_tickers,
-            mutual_fund_tickers=all_mutual_fund_tickers,
-            nav_dict=nav_dict,
-            start_date=start_date,
-            end_date=end_date,
-        )
+        if prefetched_returns_df is not None:
+            returns_df = prefetched_returns_df
+            if start_date is not None:
+                returns_df = returns_df.loc[returns_df.index >= pd.Timestamp(start_date).normalize()]
+            if end_date is not None:
+                returns_df = returns_df.loc[returns_df.index < pd.Timestamp(end_date).normalize()]
+            missing_tickers = [t for t in all_tickers if t not in returns_df.columns and not is_cash_ticker(t)]
+        else:
+            returns_df, _, missing_tickers = fetch_returns_df(
+                all_tickers,
+                mutual_fund_tickers=all_mutual_fund_tickers,
+                nav_dict=nav_dict,
+                start_date=start_date,
+                end_date=end_date,
+            )
         portfolio_returns, extra_missing = build_period_weighted_portfolio_returns(returns_df, period_weights)
     except Exception as exc:
         logger.warning("workspace performance section unavailable: %s", exc)
@@ -1628,6 +1637,7 @@ def _build_risk_section(
     latest_items: list[dict[str, Any]],
     nav_tickers: set[str],
     nav_dict: dict[str, dict[pd.Timestamp, float]],
+    prefetched_returns_df: pd.DataFrame | None = None,
 ) -> dict[str, Any]:
     timestamp = datetime.now(timezone.utc).isoformat()
 
@@ -1680,11 +1690,15 @@ def _build_risk_section(
         }
 
     try:
-        returns_df, raw_returns_df, _ = fetch_returns_df(
-            tradeable_tickers,
-            mutual_fund_tickers=mutual_fund_tickers,
-            nav_dict=nav_dict,
-        )
+        if prefetched_returns_df is not None:
+            # Slice to last ~252 trading days to preserve 1y window for risk metrics
+            returns_df = prefetched_returns_df.iloc[-252:] if len(prefetched_returns_df) > 252 else prefetched_returns_df
+        else:
+            returns_df, _, _ = fetch_returns_df(
+                tradeable_tickers,
+                mutual_fund_tickers=mutual_fund_tickers,
+                nav_dict=nav_dict,
+            )
     except Exception as exc:
         logger.warning("workspace risk section unavailable: %s", exc)
         return {"error": f"Risk workspace unavailable: {exc}", "missingTickers": sorted(tradeable_tickers), "fetchedAt": timestamp}
@@ -1958,6 +1972,24 @@ def build_portfolio_workspace(items: list[Any]) -> dict[str, Any]:
                 company_name_map,
             )
 
+        # Pre-fetch returns_df once and share between performance and risk sections
+        # to avoid downloading the same ticker set twice from yfinance.
+        with _timed_step("prefetch_shared_returns_df", tickers=len(market_lookup_tickers)):
+            _shared_returns_df = None
+            try:
+                one_year_ago = pd.Timestamp.now().normalize() - pd.DateOffset(years=1, weeks=1)
+                pfetch_start = min(expanded_dates[0], one_year_ago) if expanded_dates else one_year_ago
+                pfetch_end = (expanded_dates[-1] + pd.Timedelta(days=1)) if expanded_dates else None
+                _shared_returns_df, _, _ = fetch_returns_df(
+                    list(market_lookup_tickers),
+                    mutual_fund_tickers=input_state["mutual_fund_tickers"],
+                    nav_dict=nav_dict,
+                    start_date=pfetch_start,
+                    end_date=pfetch_end,
+                )
+            except Exception as _exc:
+                logger.warning("shared returns pre-fetch failed, sections will fetch independently: %s", _exc)
+
         with _timed_step("build_performance_section", holdings=len(holdings_items)):
             performance = _build_performance_section(
                 holdings_items,
@@ -1965,10 +1997,11 @@ def build_portfolio_workspace(items: list[Any]) -> dict[str, Any]:
                 nav_dict,
                 start_date=expanded_dates[0] if expanded_dates else None,
                 end_date=(expanded_dates[-1] + pd.Timedelta(days=1)) if expanded_dates else None,
+                prefetched_returns_df=_shared_returns_df,
             )
 
         with _timed_step("build_risk_section", holdings=len(latest_items)):
-            risk = _build_risk_section(latest_items, set(nav_dict.keys()), nav_dict)
+            risk = _build_risk_section(latest_items, set(nav_dict.keys()), nav_dict, prefetched_returns_df=_shared_returns_df)
 
         with _timed_step("build_nav_audit"):
             nav_audit = _build_nav_audit()

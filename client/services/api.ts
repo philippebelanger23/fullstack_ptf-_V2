@@ -1,4 +1,4 @@
-import { PortfolioItem, SectorHistoryData, PortfolioWorkspaceResponse } from '../types';
+import { PortfolioItem, PortfolioWorkspaceResponse } from '../types';
 
 const API_Base_URL = ''; // Use relative path to leverage Vite proxy
 
@@ -271,28 +271,6 @@ export const fetchIndexHistory = async (): Promise<Record<string, { date: string
     }, INDEX_HISTORY_CACHE_TTL);
 };
 
-// SectorHistoryData moved to types.ts
-
-export const fetchSectorHistory = async (): Promise<{ US: SectorHistoryData, CA: SectorHistoryData, OVERALL: SectorHistoryData }> => {
-    return memoizedRequest('GET /sector-history', async () => {
-        try {
-            const response = await fetch(`${API_Base_URL}/sector-history`);
-            if (response.ok) {
-                const data = await response.json();
-                // Handle both old flat format and new nested format
-                if (data.US) return { US: data.US, CA: data.CA || {}, OVERALL: data.OVERALL || {} };
-                return { US: data, CA: {}, OVERALL: {} };
-            } else {
-                console.error('Failed to fetch sector history');
-                return { US: {}, CA: {}, OVERALL: {} };
-            }
-        } catch (error) {
-            console.error("Error fetching sector history:", error);
-            return { US: {}, CA: {}, OVERALL: {} };
-        }
-    });
-};
-
 export const savePortfolioConfig = async (config: { tickers: any[], periods: any[] }): Promise<void> => {
     try {
         const response = await fetch(`${API_Base_URL}/save-portfolio-config`, {
@@ -477,9 +455,4 @@ export const convertConfigToItems = (tickers: any[], periods: any[]): PortfolioI
 
 export const clearMarketCache = async (): Promise<void> => {
     await fetch(`${API_Base_URL}/cache/clear`, { method: 'POST' });
-};
-
-export const fetchCacheInfo = async (): Promise<{ exists: boolean; age_hours: number | null; entries: number; is_stale: boolean }> => {
-    const res = await fetch(`${API_Base_URL}/cache/info`);
-    return res.json();
 };

@@ -175,21 +175,10 @@ export interface PortfolioAnalysisResponse {
   benchmarkMonthlyReturns: Record<string, number[]>; // {bench_name: [r_month_0, ...]}
 }
 
-export type SectorHistoryData = Record<string, { date: string; value: number }[]>;
-
 export interface RollingMetricPoint {
   date: string;
   portfolio: { sharpe: number; vol: number; beta: number };
   benchmark: { sharpe: number; vol: number; beta: number };
-}
-
-export interface RollingMetricsResponse {
-  windows: {
-    21: RollingMetricPoint[];
-    63: RollingMetricPoint[];
-    126: RollingMetricPoint[];
-  };
-  error?: string;
 }
 
 export interface PortfolioWorkspaceInput {
@@ -291,40 +280,6 @@ export interface PortfolioWorkspaceAttribution extends PortfolioAnalysisResponse
 export interface PerformanceWorkspaceSection {
   defaultBenchmark: string;
   variants: Record<string, BackcastResponse>;
-  rollingMetrics: Record<string, RollingMetricsResponse>;
-}
-
-export interface MutualFundTraceRow {
-  startDate?: string;
-  endDate?: string;
-  label?: string;
-  weight?: number;
-  priceStart?: number | null;
-  priceEnd?: number | null;
-  startValue?: number | null;
-  endValue?: number | null;
-  returnPct: number;
-  contribution: number;
-  needsFx?: boolean;
-  priceCovered?: boolean;
-}
-
-export interface MutualFundTrace {
-  rawNavInputs: { date: string | null; nav: number }[];
-  reportingBoundaries: (string | null)[];
-  resolvedBoundaryPrices: { date: string | null; value: number | null }[];
-  subperiodRows: MutualFundTraceRow[];
-  monthlyRows: MutualFundTraceRow[];
-  quarterRows: MutualFundTraceRow[];
-  ytdRow: MutualFundTraceRow;
-}
-
-export interface PortfolioWorkspaceAudit {
-  navAudit: Record<string, { date: string; nav: number; source: string; returnPct: number | null }[]>;
-  mutualFundTraces: Record<string, MutualFundTrace>;
-  coverage: {
-    missingBoundaryPrices: { ticker: string; start: string | null; end: string | null }[];
-  };
 }
 
 export interface PortfolioWorkspaceResponse {
@@ -334,5 +289,4 @@ export interface PortfolioWorkspaceResponse {
   attribution: PortfolioWorkspaceAttribution;
   performance: PerformanceWorkspaceSection;
   risk: RiskContributionResponse;
-  audit: PortfolioWorkspaceAudit;
 }

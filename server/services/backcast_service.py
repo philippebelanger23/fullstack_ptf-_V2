@@ -392,6 +392,7 @@ def fetch_returns_df(
                 "progress": False,
                 "timeout": 5,
                 "threads": False,
+                "auto_adjust": True,
             }
             if normalized_start is not None or normalized_end is not None:
                 download_kwargs["start"] = normalized_start

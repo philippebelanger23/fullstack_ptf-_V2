@@ -200,7 +200,7 @@ def get_index_history():
     tickers = ["ACWI", "XIC.TO", "USDCAD=X"]
 
     try:
-        data = yf.download(tickers, period="5y", interval="1d", progress=False, auto_adjust=False)
+        data = yf.download(tickers, period="5y", interval="1d", progress=False, auto_adjust=True)
 
         if data.empty:
             return {"ACWI": [], "XIC.TO": [], "Index": []}
@@ -327,7 +327,7 @@ def get_sector_history():
     logger.info(f"Fetching fresh sector history for {len(all_tickers)} tickers (US + CA)...")
 
     try:
-        data = yf.download(all_tickers, period="5y", interval="1d", progress=False, auto_adjust=False)
+        data = yf.download(all_tickers, period="5y", interval="1d", progress=False, auto_adjust=True)
         if data.empty:
             return {"US": {}, "CA": {}}
 

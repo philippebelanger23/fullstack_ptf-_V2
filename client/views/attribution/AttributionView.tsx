@@ -264,7 +264,9 @@ const CanonicalContributorPagesSection: React.FC<{
                     )}
                     {page.rows.map((cards, rowIndex) => (
                         <div key={`${page.key}-row-${rowIndex}`} className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 items-end print-row">
-                            {cards.map((card) => (
+                            {cards.map((card) => card.isEmpty ? (
+                                <div key={card.key} />
+                            ) : (
                                 <AttributionTable
                                     key={card.key}
                                     title={card.title}
@@ -859,11 +861,10 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ selectedYear, 
 
 
 
-            {isFuture ? (
-                <FuturePeriodMessage />
-            ) : (
-                <>
-                    {viewMode === 'OVERVIEW' ? (
+            {viewMode === 'OVERVIEW' ? (
+                isFuture ? (
+                    <FuturePeriodMessage />
+                ) : (
                 <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2">
 
                     <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 h-auto lg:h-[500px]">
@@ -896,6 +897,7 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ selectedYear, 
                         tc={tc}
                     />
                 </div>
+                )
             ) : (
                         <div className="space-y-4">
                         {/* Table mode toggle */}
@@ -942,8 +944,6 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ selectedYear, 
                         )}
                         </div>
                 )}
-            </>
-        )}
         </div>
     );
 };

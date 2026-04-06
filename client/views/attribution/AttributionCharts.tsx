@@ -1,7 +1,47 @@
-import React, { memo, useCallback, useRef, useMemo } from 'react';
+import React, { memo, useCallback, useRef, useMemo, useState } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, LabelList, ReferenceLine } from 'recharts';
 import { TrendingUp, Layers, Loader2 } from 'lucide-react';
 import { useThemeColors } from '../../hooks/useThemeColors';
+
+// ── InfoBubble ───────────────────────────────────────────────────────────────
+
+const INFO_TIPS: Record<string, { desc: string; formula: string }> = {
+    selection: {
+        desc: 'Did your stock picks outperform the sector benchmark?',
+        formula: 'Σ Wᴮᵢ × (Rᴾᵢ − Rᴮᵢ)',
+    },
+    allocation: {
+        desc: 'Did your sector tilts (overweight/underweight) add value?',
+        formula: 'Σ (Wᴾᵢ − Wᴮᵢ) × (Rᴮᵢ − Rᴮ)',
+    },
+    interaction: {
+        desc: 'Joint effect of tilting into a sector where you also picked well (or poorly).',
+        formula: 'Σ (Wᴾᵢ − Wᴮᵢ) × (Rᴾᵢ − Rᴮᵢ)',
+    },
+};
+
+const InfoBubble = ({ type }: { type: 'selection' | 'allocation' | 'interaction' }) => {
+    const [open, setOpen] = useState(false);
+    const tip = INFO_TIPS[type];
+    return (
+        <span className="relative inline-flex items-center ml-1 align-middle">
+            <button
+                className="w-3.5 h-3.5 rounded-full bg-wallstreet-700 text-wallstreet-400 text-[9px] font-bold leading-none flex items-center justify-center hover:bg-wallstreet-600 hover:text-wallstreet-200 transition-colors focus:outline-none"
+                onMouseEnter={() => setOpen(true)}
+                onMouseLeave={() => setOpen(false)}
+                onClick={() => setOpen(v => !v)}
+                aria-label={`Info about ${type}`}
+            >?</button>
+            {open && (
+                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 z-50 w-56 bg-gray-950 border border-gray-600 rounded-lg shadow-xl p-3 font-mono text-left pointer-events-none">
+                    <div className="text-[11px] text-white leading-snug mb-2">{tip.desc}</div>
+                    <div className="text-[10px] font-bold text-yellow-300 font-mono bg-black rounded px-2 py-1 tracking-wide">{tip.formula}</div>
+                    <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-gray-600" />
+                </div>
+            )}
+        </span>
+    );
+};
 
 // ── TornadoLabel ────────────────────────────────────────────────────────────
 
@@ -54,7 +94,7 @@ const WaterfallChartBase: React.FC<WaterfallChartProps> = ({ waterfallData, wate
     return (
     <div className="lg:col-span-4 bg-wallstreet-800 p-6 rounded-xl border border-wallstreet-700 shadow-sm flex flex-col">
         <div className="mb-4">
-            <h3 className="font-mono font-bold text-wallstreet-text uppercase tracking-wider text-sm flex items-center gap-2"><TrendingUp size={16} className="text-wallstreet-500" /> Return Waterfall (Top 10)</h3>
+            <h3 className="font-mono font-bold text-wallstreet-text uppercase tracking-wider text-sm flex items-center gap-2"><TrendingUp size={16} className="text-wallstreet-500" /> Contribution Waterfall (Top 10)</h3>
         </div>
         <div className="flex-1 w-full min-h-[300px]">
             <ResponsiveContainer width="100%" height="100%">
@@ -248,8 +288,8 @@ export const SectorAttributionCharts: React.FC<SectorAttributionChartsProps> = (
                 {/* SELECTION EFFECT */}
                 <div className="flex flex-col">
                     <div className="mb-4 w-full text-center">
-                        <span className="text-[12px] font-mono font-black text-wallstreet-text uppercase tracking-wider">
-                            Selection
+                        <span className="text-[12px] font-mono font-black text-wallstreet-text uppercase tracking-wider inline-flex items-center">
+                            Selection<InfoBubble type="selection" />
                         </span>
                         <div className={`text-[11px] font-mono font-bold ${totals.selection >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                             {totals.selection < 0 ? `(${Math.abs(totals.selection).toFixed(2)}%)` : `+${totals.selection.toFixed(2)}%`}
@@ -338,8 +378,8 @@ export const SectorAttributionCharts: React.FC<SectorAttributionChartsProps> = (
                 {/* ALLOCATION EFFECT */}
                 <div className="flex flex-col border-l border-wallstreet-700">
                     <div className="mb-4 w-full text-center">
-                        <span className="text-[12px] font-mono font-black text-wallstreet-text uppercase tracking-wider">
-                            Allocation
+                        <span className="text-[12px] font-mono font-black text-wallstreet-text uppercase tracking-wider inline-flex items-center">
+                            Allocation<InfoBubble type="allocation" />
                         </span>
                         {benchmarkMode === 'SECTOR' && (
                             <div className={`text-[11px] font-mono font-bold ${totals.allocation >= 0 ? 'text-green-600' : 'text-red-600'}`}>
@@ -414,8 +454,8 @@ export const SectorAttributionCharts: React.FC<SectorAttributionChartsProps> = (
                 {/* INTERACTION EFFECT */}
                 <div className="flex flex-col border-l border-wallstreet-700">
                     <div className="mb-4 w-full text-center">
-                        <span className="text-[12px] font-mono font-black text-wallstreet-text uppercase tracking-wider">
-                            Interaction
+                        <span className="text-[12px] font-mono font-black text-wallstreet-text uppercase tracking-wider inline-flex items-center">
+                            Interaction<InfoBubble type="interaction" />
                         </span>
                         <div className={`text-[11px] font-mono font-bold ${totals.interaction >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                             {totals.interaction < 0 ? `(${Math.abs(totals.interaction).toFixed(2)}%)` : `+${totals.interaction.toFixed(2)}%`}

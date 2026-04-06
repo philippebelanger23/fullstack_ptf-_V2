@@ -13,8 +13,9 @@ import services.backcast_service as backcast_service
 def test_fetch_returns_df_includes_nav_tickers_without_yahoo_fetch(monkeypatch):
     captured = {}
 
-    def fake_download(fetch_list, period=None, interval=None, progress=None, timeout=None, threads=None):
+    def fake_download(fetch_list, period=None, interval=None, progress=None, timeout=None, threads=None, auto_adjust=None):
         captured["fetch_list"] = list(fetch_list)
+        captured["auto_adjust"] = auto_adjust
         idx = pd.to_datetime(["2026-03-30", "2026-03-31", "2026-04-01"])
         columns = pd.MultiIndex.from_tuples(
             [
@@ -50,6 +51,7 @@ def test_fetch_returns_df_includes_nav_tickers_without_yahoo_fetch(monkeypatch):
     )
 
     assert "BIP791" not in captured["fetch_list"]
+    assert captured["auto_adjust"] is True
     assert "BIP791" in returns_df.columns
     assert "BIP791" in raw_returns_df.columns
     assert missing == []

@@ -332,7 +332,7 @@ async def price_audit(
             hist = yf.Ticker(ticker.upper()).history(
                 start=start_ts,
                 end=end_ts + pd.Timedelta(days=1),
-                auto_adjust=False,
+                auto_adjust=True,
             )
             close_col = extract_history_price_series(hist).dropna() if not hist.empty else pd.Series(dtype=float)
             prices_series = [

@@ -1,9 +1,11 @@
 """Regression tests for the canonical market price lookup helper."""
 
 import sys
+import shutil
 from pathlib import Path
 
 import pandas as pd
+import pytest
 
 sys.path.insert(0, str(Path(__file__).parent))
 
@@ -43,7 +45,21 @@ def test_get_price_on_date_uses_ticker_history_adjusted_close_and_cache(monkeypa
     assert fake_ticker.calls[0][0] == pd.Timestamp("2026-03-21")
     assert fake_ticker.calls[0][1] == pd.Timestamp("2026-04-01")
     assert fake_ticker.calls[0][2]["timeout"] == 5
-    assert fake_ticker.calls[0][2]["auto_adjust"] is False
+    assert fake_ticker.calls[0][2]["auto_adjust"] is True
+
+
+def test_extract_download_price_frame_prefers_adjusted_close_over_close():
+    frame = pd.DataFrame(
+        {
+            "Close": [93.0, 94.0],
+            "Adj Close": [91.5, 92.01],
+        },
+        index=pd.to_datetime(["2026-03-30", "2026-03-31"]),
+    )
+
+    extracted = market_data.extract_download_price_frame(frame, ["SU.TO"])
+
+    assert list(extracted.iloc[:, 0]) == [91.5, 92.01]
 
 
 def test_get_price_on_date_uses_local_price_history_before_yahoo(monkeypatch):
@@ -57,39 +73,32 @@ def test_get_price_on_date_uses_local_price_history_before_yahoo(monkeypatch):
     cache = {}
     price = market_data.get_price_on_date("SU.TO", pd.Timestamp("2026-01-21"), cache)
 
-    assert price == 69.83000183105469
-    assert cache[market_data.build_history_close_cache_key("SU.TO", pd.Timestamp("2026-01-21"))] == 69.83000183105469
+    assert price == pytest.approx(69.2936019897461)
+    assert cache[market_data.build_history_close_cache_key("SU.TO", pd.Timestamp("2026-01-21"))] == pytest.approx(69.2936019897461)
 
 
-def test_calculate_returns_does_not_fall_back_to_yahoo_for_nav_ticker(monkeypatch):
-    def _fail_if_called(*args, **kwargs):
-        raise AssertionError("Yahoo lookup should not be used for NAV tickers")
+def test_load_local_price_history_prefers_adjusted_close_when_both_columns_exist(monkeypatch):
+    market_data.load_local_price_history.cache_clear()
 
-    monkeypatch.setattr(market_data, "get_price_on_date", _fail_if_called)
+    tmp_root = Path(__file__).parent / "_tmp_adjusted_close_case"
+    csv_dir = tmp_root / "data" / "price_history"
+    try:
+        csv_dir.mkdir(parents=True, exist_ok=True)
+        csv_path = csv_dir / "SU_TO.csv"
+        csv_path.write_text(
+            "Date,Close,Adj_Close\n"
+            "2026-03-30,93.0,91.5\n"
+            "2026-03-31,94.0,92.01\n",
+            encoding="utf-8",
+        )
 
-    weights_dict = {
-        "BIP791": {
-            pd.Timestamp("2024-12-31"): 1.0,
-            pd.Timestamp("2025-01-31"): 1.0,
-        }
-    }
-    nav_dict = {
-        "BIP791": {
-            pd.Timestamp("2025-01-31"): 10.0,
-        }
-    }
+        monkeypatch.setattr(market_data, "resolve_storage_path", lambda relative_path: tmp_root / relative_path)
 
-    returns, prices = market_data.calculate_returns(
-        weights_dict,
-        nav_dict,
-        [pd.Timestamp("2024-12-31"), pd.Timestamp("2025-01-31")],
-        cache={},
-        mutual_fund_tickers=set(),
-    )
+        series = market_data.load_local_price_history("SU.TO")
 
-    assert prices["BIP791"][pd.Timestamp("2024-12-31")] is None
-    assert prices["BIP791"][pd.Timestamp("2025-01-31")] == 10.0
-    assert returns["BIP791"][(pd.Timestamp("2024-12-31"), pd.Timestamp("2025-01-31"))] == 0.0
+        assert list(series.values) == [91.5, 92.01]
+    finally:
+        shutil.rmtree(tmp_root, ignore_errors=True)
 
 
 def test_merge_nav_sources_preserves_manual_dates_and_prefers_csv_on_conflict():
