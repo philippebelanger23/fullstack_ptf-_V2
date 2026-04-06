@@ -1,25 +1,30 @@
 import React, { useMemo } from 'react';
-import { PortfolioItem } from '../types';
+import { PortfolioItem, RiskContributionResponse } from '../types';
 import { PortfolioTable } from '../components/PortfolioTable';
 import { KPICard } from '../components/KPICard';
 import { PortfolioEvolutionChart } from '../components/PortfolioEvolutionChart';
 import { SectorDeviationCard } from '../components/SectorDeviationCard';
+import { SectorGeographyDeviationCard } from '../components/SectorGeographyDeviationCard';
 import { Wallet, Layers, PieChart as PieChartIcon, Wallet2Icon, WalletIcon, AlertCircle, RefreshCw } from 'lucide-react';
+import { FreshnessBadge } from '../components/ui/FreshnessBadge';
 
 interface DashboardViewProps {
   data: PortfolioItem[];
   customSectors?: Record<string, Record<string, number>>;
   assetGeo?: Record<string, string>;
+  isActive?: boolean;
+  workspaceRisk?: RiskContributionResponse | null;
 }
 
 const COLORS = [
-  '#2563eb', '#ea580c', '#16a34a', '#9333ea', '#dc2626',
-  '#0891b2', '#ca8a04', '#db2777', '#4f46e5', '#0d9488',
-  '#1d4ed8', '#c2410c', '#15803d', '#7e22ce', '#b91c1c',
-  '#0e7490', '#a16207', '#be185d', '#4338ca', '#0f766e'
+  '#09214c', '#2563eb', '#10b981', '#f59e0b', '#8e2cd4',
+  '#f43f5e', '#0ea5e9', '#16a34a', '#ea580c', '#4f46e5',
+  '#db2777', '#06b6d4', '#64748b',
 ];
 
-export const DashboardView: React.FC<DashboardViewProps> = ({ data, customSectors, assetGeo }) => {
+const isCashHolding = (item: PortfolioItem) => !!item.isCash || item.sector === 'CASH' || item.ticker.toUpperCase() === '*CASH*';
+
+export const DashboardView: React.FC<DashboardViewProps> = ({ data, customSectors, assetGeo, isActive, workspaceRisk }) => {
   const { dates, latestDate, currentHoldings, totalWeight } = useMemo(() => {
     const dates = Array.from(new Set(data.map(d => d.date))).sort() as string[];
     const latestDate = dates[dates.length - 1];
@@ -28,7 +33,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ data, customSector
     return { dates, latestDate, currentHoldings, totalWeight };
   }, [data]);
 
-  const { topHoldings, top10TotalWeight, topTickers } = useMemo(() => {
+  const realPositionCount = useMemo(
+    () => currentHoldings.filter(item => item.weight > 0.01 && !isCashHolding(item)).length,
+    [currentHoldings]
+  );
+
+  const { topHoldings, top10TotalWeight, topTickers, areaChartData } = useMemo(() => {
     // Current top 10 for the Pie Chart and KPI
     const currentTopHoldings = [...currentHoldings]
       .sort((a, b) => b.weight - a.weight)
@@ -38,31 +48,100 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ data, customSector
     const top10TotalWeight = currentTopHoldings.reduce((sum, item) => sum + item.value, 0);
 
     // Global top tickers for the Evolution Chart
-    // RESTRICTED TO CURRENT TOP 10 ONLY based on user feedback to reduce clutter
-    const topTickers = currentTopHoldings.map(h => h.name);
-
-    return { topHoldings: currentTopHoldings, top10TotalWeight, topTickers };
-  }, [currentHoldings, data, dates]);
-
-  const areaChartData = useMemo(() => {
+    const historicalTopTickersSet = new Set<string>();
+    
+    // Process history data map internally here so we can constrain the chart to ONLY the top 10 of each date
     const historyDataMap = new Map<string, any>();
     dates.forEach(date => historyDataMap.set(date, { date }));
 
-    data.forEach((item: PortfolioItem) => {
-      if (topTickers.includes(item.ticker)) {
-        const entry = historyDataMap.get(item.date as string);
-        if (entry) entry[item.ticker] = item.weight;
+    // Group all data by date
+    const dataByDate = new Map<string, typeof data>();
+    data.forEach(d => {
+      const dateStr = d.date as string;
+      if (!dataByDate.has(dateStr)) dataByDate.set(dateStr, []);
+      dataByDate.get(dateStr)!.push(d);
+    });
+
+    dataByDate.forEach((dateItems, dateStr) => {
+      const dailyTop = [...dateItems]
+        .sort((a, b) => b.weight - a.weight)
+        .slice(0, 10);
+      
+      const entry = historyDataMap.get(dateStr);
+      if (entry) {
+        dailyTop.forEach(item => {
+          historicalTopTickersSet.add(item.ticker);
+          entry[item.ticker] = item.weight;
+        });
       }
     });
 
-    return Array.from(historyDataMap.values()).map(entry => {
+    // Build latest-date weight map from currentHoldings (for stack ordering)
+    const latestWeightMap = new Map<string, number>();
+    currentHoldings.forEach(item => latestWeightMap.set(item.ticker, item.weight));
+
+    // Fallback: cumulative historical weight for tickers no longer held
+    const tickerTotalWeightMap = new Map<string, number>();
+    dataByDate.forEach((dateItems) => {
+      dateItems.forEach(item => {
+        if (historicalTopTickersSet.has(item.ticker)) {
+          tickerTotalWeightMap.set(item.ticker, (tickerTotalWeightMap.get(item.ticker) || 0) + item.weight);
+        }
+      });
+    });
+
+    // Sort: largest CURRENT holding → bottom of chart (rendered first in Recharts)
+    // Tickers no longer held fall back to total historical weight, then alpha
+    const topTickersFinal = Array.from(historicalTopTickersSet).sort((a, b) => {
+      const latestA = latestWeightMap.get(a) || 0;
+      const latestB = latestWeightMap.get(b) || 0;
+      if (latestB !== latestA) return latestB - latestA;
+
+      const weightA = tickerTotalWeightMap.get(a) || 0;
+      const weightB = tickerTotalWeightMap.get(b) || 0;
+      if (weightB !== weightA) return weightB - weightA;
+      return a.localeCompare(b);
+    });
+
+    const finalAreaChartData = Array.from(historyDataMap.values()).map(entry => {
       const completeEntry = { ...entry };
-      topTickers.forEach(ticker => {
+      topTickersFinal.forEach(ticker => {
         if (completeEntry[ticker] === undefined) completeEntry[ticker] = 0;
       });
       return completeEntry;
     });
-  }, [dates, data, topTickers]);
+
+    return { topHoldings: currentTopHoldings, top10TotalWeight, topTickers: topTickersFinal, areaChartData: finalAreaChartData };
+  }, [currentHoldings, data, dates]);
+
+  const tickerColorMap = useMemo(() => {
+    const map: Record<string, string> = {};
+    let colorIndex = 0;
+
+    // 1. Assign colors to current holdings (sorted by weight)
+    const sortedCurrent = [...currentHoldings].sort((a, b) => b.weight - a.weight);
+    sortedCurrent.forEach(item => {
+      if (!map[item.ticker]) {
+        map[item.ticker] = COLORS[colorIndex % COLORS.length];
+        colorIndex++;
+      }
+    });
+
+    // 2. Assign colors to all historical tickers that are no longer held
+    const allHistoricalTickers = Array.from(new Set<string>(data.map(d => d.ticker as string))).sort();
+    allHistoricalTickers.forEach(ticker => {
+      if (!map[ticker]) {
+        map[ticker] = COLORS[colorIndex % COLORS.length];
+        colorIndex++;
+      }
+    });
+
+    return map;
+  }, [currentHoldings, data]);
+
+  const chartColors = useMemo(() => {
+    return topTickers.map(t => tickerColorMap[t] || COLORS[0]);
+  }, [topTickers, tickerColorMap]);
 
   // Separate state for sector map - persists independently of data changes
   const [sectorMap, setSectorMap] = React.useState<Record<string, string>>({});
@@ -74,73 +153,122 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ data, customSector
   const effectiveCustomSectors = customSectors || localCustomSectorWeights;
   const effectiveAssetGeo = assetGeo || localAssetGeo;
 
-  const [betaMap, setBetaMap] = React.useState<Record<string, number>>({});
-  const [divYieldMap, setDivYieldMap] = React.useState<Record<string, number>>({});
+  const [marketBetaMap, setMarketBetaMap] = React.useState<Record<string, number>>({});
+  const [marketDividendYieldMap, setMarketDividendYieldMap] = React.useState<Record<string, number>>({});
   const [benchmarkSectors, setBenchmarkSectors] = React.useState<any[]>([]);
+  const [benchmarkGeography, setBenchmarkGeography] = React.useState<any[]>([]);
+  const [portfolioBeta, setPortfolioBeta] = React.useState<number | null>(null);
 
   // Error and loading state for better UX
   const [dataFetchError, setDataFetchError] = React.useState<string | null>(null);
   const [isLoadingMarketData, setIsLoadingMarketData] = React.useState(true);
+  const [fetchedAt, setFetchedAt] = React.useState<string | null>(null);
+  const [loadProgress, setLoadProgress] = React.useState<Record<string, 'pending' | 'done' | 'error'>>({
+    sectors: 'pending', market: 'pending', risk: 'pending', benchmark: 'pending',
+  });
 
-  // Fetch Sectors and Betas effect
+  // Fetch Sectors, Betas, Dividends, and Portfolio Beta effect
   React.useEffect(() => {
+    let cancelled = false;
+
+    const resetDerivedMarketState = () => {
+      setMarketBetaMap({});
+      setMarketDividendYieldMap({});
+      setBenchmarkSectors([]);
+      setBenchmarkGeography([]);
+      setPortfolioBeta(null);
+      setDataFetchError(null);
+      setFetchedAt(null);
+    };
+
     const fetchData = async () => {
-      // Get unique tickers
-      const tickersToFetch = Array.from(
-        new Set(
-          data
-            .filter(d => d.ticker && !d.ticker.includes('$'))
-            .map(d => d.ticker.trim())
+      const isCash = (item: PortfolioItem) => !!item.isCash || item.sector === 'CASH' || item.ticker.toUpperCase() === '*CASH*';
+      const isDirectStock = (item: PortfolioItem) => !isCash(item) && !item.isEtf && !item.isMutualFund;
+
+      // Get unique tickers from the latest holdings slice
+      const currentTickers = Array.from(
+        new Set<string>(
+          currentHoldings
+            .filter(d => d.ticker && !(d.ticker as string).includes('$'))
+            .map(d => (d.ticker as string).trim())
         )
       );
 
-      if (tickersToFetch.length === 0) return;
+      if (currentTickers.length === 0) {
+        if (!cancelled) {
+          setIsLoadingMarketData(false);
+        }
+        return;
+      }
 
+      if (cancelled) return;
       setIsLoadingMarketData(true);
-      setDataFetchError(null);
+      setLoadProgress({ sectors: 'pending', market: 'pending', risk: 'pending', benchmark: 'pending' });
 
       const errors: string[] = [];
 
       try {
         const { fetchSectors, fetchBetas, fetchDividends, loadSectorWeights, loadAssetGeo, fetchIndexExposure } = await import('../services/api');
+        if (cancelled) return;
 
         // Fetch Sectors with error handling
         try {
-          const sectors = await fetchSectors(tickersToFetch);
+          const sectors = await fetchSectors(currentTickers);
+          if (cancelled) return;
           if (Object.keys(sectors).length > 0) {
             setSectorMap(prev => ({ ...prev, ...sectors }));
           }
+          setLoadProgress(prev => ({ ...prev, sectors: 'done' }));
         } catch (e) {
           console.error("Failed to fetch sectors:", e);
           errors.push("sectors");
+          if (!cancelled) setLoadProgress(prev => ({ ...prev, sectors: 'error' }));
         }
 
-        // Fetch Betas with error handling
+        // Fetch Market Betas with error handling
+        // NOTE: These are market betas to S&P 500, used only for individual stock display in PortfolioTable
+        // Portfolio-level beta comes from the canonical workspace risk payload (see below)
         try {
-          const betas = await fetchBetas(tickersToFetch);
+          const directStockTickers = currentHoldings
+            .filter(isDirectStock)
+            .map(item => item.ticker);
+          const betas = directStockTickers.length > 0 ? await fetchBetas(directStockTickers) : {};
+          if (cancelled) return;
           if (Object.keys(betas).length > 0) {
-            setBetaMap(betas);
+            setMarketBetaMap(betas);
           }
         } catch (e) {
-          console.error("Failed to fetch betas:", e);
-          errors.push("betas");
+          console.error("Failed to fetch market betas:", e);
+          errors.push("market betas");
         }
 
-        // Fetch Dividends with error handling
+        // Fetch holding-level dividend yields with error handling
         try {
-          const dividends = await fetchDividends(tickersToFetch);
+          const dividends = await fetchDividends(currentTickers);
+          if (cancelled) return;
           if (Object.keys(dividends).length > 0) {
-            setDivYieldMap(dividends);
+            setMarketDividendYieldMap(dividends);
           }
+          setLoadProgress(prev => ({ ...prev, market: 'done' }));
         } catch (e) {
           console.error("Failed to fetch dividends:", e);
           errors.push("dividends");
+          if (!cancelled) setLoadProgress(prev => ({ ...prev, market: 'error' }));
+        }
+
+        if (workspaceRisk && workspaceRisk.portfolioBeta !== undefined) {
+          setPortfolioBeta(workspaceRisk.portfolioBeta);
+          setLoadProgress(prev => ({ ...prev, risk: 'done' }));
+        } else {
+          errors.push("portfolio beta");
+          if (!cancelled) setLoadProgress(prev => ({ ...prev, risk: 'error' }));
         }
 
         // Only fetch if props are missing
         if (!customSectors) {
           try {
             const loadedWeights = await loadSectorWeights();
+            if (cancelled) return;
             if (Object.keys(loadedWeights).length > 0) {
               setLocalCustomSectorWeights(loadedWeights);
             }
@@ -152,6 +280,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ data, customSector
         if (!assetGeo) {
           try {
             const loadedGeo = await loadAssetGeo();
+            if (cancelled) return;
             if (Object.keys(loadedGeo).length > 0) {
               setLocalAssetGeo(loadedGeo);
             }
@@ -163,31 +292,45 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ data, customSector
         // Fetch Benchmark Data
         try {
           const exposure = await fetchIndexExposure();
+          if (cancelled) return;
           if (exposure && exposure.sectors) {
             setBenchmarkSectors(exposure.sectors);
           }
+          if (exposure && exposure.geography) {
+            setBenchmarkGeography(exposure.geography);
+          }
+          setLoadProgress(prev => ({ ...prev, benchmark: 'done' }));
         } catch (e) {
           console.error("Failed to fetch benchmark data:", e);
           errors.push("benchmark");
+          if (!cancelled) setLoadProgress(prev => ({ ...prev, benchmark: 'error' }));
         }
 
         // Set error message if any fetches failed
         if (errors.length > 0) {
+          if (cancelled) return;
           setDataFetchError(`Failed to load: ${errors.join(", ")}. Some data may be incomplete.`);
         }
 
       } catch (error) {
+        if (cancelled) return;
         console.error("Critical error fetching market data:", error);
         setDataFetchError("Failed to connect to market data service. Please check your connection and try again.");
       } finally {
+        if (cancelled) return;
         setIsLoadingMarketData(false);
+        setFetchedAt(new Date().toISOString());
       }
     };
 
     if (data.length > 0) {
+      resetDerivedMarketState();
       fetchData();
     }
-  }, [data, customSectors, assetGeo]);
+    return () => {
+      cancelled = true;
+    };
+  }, [data, customSectors, assetGeo, currentHoldings, workspaceRisk]);
 
   // Derive enrichedCurrentHoldings by merging sectorMap at render time
   const enrichedCurrentHoldings = useMemo(() => {
@@ -196,7 +339,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ data, customSector
       let sector = sectorMap[cleanTicker] || sectorMap[item.ticker] || item.sector;
 
       // Explicitly set sector for Cash
-      if (cleanTicker.toLowerCase() === '*cash*' || cleanTicker.toUpperCase().includes('CASH')) {
+      if (item.isCash || cleanTicker.toUpperCase() === '*CASH*') {
         sector = 'CASH';
       }
 
@@ -211,30 +354,78 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ data, customSector
 
 
   if (isLoadingMarketData) {
+    const steps = [
+      { key: 'sectors',   label: 'Sector Classification', sub: 'Holdings & industry mapping' },
+      { key: 'market',    label: 'Market Data',           sub: 'Betas & dividend yields' },
+      { key: 'risk',      label: 'Portfolio Beta',        sub: 'Sensitivity to benchmark' },
+      { key: 'benchmark', label: 'Benchmark Exposure',    sub: 'Index sector & geography weights' },
+    ];
+    const doneCount = Object.values(loadProgress).filter(s => s === 'done').length;
     return (
-      <div className="max-w-[100vw] mx-auto p-4 md:p-6 overflow-x-hidden min-h-screen flex flex-col items-center justify-center">
-        <div className="flex flex-col items-center gap-6">
-          {/* Animated bars */}
-          <div className="flex items-end gap-1.5 h-12">
-            {[0, 1, 2, 3, 4].map(i => (
-              <div
-                key={i}
-                className="w-2 bg-wallstreet-accent rounded-t"
-                style={{
-                  animation: `barPulse 1s ease-in-out ${i * 0.15}s infinite`,
-                  height: '30%',
-                }}
-              />
-            ))}
-          </div>
-          <p className="text-sm font-mono text-wallstreet-500 tracking-wide uppercase">Loading Holdings Data</p>
-        </div>
+      <div className="max-w-[100vw] mx-auto p-4 md:p-6 overflow-x-hidden min-h-screen flex flex-col items-center justify-center select-none">
         <style>{`
-          @keyframes barPulse {
-            0%, 100% { height: 30%; opacity: 0.4; }
-            50% { height: 100%; opacity: 1; }
+          @keyframes dashBarPulse {
+            0%, 100% { transform: scaleY(0.12); opacity: 0.1; }
+            50%      { transform: scaleY(1);    opacity: 1;   }
+          }
+          @keyframes dashScanLine {
+            0%   { left: -2px; }
+            100% { left: calc(100% + 2px); }
           }
         `}</style>
+        <div className="flex flex-col items-center gap-8 w-full max-w-sm">
+          <div className="relative overflow-hidden rounded" style={{ width: '176px', height: '60px' }}>
+            <div className="flex items-end h-full gap-1.5">
+              {[28, 50, 36, 66, 42, 78, 54, 92, 46, 72, 58, 88, 64].map((h, i) => (
+                <div key={i} className="flex-1 rounded-t-sm origin-bottom" style={{
+                  height: `${h}%`,
+                  background: i === 12 ? '#3b82f6' : '#374151',
+                  animation: `dashBarPulse 2.2s ease-in-out ${i * 0.14}s infinite`,
+                }} />
+              ))}
+            </div>
+            <div className="absolute top-0 bottom-0 w-px" style={{
+              background: 'linear-gradient(to bottom, transparent, rgba(59,130,246,0.65), transparent)',
+              animation: 'dashScanLine 2.2s linear infinite',
+            }} />
+          </div>
+
+          <p className="text-[11px] font-mono text-wallstreet-500 tracking-[0.25em] uppercase">
+            Loading Holdings Data
+          </p>
+
+          <div className="w-full bg-wallstreet-700 rounded-full h-1.5 overflow-hidden">
+            <div className="bg-wallstreet-accent h-full rounded-full transition-all duration-500 ease-out"
+              style={{ width: `${(doneCount / steps.length) * 100}%` }} />
+          </div>
+
+          <div className="w-full space-y-3">
+            {steps.map(({ key, label, sub }) => {
+              const status = loadProgress[key];
+              return (
+                <div key={key} className="flex items-center gap-3">
+                  <div className="w-5 h-5 flex items-center justify-center flex-shrink-0">
+                    {status === 'done' ? (
+                      <svg className="w-5 h-5 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                      </svg>
+                    ) : status === 'error' ? (
+                      <svg className="w-5 h-5 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    ) : (
+                      <div className="w-3.5 h-3.5 border-2 border-wallstreet-600 border-t-wallstreet-accent rounded-full animate-spin" />
+                    )}
+                  </div>
+                  <div className="min-w-0">
+                    <p className={`text-sm font-mono font-medium ${status === 'done' ? 'text-wallstreet-text' : status === 'error' ? 'text-red-500' : 'text-wallstreet-500'}`}>{label}</p>
+                    <p className="text-xs text-wallstreet-500 truncate">{sub}</p>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
       </div>
     );
   }
@@ -243,11 +434,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ data, customSector
     <div className="max-w-[100vw] mx-auto p-4 md:p-6 space-y-6 overflow-x-hidden min-h-screen">
       <header className="border-b border-wallstreet-700 pb-4 flex flex-col md:flex-row justify-between items-start md:items-end gap-4">
         <div>
-          <h2 className="text-3xl font-bold font-mono text-wallstreet-text">Portfolio Holdings</h2>
+          <div className="flex items-center gap-3">
+            <h2 className="text-3xl font-bold font-mono text-wallstreet-text">Portfolio Holdings</h2>
+            <FreshnessBadge fetchedAt={fetchedAt} />
+          </div>
           <p className="text-wallstreet-500 mt-1 text-sm">Exposure analysis and allocation breakdown as of {latestDate}.</p>
-        </div>
-        <div className="flex items-center gap-2 bg-wallstreet-200 px-3 py-1 rounded text-xs font-mono text-wallstreet-500">
-          <span>{dates.length} Snapshots</span>
         </div>
       </header>
 
@@ -285,12 +476,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ data, customSector
               value={
                 <div className="flex w-full items-center mt-1">
                   <div className="flex-1 flex flex-col items-center justify-center">
-                    <div className="flex items-center gap-1.5 mb-1"><span className="text-xs font-extrabold text-slate-600 uppercase tracking-wider">Invested</span></div>
+                    <div className="flex items-center gap-1.5 mb-1"><span className="text-xs font-extrabold text-wallstreet-500 uppercase tracking-wider">Invested</span></div>
                     <span className="text-xl font-bold text-wallstreet-text font-mono">{investedWeight.toFixed(2)}%</span>
                   </div>
                   <div className="w-px h-8 bg-wallstreet-100"></div>
                   <div className="flex-1 flex flex-col items-center justify-center">
-                    <div className="flex items-center gap-1.5 mb-1"><span className="text-xs font-extrabold text-slate-600 uppercase tracking-wider">Cash or Equivalents</span></div>
+                    <div className="flex items-center gap-1.5 mb-1"><span className="text-xs font-extrabold text-wallstreet-500 uppercase tracking-wider">Cash or Equivalents</span></div>
                     <span className="text-xl font-bold text-wallstreet-text font-mono">{cashWeight.toFixed(2)}%</span>
                   </div>
                 </div> as any
@@ -305,12 +496,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ data, customSector
           value={
             <div className="flex w-full items-center mt-1">
               <div className="flex-1 flex flex-col items-center justify-center">
-                <div className="flex items-center gap-1.5 mb-1"><span className="text-xs font-extrabold text-slate-600 uppercase tracking-wider">Positions</span></div>
-                <span className="text-xl font-bold text-wallstreet-text font-mono">{currentHoldings.filter(h => h.weight > 0.01).length}</span>
+                <div className="flex items-center gap-1.5 mb-1"><span className="text-xs font-extrabold text-wallstreet-500 uppercase tracking-wider">Positions</span></div>
+                <span className="text-xl font-bold text-wallstreet-text font-mono">{realPositionCount}</span>
               </div>
               <div className="w-px h-8 bg-wallstreet-100"></div>
               <div className="flex-1 flex flex-col items-center justify-center">
-                <div className="flex items-center gap-1.5 mb-1"><span className="text-xs font-extrabold text-slate-600 uppercase tracking-wider">Top 10</span></div>
+                <div className="flex items-center gap-1.5 mb-1"><span className="text-xs font-extrabold text-wallstreet-500 uppercase tracking-wider">Top 10</span></div>
                 <span className="text-xl font-bold text-wallstreet-text font-mono">{top10TotalWeight.toFixed(2)}%</span>
               </div>
             </div> as any
@@ -330,7 +521,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ data, customSector
             const t = item.ticker.toUpperCase();
 
             // Skip cash — no currency region
-            if (t === '*CASH*' || t.includes('CASH')) return;
+            if (item.isCash || item.ticker.toUpperCase() === '*CASH*') return;
 
             // New Logic for manual/suffix based check
             let region = 'US';
@@ -360,17 +551,17 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ data, customSector
               value={
                 <div className="flex w-full items-center mt-1">
                   <div className="flex-1 flex flex-col items-center justify-center">
-                    <div className="flex items-center gap-1.5 mb-1"><span className="text-xs font-extrabold text-slate-600 uppercase tracking-wider">USD</span></div>
+                    <div className="flex items-center gap-1.5 mb-1"><span className="text-xs font-extrabold text-wallstreet-500 uppercase tracking-wider">USD</span></div>
                     <span className="text-xl font-bold text-blue-600 font-mono">{usWeight.toFixed(2)}%</span>
                   </div>
                   <div className="w-px h-8 bg-wallstreet-100"></div>
                   <div className="flex-1 flex flex-col items-center justify-center">
-                    <div className="flex items-center gap-1.5 mb-1"><span className="text-xs font-extrabold text-slate-600 uppercase tracking-wider">CAD</span></div>
+                    <div className="flex items-center gap-1.5 mb-1"><span className="text-xs font-extrabold text-wallstreet-500 uppercase tracking-wider">CAD</span></div>
                     <span className="text-xl font-bold text-red-600 font-mono">{cadWeight.toFixed(2)}%</span>
                   </div>
                   <div className="w-px h-8 bg-wallstreet-100"></div>
                   <div className="flex-1 flex flex-col items-center justify-center">
-                    <div className="flex items-center gap-1.5 mb-1"><span className="text-xs font-extrabold text-slate-600 uppercase tracking-wider">INTL</span></div>
+                    <div className="flex items-center gap-1.5 mb-1"><span className="text-xs font-extrabold text-wallstreet-500 uppercase tracking-wider">INTL</span></div>
                     <span className="text-xl font-bold text-slate-600 font-mono">{intlWeight.toFixed(2)}%</span>
                   </div>
                 </div> as any
@@ -382,32 +573,21 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ data, customSector
         })()}
 
         <KPICard
-          title="Risk & Income"
+          title="Portfolio Risk & Income"
           value={
             <div className="flex w-full items-center mt-1">
               <div className="flex-1 flex flex-col items-center justify-center">
-                <div className="flex items-center gap-1.5 mb-1"><span className="text-xs font-extrabold text-slate-600 uppercase tracking-wider">Beta</span></div>
+                <div className="flex items-center gap-1.5 mb-1">
+                  <span className="text-xs font-extrabold text-wallstreet-500 uppercase tracking-wider">Beta vs Benchmark</span>
+                  <span className="text-xs text-wallstreet-500/60" title="Portfolio sensitivity to your chosen benchmark (75/25 Composite: 75% ACWI (CAD) + 25% XIC.TO)"></span>
+                </div>
                 <span className="text-xl font-bold text-wallstreet-text font-mono">
-                  {(() => {
-                    let weightedBetaSum = 0;
-                    let totalInvestedWeight = 0;
-                    enrichedCurrentHoldings.forEach(item => {
-                      // Exclude Cash
-                      if (item.sector === 'CASH') return;
-
-                      const beta = betaMap[item.ticker] !== undefined ? betaMap[item.ticker] : 1.0;
-                      weightedBetaSum += (item.weight * beta);
-                      totalInvestedWeight += item.weight;
-                    });
-
-                    if (totalInvestedWeight === 0) return "0.00";
-                    return (weightedBetaSum / totalInvestedWeight).toFixed(2);
-                  })()}
+                  {portfolioBeta !== null ? portfolioBeta.toFixed(2) : "—"}
                 </span>
               </div>
               <div className="w-px h-8 bg-wallstreet-100"></div>
               <div className="flex-1 flex flex-col items-center justify-center">
-                <div className="flex items-center gap-1.5 mb-1"><span className="text-xs font-extrabold text-slate-600 uppercase tracking-wider">Div Yield</span></div>
+                <div className="flex items-center gap-1.5 mb-1"><span className="text-xs font-extrabold text-wallstreet-500 uppercase tracking-wider">Dividend Yield</span></div>
                 <span className="text-xl font-bold text-green-600 font-mono">
                   {(() => {
                     let weightedDivSum = 0;
@@ -416,7 +596,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ data, customSector
                       // Exclude Cash
                       if (item.sector === 'CASH') return;
 
-                      const divYield = divYieldMap[item.ticker] || 0;
+                      const divYield = marketDividendYieldMap[item.ticker] || 0;
                       weightedDivSum += (item.weight * divYield);
                       totalInvestedWeight += item.weight;
                     });
@@ -433,17 +613,38 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ data, customSector
         />
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 min-h-[450px] mb-8">
-        <PortfolioEvolutionChart data={areaChartData} topTickers={topTickers} dates={dates} colors={COLORS} />
-        <SectorDeviationCard currentHoldings={enrichedCurrentHoldings} benchmarkData={benchmarkSectors} />
+      <div className="grid grid-cols-1 gap-6 mb-8 items-stretch" style={{ gridTemplateColumns: 'minmax(0, 2fr) minmax(0, 3fr)', gridTemplateRows: 'minmax(0, 1fr)' }}>
+        <PortfolioEvolutionChart data={areaChartData} topTickers={topTickers} dates={dates} colors={chartColors} />
+        <div className="bg-wallstreet-800 p-6 rounded-xl border border-wallstreet-700 shadow-sm flex gap-6 h-full">
+          <div className="flex flex-col flex-1 min-w-0">
+            <SectorDeviationCard
+              currentHoldings={enrichedCurrentHoldings}
+              benchmarkData={benchmarkSectors}
+              benchmarkGeography={benchmarkGeography}
+              assetGeo={effectiveAssetGeo}
+              noWrapper
+              isActive={isActive}
+            />
+          </div>
+          <div className="w-px bg-wallstreet-700 self-stretch" />
+          <div className="flex flex-col flex-1 min-w-0">
+            <SectorGeographyDeviationCard
+              currentHoldings={enrichedCurrentHoldings}
+              benchmarkSectors={benchmarkSectors}
+              benchmarkGeography={benchmarkGeography}
+              assetGeo={effectiveAssetGeo}
+              noWrapper
+            />
+          </div>
+        </div>
       </div>
 
       <PortfolioTable
         currentHoldings={enrichedCurrentHoldings}
         allData={data}
-        betaMap={betaMap}
-        divYieldMap={divYieldMap}
-        assetGeo={assetGeo}
+        marketBetaMap={marketBetaMap}
+        marketDividendYieldMap={marketDividendYieldMap}
+        assetGeo={effectiveAssetGeo}
       />
     </div>
   );

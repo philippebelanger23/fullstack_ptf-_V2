@@ -63,8 +63,8 @@ export const formatTooltipDate = (str: string): string => {
 
 /** Get CSS color class based on a numeric value (positive/negative/zero) */
 export const getPerformanceColor = (val: number | undefined): string => {
-    if (val === undefined) return 'text-slate-400';
-    if (val > 0) return 'text-green-600';
-    if (val < 0) return 'text-red-500';
-    return 'text-slate-500';
+    if (val === undefined) return 'text-slate-400 dark:text-slate-300';
+    if (val > 0) return 'text-green-600 dark:text-green-300';
+    if (val < 0) return 'text-red-500 dark:text-red-300';
+    return 'text-slate-500 dark:text-slate-300';
 };

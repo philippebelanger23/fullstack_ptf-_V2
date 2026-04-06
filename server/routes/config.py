@@ -7,12 +7,26 @@ import logging
 import shutil
 from pathlib import Path
 
-import yfinance as yf
-from fastapi import APIRouter, File, HTTPException, UploadFile
+import pandas as pd
 
+import yfinance as yf
+from fastapi import APIRouter, File, HTTPException, Query, UploadFile
+
+from cache_manager import load_cache, save_cache
+from market_data import (
+    extract_history_price_series,
+    get_price_on_date,
+    get_fx_return,
+    get_nav_price_on_or_before,
+    needs_fx_adjustment,
+)
 from models import PortfolioConfig
 from routes.portfolio import get_aggregated_nav_data
 from services.config_manager import load_json, save_json
+from services.path_utils import resolve_storage_path
+from services.yfinance_setup import configure_yfinance_cache
+
+configure_yfinance_cache()
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -21,7 +35,7 @@ logger = logging.getLogger(__name__)
 @router.post("/save-portfolio-config")
 async def save_portfolio_config(config: PortfolioConfig):
     try:
-        config_path = Path("data/portfolio_config.json")
+        config_path = resolve_storage_path("data/portfolio_config.json")
         save_json(config_path, config.dict(), description="portfolio config")
         return {"success": True}
     except Exception as e:
@@ -32,7 +46,7 @@ async def save_portfolio_config(config: PortfolioConfig):
 @router.get("/load-portfolio-config")
 async def load_portfolio_config():
     try:
-        config_path = Path("data/portfolio_config.json")
+        config_path = resolve_storage_path("data/portfolio_config.json")
         data = load_json(config_path, default={"tickers": [], "periods": []}, description="portfolio config")
         return data
     except Exception as e:
@@ -45,7 +59,7 @@ async def save_sector_weights(request: dict):
     """Save custom sector weight breakdowns (e.g. for ETFs/MFs)"""
     try:
         weights = request.get("weights", {})
-        path = Path("data/custom_sectors.json")
+        path = resolve_storage_path("data/custom_sectors.json")
         save_json(path, weights, description="sector weights")
         return {"success": True}
     except Exception as e:
@@ -56,7 +70,7 @@ async def save_sector_weights(request: dict):
 @router.get("/load-sector-weights")
 async def load_sector_weights():
     try:
-        path = Path("data/custom_sectors.json")
+        path = resolve_storage_path("data/custom_sectors.json")
         return load_json(path, default={}, description="sector weights")
     except Exception as e:
         logger.error(f"Error loading sector weights: {e}")
@@ -68,7 +82,7 @@ async def save_asset_geo(request: dict):
     """Save custom geographical classifications (e.g. CA, US, INTL)"""
     try:
         geo = request.get("geo", {})
-        path = Path("data/custom_geography.json")
+        path = resolve_storage_path("data/custom_geography.json")
         save_json(path, geo, description="asset geography")
         return {"success": True}
     except Exception as e:
@@ -79,7 +93,7 @@ async def save_asset_geo(request: dict):
 @router.get("/load-asset-geo")
 async def load_asset_geo():
     try:
-        path = Path("data/custom_geography.json")
+        path = resolve_storage_path("data/custom_geography.json")
         return load_json(path, default={}, description="asset geography")
     except Exception as e:
         logger.error(f"Error loading asset geography: {e}")
@@ -99,7 +113,7 @@ async def save_manual_nav(request: dict):
 
         nav_value = float(nav_value)
 
-        manual_path = Path("data/manual_navs.json")
+        manual_path = resolve_storage_path("data/manual_navs.json")
         data = {}
         if manual_path.exists():
             with open(manual_path, "r") as f:
@@ -127,12 +141,14 @@ async def save_manual_nav(request: dict):
 @router.post("/check-nav-lag")
 async def check_nav_lag(request: dict):
     """
-    Compare last NAV date on file with last yfinance date for a set of tickers.
-    If NAV date is behind yfinance (usually > 1-2 days lag), flag it.
+    Compare last NAV date on file with a supplied reference date for a set of tickers.
+    The reference date is required so the lag check is driven by each fund's
+    own latest held date rather than a shared market freshness fallback.
 
     Args:
         request.tickers: List of ticker symbols to check
         request.force_refresh: If true, ignore internal caches
+        request.reference_date: Required YYYY-MM-DD reference date
     """
     tickers = request.get("tickers", [])
     force_refresh = request.get("force_refresh", False)
@@ -140,6 +156,9 @@ async def check_nav_lag(request: dict):
 
     if not tickers:
         return {}
+
+    if not reference_date_str or not str(reference_date_str).strip():
+        raise HTTPException(status_code=400, detail="reference_date is required in YYYY-MM-DD format")
 
     results = {}
 
@@ -150,39 +169,11 @@ async def check_nav_lag(request: dict):
         f"force_refresh={force_refresh}, ref_date={reference_date_str}"
     )
 
-    def get_last_business_day(reference_date=None):
-        if reference_date is None:
-            reference_date = datetime.datetime.now().date()
-        while reference_date.weekday() >= 5:
-            reference_date -= datetime.timedelta(days=1)
-        return reference_date
-
-    # 2. Get global market threshold
-    if reference_date_str:
-        try:
-            last_market_date = datetime.datetime.strptime(reference_date_str, "%Y-%m-%d").date()
-            last_market_date = get_last_business_day(last_market_date)
-            logger.info(f"check-nav-lag: Using provided reference date: {last_market_date}")
-        except Exception as e:
-            logger.warning(f"Invalid reference_date {reference_date_str}, falling back to today. Error: {e}")
-            last_market_date = get_last_business_day()
-    else:
-        try:
-            spy_hist = yf.download("SPY", period="5d", progress=False, threads=False)
-            if not spy_hist.empty:
-                last_market_date = spy_hist.index[-1].date()
-                logger.info(f"check-nav-lag: Latest market date from SPY: {last_market_date}")
-            else:
-                raise ValueError("SPY history empty")
-        except Exception as market_err:
-            logger.warning(
-                f"check-nav-lag: Failed to fetch market date ({market_err}). "
-                "Falling back to business day logic."
-            )
-            last_market_date = get_last_business_day()
-
-    last_bday = get_last_business_day(last_market_date)
-    threshold_date = get_last_business_day(last_bday - datetime.timedelta(days=1))
+    try:
+        comparison_date = datetime.datetime.strptime(reference_date_str, "%Y-%m-%d").date()
+        logger.info(f"check-nav-lag: Using provided reference date: {comparison_date}")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail="reference_date must be in YYYY-MM-DD format") from e
 
     for ticker in tickers:
         try:
@@ -194,8 +185,9 @@ async def check_nav_lag(request: dict):
                     "lagging": True,
                     "reason": "Missing Data",
                     "last_nav": None,
-                    "last_market": last_market_date.strftime("%Y-%m-%d"),
-                    "threshold_date": threshold_date.strftime("%Y-%m-%d"),
+                    "last_market": comparison_date.strftime("%Y-%m-%d"),
+                    "reference_date": comparison_date.strftime("%Y-%m-%d"),
+                    "threshold_date": comparison_date.strftime("%Y-%m-%d"),
                     "days_diff": 999,
                 }
                 continue
@@ -206,22 +198,23 @@ async def check_nav_lag(request: dict):
             else:
                 last_nav_date = last_nav_dt
 
-            is_lagging = last_nav_date < threshold_date
-            days_diff = (last_market_date - last_nav_date).days
+            is_lagging = last_nav_date < comparison_date
+            days_diff = (comparison_date - last_nav_date).days
 
             results[ticker] = {
                 "lagging": is_lagging,
                 "last_nav": last_nav_date.strftime("%Y-%m-%d"),
-                "last_market": last_market_date.strftime("%Y-%m-%d"),
+                "last_market": comparison_date.strftime("%Y-%m-%d"),
+                "reference_date": comparison_date.strftime("%Y-%m-%d"),
                 "days_diff": days_diff,
-                "threshold_date": threshold_date.strftime("%Y-%m-%d"),
+                "threshold_date": comparison_date.strftime("%Y-%m-%d"),
                 "is_stale": is_lagging,
             }
 
             if is_lagging:
                 logger.info(
                     f"check-nav-lag: {ticker} is LAGGING. "
-                    f"Last NAV: {last_nav_date}, Market: {last_market_date}"
+                    f"Last NAV: {last_nav_date}, Reference date: {comparison_date}"
                 )
 
         except Exception as e:
@@ -238,7 +231,7 @@ async def nav_audit():
         result = {}
 
         # 1. Load manual NAVs
-        manual_path = Path("data/manual_navs.json")
+        manual_path = resolve_storage_path("data/manual_navs.json")
         manual_navs = {}
         if manual_path.exists():
             with open(manual_path, "r") as f:
@@ -292,12 +285,93 @@ async def nav_audit():
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/price-audit")
+async def price_audit(
+    ticker: str = Query(..., description="Ticker symbol, e.g. AAPL or CNR.TO"),
+    start_date: str = Query(..., description="Start date YYYY-MM-DD"),
+    end_date: str = Query(..., description="End date YYYY-MM-DD"),
+):
+    """
+    Fetch raw yfinance prices for a ticker over a date range and return the
+    computed return alongside FX details. Used to validate that the app's
+    price base matches known published data (total-return adjusted close).
+    """
+    try:
+        cache = load_cache()
+        nav_dict = get_aggregated_nav_data()
+
+        start_ts = pd.to_datetime(start_date)
+        end_ts = pd.to_datetime(end_date)
+
+        ticker_upper = ticker.upper()
+        if ticker_upper in nav_dict:
+            price_start = get_nav_price_on_or_before(ticker_upper, start_ts, nav_dict)
+            price_end = get_nav_price_on_or_before(ticker_upper, end_ts, nav_dict)
+        else:
+            price_start = get_price_on_date(ticker_upper, start_ts, cache)
+            price_end = get_price_on_date(ticker_upper, end_ts, cache)
+
+        if price_start is None or price_end is None:
+            raise HTTPException(status_code=404, detail=f"Could not fetch prices for {ticker} on the given dates")
+
+        period_return = (price_end / price_start) - 1
+
+        needs_fx = needs_fx_adjustment(ticker.upper(), nav_dict=nav_dict)
+        fx_start = fx_end = fx_return = cad_adjusted_return = None
+
+        if needs_fx:
+            from constants import FX_TICKER
+            fx_start = get_price_on_date(FX_TICKER, start_ts, cache)
+            fx_end = get_price_on_date(FX_TICKER, end_ts, cache)
+            if fx_start and fx_end and fx_start != 0:
+                fx_return = (fx_end / fx_start) - 1
+                cad_adjusted_return = (1 + period_return) * (1 + fx_return) - 1
+
+        # Fetch the full daily price series for the range
+        try:
+            hist = yf.Ticker(ticker.upper()).history(
+                start=start_ts,
+                end=end_ts + pd.Timedelta(days=1),
+                auto_adjust=True,
+            )
+            close_col = extract_history_price_series(hist).dropna() if not hist.empty else pd.Series(dtype=float)
+            prices_series = [
+                {"date": str(idx.date()), "close": round(float(val), 4)}
+                for idx, val in close_col.items()
+            ]
+        except Exception:
+            prices_series = []
+
+        save_cache(cache)
+
+        return {
+            "ticker": ticker_upper,
+            "source": "historic NAV CSV" if ticker_upper in nav_dict else "yfinance adjusted close",
+            "start_date": start_date,
+            "end_date": end_date,
+            "price_start": round(float(price_start), 4),
+            "price_end": round(float(price_end), 4),
+            "period_return_pct": round(period_return * 100, 4),
+            "needs_fx": needs_fx,
+            "fx_start": round(float(fx_start), 4) if fx_start else None,
+            "fx_end": round(float(fx_end), 4) if fx_end else None,
+            "fx_return_pct": round(fx_return * 100, 4) if fx_return is not None else None,
+            "cad_adjusted_return_pct": round(cad_adjusted_return * 100, 4) if cad_adjusted_return is not None else None,
+            "prices": prices_series,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"price-audit error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post("/upload-nav/{ticker}")
 async def upload_nav(ticker: str, file: UploadFile = File(...)):
     """Upload a CSV NAV file for a specific mutual fund ticker."""
     try:
         ticker = ticker.upper()
-        path = Path("data/historic_navs")
+        path = resolve_storage_path("data/historic_navs")
         path.mkdir(parents=True, exist_ok=True)
 
         file_path = path / f"{ticker}.csv"

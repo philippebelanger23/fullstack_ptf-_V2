@@ -1,6 +1,7 @@
 import React, { memo } from 'react';
 import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
 import { PieChart as PieChartIcon } from 'lucide-react';
+import { useThemeColors } from '../hooks/useThemeColors';
 
 interface Props {
     data: { name: string; value: number }[];
@@ -18,14 +19,15 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
     return (
         <text x={x} y={y} fill={colors[index % colors.length]} textAnchor={textAnchor} dominantBaseline="central" className="font-mono text-xs font-bold">
             {`${name}`}
-            <tspan x={x} y={y + 14} fill="#64748b" className="font-normal">{`${value.toFixed(2)}%`}</tspan>
+            <tspan x={x} y={y + 14} fill={tickFill || '#64748b'} className="font-normal">{`${value.toFixed(2)}%`}</tspan>
         </text>
     );
 };
 
 export const ConcentrationPieChart = memo(({ data, colors }: Props) => {
+    const tc = useThemeColors();
     return (
-        <div className="lg:col-span-4 bg-white p-6 rounded-xl border border-wallstreet-700 shadow-sm flex flex-col min-h-[450px]">
+        <div className="lg:col-span-4 bg-wallstreet-800 p-6 rounded-xl border border-wallstreet-700 shadow-sm flex flex-col min-h-[450px]">
             <div className="mb-4">
                 <h3 className="font-mono font-bold text-wallstreet-text uppercase tracking-wider text-sm flex items-center gap-2">
                     <PieChartIcon size={16} className="text-wallstreet-500" /> Actual Top 10
@@ -44,7 +46,7 @@ export const ConcentrationPieChart = memo(({ data, colors }: Props) => {
                             paddingAngle={3}
                             dataKey="value"
                             stroke="none"
-                            label={(props) => renderCustomizedLabel({ ...props, colors })}
+                            label={(props) => renderCustomizedLabel({ ...props, colors, tickFill: tc.tickFill })}
                         >
                             {data.map((entry, index) => (
                                 <Cell key={`cell-${index}`} fill={colors[index % colors.length]} />

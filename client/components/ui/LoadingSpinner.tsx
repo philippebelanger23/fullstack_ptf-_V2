@@ -7,7 +7,7 @@ interface LoadingSpinnerProps {
 }
 
 export const LoadingSpinner: React.FC<LoadingSpinnerProps> = ({ size = 20, className = '' }) => (
-    <Loader2 className={`animate-spin text-slate-400 ${className}`} size={size} />
+    <Loader2 className={`animate-spin text-wallstreet-500 ${className}`} size={size} />
 );
 
 export const LoadingSpinnerCentered: React.FC<LoadingSpinnerProps & { height?: string }> = ({ size = 24, height = 'h-[350px]', className = '' }) => (

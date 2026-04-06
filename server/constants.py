@@ -11,13 +11,13 @@ BENCHMARK_TICKERS = {
     "Dow Jones": "^DJI",
     "Nasdaq": "^IXIC",
     "ACWI": "ACWI",
-    "TSX60": "^GSPTSE"
+    "TSX": "^GSPTSE"
 }
 
-BENCHMARK_ORDER = ["USD/CAD", "S&P 500", "Dow Jones", "Nasdaq", "ACWI", "TSX60"]
+BENCHMARK_ORDER = ["USD/CAD", "S&P 500", "Dow Jones", "Nasdaq", "ACWI", "TSX"]
 
 # Special tickers
-CASH_TICKER = "*cash*"
+CASH_TICKER = "*CASH*"
 BASE_CURRENCY = "CAD"
 FX_TICKER = "CAD=X"
 
@@ -25,7 +25,7 @@ FX_TICKER = "CAD=X"
 INDICES = {"^GSPC", "^DJI", "^IXIC", "ACWI", "^GSPTSE"}
 FX_TICKERS = {"CAD=X"}
 
-# Benchmark blend composition (75% ACWI in CAD + 25% XIU.TO)
-BENCHMARK_BLEND_WEIGHTS = {"ACWI": 0.75, "XIU": 0.25}
-BENCHMARK_BLEND_TICKERS = ["ACWI", "XIU.TO", "USDCAD=X"]
+# Benchmark blend composition (75/25 composite: 75% ACWI in CAD + 25% XIC.TO)
+BENCHMARK_BLEND_WEIGHTS = {"ACWI": 0.75, "XIC": 0.25}
+BENCHMARK_BLEND_TICKERS = ["ACWI", "XIC.TO", "XUS.TO", "USDCAD=X"]
 

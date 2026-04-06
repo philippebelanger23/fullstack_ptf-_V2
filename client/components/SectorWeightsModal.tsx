@@ -23,6 +23,12 @@ const GICS_SECTORS = [
     'Utilities'
 ];
 
+const SECTOR_DISPLAY: Record<string, string> = {
+    'Consumer Discretionary': 'Discretionary',
+    'Communication Services': 'Communications',
+    'Consumer Staples': 'Staples',
+};
+
 export const SectorWeightsModal: React.FC<SectorWeightsModalProps> = ({ isOpen, onClose, onSave, ticker, initialWeights }) => {
     const [weights, setWeights] = useState<Record<string, string>>({});
 
@@ -71,20 +77,20 @@ export const SectorWeightsModal: React.FC<SectorWeightsModalProps> = ({ isOpen, 
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
             <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={onClose} />
 
-            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg relative overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="bg-wallstreet-800 rounded-2xl shadow-2xl w-full max-w-lg relative overflow-hidden flex flex-col max-h-[90vh]">
                 {/* Header */}
-                <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between bg-slate-50">
+                <div className="px-6 py-4 border-b border-wallstreet-700 flex items-center justify-between bg-wallstreet-900">
                     <div className="flex items-center gap-3">
                         <div className="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center text-white">
                             <PieChart size={20} />
                         </div>
                         <div>
-                            <h2 className="text-xl font-bold text-slate-800">Sector Weights: {ticker}</h2>
-                            <p className="text-xs text-slate-500 uppercase tracking-wider font-semibold">Breakdown must sum to 100%</p>
+                            <h2 className="text-xl font-bold text-wallstreet-text">Sector Weights: {ticker}</h2>
+                            <p className="text-xs text-wallstreet-500 uppercase tracking-wider font-semibold">Breakdown must sum to 100%</p>
                         </div>
                     </div>
-                    <button onClick={onClose} className="p-2 hover:bg-white hover:shadow-md rounded-full transition-all group">
-                        <X size={20} className="text-slate-400 group-hover:text-slate-600" />
+                    <button onClick={onClose} className="p-2 hover:bg-wallstreet-800 hover:shadow-md rounded-full transition-all group">
+                        <X size={20} className="text-wallstreet-500 group-hover:text-wallstreet-500" />
                     </button>
                 </div>
 
@@ -92,9 +98,9 @@ export const SectorWeightsModal: React.FC<SectorWeightsModalProps> = ({ isOpen, 
                 <div className="p-8 overflow-y-auto custom-scrollbar">
                     <div className="space-y-3">
                         {GICS_SECTORS.map(sector => (
-                            <div key={sector} className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-transparent hover:border-slate-200 hover:bg-white transition-all group">
-                                <label className="text-sm font-semibold text-slate-600 group-hover:text-slate-900 transition-colors">
-                                    {sector}
+                            <div key={sector} className="flex items-center justify-between p-3 bg-wallstreet-900 rounded-xl border border-transparent hover:border-wallstreet-700 hover:bg-wallstreet-800 transition-all group">
+                                <label className="text-sm font-semibold text-wallstreet-500 group-hover:text-wallstreet-text transition-colors">
+                                    {SECTOR_DISPLAY[sector] || sector}
                                 </label>
                                 <div className="relative group/input">
                                     <input
@@ -102,10 +108,10 @@ export const SectorWeightsModal: React.FC<SectorWeightsModalProps> = ({ isOpen, 
                                         value={weights[sector] || ''}
                                         onChange={(e) => handleWeightChange(sector, e.target.value)}
                                         onBlur={(e) => handleWeightBlur(sector, e.target.value)}
-                                        className="w-28 pr-8 pl-3 py-2 bg-white border border-slate-200 rounded-lg text-right font-mono text-sm font-bold focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all outline-none"
+                                        className="w-28 pr-8 pl-3 py-2 bg-wallstreet-800 border border-wallstreet-700 rounded-lg text-right font-mono text-sm font-bold focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all outline-none"
                                         placeholder="0.00"
                                     />
-                                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-slate-400 group-focus-within/input:text-blue-500 transition-colors">
+                                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-wallstreet-500 group-focus-within/input:text-blue-500 transition-colors">
                                         %
                                     </span>
                                 </div>
@@ -115,7 +121,7 @@ export const SectorWeightsModal: React.FC<SectorWeightsModalProps> = ({ isOpen, 
                 </div>
 
                 {/* Footer */}
-                <div className="p-6 border-t border-gray-100 bg-slate-50/50 flex flex-col gap-4">
+                <div className="p-6 border-t border-wallstreet-700 bg-wallstreet-900/50 flex flex-col gap-4">
                     <div className={`p-4 rounded-xl flex items-center justify-between shadow-inner ${isTotalValid ? 'bg-green-50 text-green-700' : 'bg-amber-50 text-amber-700'}`}>
                         <div className="flex items-center gap-2">
                             {isTotalValid ? <Save size={18} /> : <AlertCircle size={18} />}
@@ -131,7 +137,7 @@ export const SectorWeightsModal: React.FC<SectorWeightsModalProps> = ({ isOpen, 
                         disabled={!isTotalValid}
                         className={`w-full py-3 rounded-xl font-bold flex items-center justify-center gap-2 transition-all shadow-lg ${isTotalValid
                             ? 'bg-blue-600 text-white hover:bg-blue-700 shadow-blue-200'
-                            : 'bg-slate-200 text-slate-400 cursor-not-allowed shadow-none'
+                            : 'bg-wallstreet-900 text-wallstreet-500 cursor-not-allowed shadow-none'
                             }`}
                     >
                         <Save size={18} /> Save Sector Breakdown

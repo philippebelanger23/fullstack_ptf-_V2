@@ -1,8 +1,0 @@
-INFO:     127.0.0.1:60384 - "POST /analyze-manual HTTP/1.1" 200 OK
-INFO:     127.0.0.1:54947 - "POST /analyze-manual HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58675 - "POST /analyze-manual HTTP/1.1" 200 OK
-INFO:     127.0.0.1:64015 - "POST /fetch-sectors HTTP/1.1" 200 OK
-INFO:     127.0.0.1:64016 - "POST /fetch-sectors HTTP/1.1" 200 OK
-INFO:     127.0.0.1:57295 - "POST /analyze-manual HTTP/1.1" 200 OK
-INFO:     127.0.0.1:51854 - "POST /fetch-sectors HTTP/1.1" 200 OK
-INFO:     127.0.0.1:51855 - "POST /fetch-sectors HTTP/1.1" 200 OK

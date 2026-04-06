@@ -10,7 +10,10 @@ import yfinance as yf
 from fastapi import APIRouter
 
 from cache_manager import load_cache, save_cache
-from market_data import get_ticker_performance
+from market_data import extract_download_price_frame, get_ticker_performance
+from services.yfinance_setup import configure_yfinance_cache
+
+configure_yfinance_cache()
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -41,6 +44,35 @@ def _exposure_is_stale(data_path: Path) -> bool:
         return datetime.datetime.now() - data_date > STALENESS_THRESHOLD
     except Exception:
         return True
+
+
+@router.post("/index-refresh")
+def refresh_index_data():
+    """Force re-scrape index exposure and clear the history cache so next fetch is fresh."""
+    results = {}
+
+    # 1. Re-scrape exposure data
+    try:
+        from index_scraper import scrape_index_data
+        scrape_index_data()
+        results["exposure"] = "ok"
+    except Exception as e:
+        logger.error(f"index-refresh: scrape failed: {e}")
+        results["exposure"] = f"error: {e}"
+
+    # 2. Delete history cache so it is regenerated on next request
+    history_cache = Path("data/index_history_cache.json")
+    if not history_cache.exists():
+        history_cache = Path(__file__).parent.parent / "data" / "index_history_cache.json"
+    try:
+        if history_cache.exists():
+            history_cache.unlink()
+        results["history_cache"] = "cleared"
+    except Exception as e:
+        logger.error(f"index-refresh: failed to delete history cache: {e}")
+        results["history_cache"] = f"error: {e}"
+
+    return results
 
 
 @router.get("/index-exposure")
@@ -102,7 +134,12 @@ def get_index_exposure():
             w_composite = (w_acwi * 0.75) + (w_tsx * 0.25)
 
             if w_composite > 0.01:
-                geo_list.append({"region": region, "weight": round(w_composite, 2)})
+                geo_list.append({
+                    "region": region,
+                    "weight": round(w_composite, 2),
+                    "ACWI": round(w_acwi, 2),
+                    "TSX": round(w_tsx, 2),
+                })
 
         geo_list.sort(key=lambda x: x["weight"], reverse=True)
 
@@ -143,8 +180,8 @@ async def currency_performance(request: dict):
 @router.get("/index-history")
 def get_index_history():
     """
-    Fetch historical data for ACWI (global) and XIU.TO (Canada) for the comparison graph.
-    Also fetches USDCAD=X to convert ACWI to CAD, and calculates a synthetic blend (75% ACWI, 25% XIU).
+    Fetch historical data for ACWI (global) and XIC.TO (Canada) for the comparison graph.
+    Also fetches USDCAD=X to convert ACWI to CAD, and calculates a synthetic 75/25 composite (75% ACWI, 25% XIC.TO).
     Caches the result to avoid repeated slow yfinance calls.
     """
     cache_file = Path("data/index_history_cache.json")
@@ -152,7 +189,7 @@ def get_index_history():
     if cache_file.exists():
         try:
             mtime = datetime.datetime.fromtimestamp(cache_file.stat().st_mtime)
-            if datetime.datetime.now() - mtime < datetime.timedelta(hours=24):
+            if datetime.datetime.now() - mtime < datetime.timedelta(hours=1):
                 with open(cache_file, "r") as f:
                     logger.info("Serving index history from cache")
                     return json.load(f)
@@ -160,28 +197,25 @@ def get_index_history():
             logger.warning(f"Failed to read index history cache: {e}")
 
     logger.info("Fetching fresh index history from yfinance...")
-    tickers = ["ACWI", "XIU.TO", "USDCAD=X"]
+    tickers = ["ACWI", "XIC.TO", "USDCAD=X"]
 
     try:
-        data = yf.download(tickers, period="5y", interval="1d", progress=False)
+        data = yf.download(tickers, period="5y", interval="1d", progress=False, auto_adjust=True)
 
         if data.empty:
-            return {"ACWI": [], "XIU.TO": [], "Index": []}
+            return {"ACWI": [], "XIC.TO": [], "Index": []}
 
-        if "Close" in data.columns:
-            closes = data["Close"]
-        else:
-            closes = data
+        closes = extract_download_price_frame(data, tickers)
 
-        expected_cols = ["ACWI", "XIU.TO", "USDCAD=X"]
+        expected_cols = ["ACWI", "XIC.TO", "USDCAD=X"]
         existing_cols = [c for c in expected_cols if c in closes.columns]
 
         if not existing_cols:
-            return {"ACWI": [], "XIU.TO": [], "Index": []}
+            return {"ACWI": [], "XIC.TO": [], "Index": []}
 
         closes = closes[existing_cols].ffill().bfill()
 
-        result_data = {"ACWI": [], "XIU.TO": [], "Index": []}
+        result_data = {"ACWI": [], "XIC.TO": [], "Index": []}
 
         dates = closes.index.strftime("%Y-%m-%d").tolist()
 
@@ -190,31 +224,31 @@ def get_index_history():
         else:
             acwi_cad_series = pd.Series(dtype=float)
 
-        if "XIU.TO" in closes.columns:
-            xiu_series = closes["XIU.TO"]
+        if "XIC.TO" in closes.columns:
+            xic_series = closes["XIC.TO"]
         else:
-            xiu_series = pd.Series(dtype=float)
+            xic_series = pd.Series(dtype=float)
 
-        if not acwi_cad_series.empty and not xiu_series.empty:
+        if not acwi_cad_series.empty and not xic_series.empty:
             acwi_ret = acwi_cad_series.pct_change().fillna(0)
-            xiu_ret = xiu_series.pct_change().fillna(0)
+            xic_ret = xic_series.pct_change().fillna(0)
 
-            # Synthetic 75/25
-            composite_ret = (acwi_ret * 0.75) + (xiu_ret * 0.25)
+            # Synthetic 75/25 composite
+            composite_ret = (acwi_ret * 0.75) + (xic_ret * 0.25)
             composite_index = (1 + composite_ret).cumprod() * 100
         else:
             composite_index = pd.Series(dtype=float)
 
         acwi_list = acwi_cad_series.tolist() if not acwi_cad_series.empty else []
-        xiu_list = xiu_series.tolist() if not xiu_series.empty else []
+        xic_list = xic_series.tolist() if not xic_series.empty else []
         comp_list = composite_index.tolist() if not composite_index.empty else []
 
         for i, date_str in enumerate(dates):
             if i < len(acwi_list) and pd.notna(acwi_list[i]):
                 result_data["ACWI"].append({"date": date_str, "value": acwi_list[i]})
 
-            if i < len(xiu_list) and pd.notna(xiu_list[i]):
-                result_data["XIU.TO"].append({"date": date_str, "value": xiu_list[i]})
+            if i < len(xic_list) and pd.notna(xic_list[i]):
+                result_data["XIC.TO"].append({"date": date_str, "value": xic_list[i]})
 
             if i < len(comp_list) and pd.notna(comp_list[i]):
                 result_data["Index"].append({"date": date_str, "value": comp_list[i]})
@@ -230,7 +264,7 @@ def get_index_history():
 
     except Exception as e:
         logger.error(f"Error fetching index history: {e}")
-        return {"ACWI": [], "XIU.TO": [], "Index": []}
+        return {"ACWI": [], "XIC.TO": [], "Index": []}
 
 
 @router.get("/sector-history")
@@ -244,7 +278,7 @@ def get_sector_history():
     if cache_file.exists():
         try:
             mtime = datetime.datetime.fromtimestamp(cache_file.stat().st_mtime)
-            if datetime.datetime.now() - mtime < datetime.timedelta(hours=24):
+            if datetime.datetime.now() - mtime < datetime.timedelta(hours=1):
                 with open(cache_file, "r") as f:
                     cached = json.load(f)
                     if "US" in cached and "OVERALL" in cached:
@@ -268,7 +302,7 @@ def get_sector_history():
     }
 
     # Canadian iShares / BMO sector ETFs (TSX-listed)
-    # Sectors without a pure Canadian ETF fall back to TSX60 (XIU.TO)
+    # Sectors without a pure Canadian ETF fall back to TSX (XIC.TO)
     ca_sector_map = {
         "Financials": "XFN.TO",
         "Energy": "XEG.TO",
@@ -279,28 +313,25 @@ def get_sector_history():
         "Real Estate": "XRE.TO",
         "Consumer Staples": "XST.TO",
         "Consumer Discretionary": "XCD.TO",
-        "Health Care": "XIU.TO",           # No pure CA healthcare ETF → TSX60 fallback
-        "Communication Services": "XIU.TO", # No CA comm services ETF → TSX60 fallback
+        "Health Care": "XIC.TO",           # No pure CA healthcare ETF → TSX fallback
+        "Communication Services": "XIC.TO", # No CA comm services ETF → TSX fallback
     }
 
     # Overall market benchmarks for broad index comparison
     overall_map = {
         "SP500": "SPY",
-        "TSX60": "XIU.TO",
+        "TSX": "XIC.TO",
     }
 
     all_tickers = list(set(list(us_sector_map.values()) + list(ca_sector_map.values()) + list(overall_map.values())))
     logger.info(f"Fetching fresh sector history for {len(all_tickers)} tickers (US + CA)...")
 
     try:
-        data = yf.download(all_tickers, period="5y", interval="1d", progress=False)
+        data = yf.download(all_tickers, period="5y", interval="1d", progress=False, auto_adjust=True)
         if data.empty:
             return {"US": {}, "CA": {}}
 
-        if "Close" in data.columns:
-            closes = data["Close"]
-        else:
-            closes = data
+        closes = extract_download_price_frame(data, all_tickers)
 
         closes = closes.ffill().bfill()
         dates = closes.index.strftime("%Y-%m-%d").tolist()

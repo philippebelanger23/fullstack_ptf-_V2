@@ -10,8 +10,8 @@ interface ManualEntryModalProps {
     onClose: () => void;
     onSubmit: (data: PortfolioItem[]) => void;
     existingData?: PortfolioItem[];
-    selectedYear: 2025 | 2026;
-    setSelectedYear: (year: 2025 | 2026) => void;
+    selectedYear: number;
+    setSelectedYear: (year: number) => void;
 }
 
 export const ManualEntryModal: React.FC<ManualEntryModalProps> = ({
@@ -30,12 +30,14 @@ export const ManualEntryModal: React.FC<ManualEntryModalProps> = ({
         savedSuccess,
         newTickerInput,
         setNewTickerInput,
+        availableYears,
         filteredPeriods,
         displayTickers,
         handleAddTicker,
         handleRemoveTicker,
         handleToggleMutualFund,
         handleToggleEtf,
+        handleToggleCash,
         handleWeightChange,
         handleWeightBlur,
         handleAddPeriod,
@@ -50,9 +52,9 @@ export const ManualEntryModal: React.FC<ManualEntryModalProps> = ({
     if (isInitialLoading) {
         return (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-                <div className="bg-white rounded-xl shadow-2xl p-12 flex flex-col items-center gap-4">
+                <div className="bg-wallstreet-800 rounded-xl shadow-2xl p-12 flex flex-col items-center gap-4">
                     <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
-                    <p className="text-slate-600 font-semibold text-lg">Loading portfolio configuration...</p>
+                    <p className="text-wallstreet-500 font-semibold text-lg">Loading portfolio configuration...</p>
                 </div>
             </div>
         );
@@ -60,29 +62,26 @@ export const ManualEntryModal: React.FC<ManualEntryModalProps> = ({
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-            <div className="bg-white rounded-xl shadow-2xl w-[95vw] h-[90vh] flex flex-col animate-in fade-in zoom-in-95 duration-200">
+            <div className="bg-wallstreet-800 rounded-xl shadow-2xl w-[95vw] h-[90vh] flex flex-col animate-in fade-in zoom-in-95 duration-200">
 
                 {/* Header */}
-                <div className="flex items-center justify-between p-6 border-b border-gray-100">
+                <div className="flex items-center justify-between p-6 border-b border-wallstreet-700">
                     <div className="flex items-center gap-8">
                         <div>
-                            <h2 className="text-2xl font-bold text-slate-800">Portfolio Editor</h2>
-                            <p className="text-slate-500 text-sm">Manually configure weights and rebalancing periods.</p>
+                            <h2 className="text-2xl font-bold text-wallstreet-text">Portfolio Editor</h2>
+                            <p className="text-wallstreet-500 text-sm">Manually configure weights and rebalancing periods.</p>
                         </div>
 
                         {/* Year Selector in Editor Header */}
                         <Dropdown
                             labelPrefix="Year"
                             value={selectedYear}
-                            onChange={(val) => setSelectedYear(Number(val) as 2025 | 2026)}
-                            options={[
-                                { value: 2025, label: 2025 },
-                                { value: 2026, label: 2026 }
-                            ]}
+                            onChange={(val) => setSelectedYear(Number(val))}
+                            options={availableYears.map((year) => ({ value: year, label: year }))}
                         />
                     </div>
-                    <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded-full transition-colors">
-                        <X size={24} className="text-slate-400" />
+                    <button onClick={onClose} className="p-2 hover:bg-wallstreet-900 rounded-full transition-colors">
+                        <X size={24} className="text-wallstreet-500" />
                     </button>
                 </div>
 
@@ -95,6 +94,7 @@ export const ManualEntryModal: React.FC<ManualEntryModalProps> = ({
                     handleRemoveTicker={handleRemoveTicker}
                     handleToggleMutualFund={handleToggleMutualFund}
                     handleToggleEtf={handleToggleEtf}
+                    handleToggleCash={handleToggleCash}
                     filteredPeriods={filteredPeriods}
                     periods={periods}
                     handleRemovePeriod={handleRemovePeriod}
@@ -106,29 +106,29 @@ export const ManualEntryModal: React.FC<ManualEntryModalProps> = ({
                 />
 
                 {/* Footer */}
-                <div className="p-6 border-t border-gray-100 flex justify-between items-center bg-gray-50 rounded-b-xl">
-                    <div className="text-sm text-slate-500">
-                        <span className="font-bold text-slate-700">{tickers.length}</span> tickers across <span className="font-bold text-slate-700">{periods.length}</span> rebalancing periods.
+                <div className="p-6 border-t border-wallstreet-700 flex justify-between items-center bg-wallstreet-900 rounded-b-xl">
+                    <div className="text-sm text-wallstreet-500">
+                        <span className="font-bold text-wallstreet-text">{tickers.length}</span> tickers across <span className="font-bold text-wallstreet-text">{periods.length}</span> rebalancing periods.
                     </div>
                     <div className="flex gap-4 items-center">
                         {isSaving ? (
-                            <div className="flex items-center gap-3 px-6 py-2.5 bg-blue-50 text-blue-700 rounded-lg font-semibold animate-pulse">
+                            <div className="flex items-center gap-3 px-6 py-2.5 bg-blue-900/40 text-blue-300 rounded-lg font-semibold animate-pulse">
                                 <Loader2 size={18} className="animate-spin" />
                                 <span>Saving Configuration...</span>
                             </div>
                         ) : savedSuccess ? (
-                            <div className="flex items-center gap-3 px-6 py-2.5 bg-green-50 text-green-700 rounded-lg font-bold border border-green-200 animate-in fade-in slide-in-from-bottom-2">
+                            <div className="flex items-center gap-3 px-6 py-2.5 bg-green-900/40 text-green-400 rounded-lg font-bold border border-green-700 animate-in fade-in slide-in-from-bottom-2">
                                 <CheckCircle size={18} />
                                 <span>Changes have been saved</span>
                             </div>
                         ) : (
                             <>
-                                <button onClick={onClose} className="px-6 py-2.5 rounded-lg text-slate-600 font-semibold hover:bg-slate-200 transition-colors">
+                                <button onClick={onClose} className="px-6 py-2.5 rounded-lg text-wallstreet-500 font-semibold hover:bg-wallstreet-900 transition-colors">
                                     Cancel
                                 </button>
                                 <button
                                     onClick={handleSubmit}
-                                    className="px-6 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-bold shadow-lg shadow-blue-200 flex items-center gap-2 transition-all transform hover:-translate-y-0.5"
+                                    className="px-6 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-bold shadow-lg shadow-blue-900/30 flex items-center gap-2 transition-all transform hover:-translate-y-0.5"
                                 >
                                     <Save size={18} /> Save Configuration
                                 </button>

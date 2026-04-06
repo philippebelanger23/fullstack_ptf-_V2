@@ -1,150 +1,82 @@
-import React, { useEffect, useState, useMemo } from 'react';
-import { ShieldAlert, Activity, Target, Layers, AlertCircle } from 'lucide-react';
-import { MetricCard } from '../../components/ui/MetricCard';
-import { loadPortfolioConfig, convertConfigToItems, fetchRiskContribution } from '../../services/api';
-import { PortfolioItem, RiskContributionResponse } from '../../types';
-import { RiskCharts } from './RiskCharts';
-import { RiskTable, SortKey } from './RiskTable';
+import React, { useEffect, useMemo, useState } from 'react';
+import { AlertCircle } from 'lucide-react';
+import { FreshnessBadge } from '../../components/ui/FreshnessBadge';
+import type { RiskContributionResponse } from '../../types';
+import { buildRiskBarData, buildScatterData } from './riskUtils';
+import { RiskKPIs } from './RiskKPIs';
+import { RiskBarChart } from './RiskBarChart';
+import { ReturnRiskScatter } from './ReturnRiskScatter';
+import { RiskTreemap } from './RiskTreemap';
+import { CorrelationHeatmap } from './CorrelationHeatmap';
+import { RiskTable } from './RiskTable';
 
-type PositionMode = 'actual' | 'historical';
-
-export const RiskContributionView: React.FC = () => {
+export const RiskContributionView: React.FC<{ workspaceRisk?: RiskContributionResponse | null }> = ({ workspaceRisk }) => {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [data, setData] = useState<RiskContributionResponse | null>(null);
-    const [sortKey, setSortKey] = useState<SortKey>('pctOfTotalRisk');
-    const [sortAsc, setSortAsc] = useState(false);
-    const [positionMode, setPositionMode] = useState<PositionMode>('actual');
-    const [expandedChart, setExpandedChart] = useState(false);
-    const [barChartMode, setBarChartMode] = useState<'absolute' | 'ratio'>('absolute');
 
     useEffect(() => {
-        let cancelled = false;
-        const fetchData = async () => {
-            setLoading(true);
-            setError(null);
-            try {
-                const config = await loadPortfolioConfig();
-                if (cancelled) return;
-                if (!config.tickers || config.tickers.length === 0) {
-                    setError("No portfolio configured. Go to Upload to configure your portfolio.");
-                    setLoading(false);
-                    return;
-                }
-                const allItems = convertConfigToItems(config.tickers, config.periods);
-                if (allItems.length === 0) {
-                    setError("Portfolio has no holdings with positive weights.");
-                    setLoading(false);
-                    return;
-                }
-
-                let items: PortfolioItem[];
-                if (positionMode === 'actual') {
-                    const latestDate = allItems.reduce((max, item) =>
-                        item.date > max ? item.date : max, allItems[0].date
-                    );
-                    items = allItems.filter(item => item.date === latestDate && item.weight > 0);
-                } else {
-                    items = allItems;
-                }
-
-                if (items.length === 0) {
-                    setError("No holdings found for selected mode.");
-                    setLoading(false);
-                    return;
-                }
-
-                const result = await fetchRiskContribution(items);
-                if (cancelled) return;
-                if (result.error) {
-                    setError(result.error);
-                } else {
-                    setData(result);
-                }
-            } catch (e) {
-                if (cancelled) return;
-                setError(String(e));
-            } finally {
-                if (!cancelled) setLoading(false);
-            }
-        };
-        fetchData();
-        return () => { cancelled = true; };
-    }, [positionMode]);
-
-    const handleSort = (key: SortKey) => {
-        if (sortKey === key) {
-            setSortAsc(!sortAsc);
-        } else {
-            setSortKey(key);
-            setSortAsc(false);
+        if (!workspaceRisk) {
+            setData(null);
+            setError('No risk workspace data available. Rebuild the portfolio from Upload.');
+            setLoading(false);
+            return;
         }
-    };
+        if (workspaceRisk.error) {
+            setData(null);
+            setError(workspaceRisk.error);
+            setLoading(false);
+            return;
+        }
+        setData(workspaceRisk);
+        setError(null);
+        setLoading(false);
+    }, [workspaceRisk]);
 
-    const sortedPositions = useMemo(() => {
-        if (!data) return [];
-        return [...data.positions].sort((a, b) => {
-            const aVal = a[sortKey];
-            const bVal = b[sortKey];
-            if (typeof aVal === 'string' && typeof bVal === 'string') {
-                return sortAsc ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
-            }
-            return sortAsc ? (aVal as number) - (bVal as number) : (bVal as number) - (aVal as number);
-        });
-    }, [data, sortKey, sortAsc]);
-
-    const riskBarData = useMemo(() => {
-        if (!data) return [];
-        return [...data.positions]
-            .sort((a, b) => b.pctOfTotalRisk - a.pctOfTotalRisk)
-            .map(p => ({
-                ticker: p.ticker,
-                riskPct: p.pctOfTotalRisk,
-                weight: p.weight,
-                delta: +(p.pctOfTotalRisk - p.weight).toFixed(1),
-            }));
-    }, [data]);
-
-    const ratioBarData = useMemo(() => {
-        if (!data) return [];
-        return [...data.positions]
-            .filter(p => p.weight > 0)
-            .map(p => ({
-                ticker: p.ticker,
-                ratio: +(p.pctOfTotalRisk / p.weight).toFixed(2),
-            }))
-            .sort((a, b) => b.ratio - a.ratio);
-    }, [data]);
-
-    const scatterData = useMemo(() => {
-        if (!data) return [];
-        return data.positions.map(p => ({ ticker: p.ticker, x: p.weight, y: p.pctOfTotalRisk }));
-    }, [data]);
+    const riskBarData = useMemo(() => data ? buildRiskBarData(data.positions) : [], [data]);
+    const scatterData = useMemo(() => data ? buildScatterData(data.positions) : [], [data]);
 
     if (loading) {
         return (
-            <div className="max-w-[100vw] mx-auto p-4 md:p-6 overflow-x-hidden min-h-screen flex flex-col items-center justify-center">
-                <div className="flex flex-col items-center gap-6">
-                    <div className="flex items-end gap-1.5 h-12">
-                        {[0, 1, 2, 3, 4].map(i => (
-                            <div
-                                key={i}
-                                className="w-2 bg-wallstreet-accent rounded-t"
-                                style={{
-                                    animation: `barPulse 1s ease-in-out ${i * 0.15}s infinite`,
-                                    height: '30%',
-                                }}
-                            />
-                        ))}
-                    </div>
-                    <p className="text-sm font-mono text-wallstreet-500 tracking-wide uppercase">Loading Risk Data</p>
-                </div>
+            <div className="max-w-[100vw] mx-auto p-4 md:p-6 overflow-x-hidden min-h-screen flex flex-col items-center justify-center select-none">
                 <style>{`
-                    @keyframes barPulse {
-                        0%, 100% { height: 30%; opacity: 0.4; }
-                        50% { height: 100%; opacity: 1; }
+                    @keyframes riskBarPulse {
+                        0%, 100% { transform: scaleY(0.12); opacity: 0.1; }
+                        50%      { transform: scaleY(1);    opacity: 1;   }
+                    }
+                    @keyframes riskScanLine {
+                        0%   { left: -2px; }
+                        100% { left: calc(100% + 2px); }
                     }
                 `}</style>
+                <div className="flex flex-col items-center gap-8 w-full max-w-sm">
+                    <div className="relative overflow-hidden rounded" style={{ width: '176px', height: '60px' }}>
+                        <div className="flex items-end h-full gap-1.5">
+                            {[28, 50, 36, 66, 42, 78, 54, 92, 46, 72, 58, 88, 64].map((h, i) => (
+                                <div
+                                    key={i}
+                                    className="flex-1 rounded-t-sm origin-bottom"
+                                    style={{
+                                        height: `${h}%`,
+                                        background: i === 12 ? '#3b82f6' : '#374151',
+                                        animation: `riskBarPulse 2.2s ease-in-out ${i * 0.14}s infinite`,
+                                    }}
+                                />
+                            ))}
+                        </div>
+                        <div
+                            className="absolute top-0 bottom-0 w-px"
+                            style={{
+                                background: 'linear-gradient(to bottom, transparent, rgba(59,130,246,0.65), transparent)',
+                                animation: 'riskScanLine 2.2s linear infinite',
+                            }}
+                        />
+                    </div>
+
+                    <p className="text-[11px] font-mono text-wallstreet-500 tracking-[0.25em] uppercase">
+                        Loading Risk Workspace
+                    </p>
+                </div>
             </div>
         );
     }
@@ -153,101 +85,67 @@ export const RiskContributionView: React.FC = () => {
         return (
             <div className="p-8">
                 <div className="mb-8">
-                    <h2 className="text-3xl font-bold text-wallstreet-900 font-mono tracking-tighter">
+                    <h2 className="text-3xl font-bold text-wallstreet-text font-mono tracking-tighter">
                         RISK <span className="text-wallstreet-accent">CONTRIBUTION</span>
                     </h2>
                 </div>
-                <div className="bg-red-50 border border-red-200 rounded-xl p-6 flex items-start gap-3">
+                <div className="bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-xl p-6 flex items-start gap-3">
                     <AlertCircle className="text-red-500 mt-0.5" size={20} />
                     <div>
-                        <p className="text-red-800 font-medium">Error loading risk data</p>
-                        <p className="text-red-600 text-sm mt-1">{error}</p>
+                        <p className="text-red-800 dark:text-red-300 font-medium">Error loading risk data</p>
+                        <p className="text-red-600 dark:text-red-400 text-sm mt-1">{error}</p>
                     </div>
                 </div>
             </div>
         );
     }
 
+    const hasCorrelation = data?.correlationMatrix && data.correlationMatrix.tickers.length > 0;
+
     return (
-        <div className="p-8 space-y-6">
-            <div className="flex items-start justify-between mb-2">
+        <div className="p-6 md:p-8 space-y-6">
+            <div className="flex items-start justify-between mb-1">
                 <div>
-                    <h2 className="text-3xl font-bold text-wallstreet-900 font-mono tracking-tighter">
-                        RISK <span className="text-wallstreet-accent">CONTRIBUTION</span>
-                    </h2>
-                    <p className="text-wallstreet-500 mt-2">Marginal contribution to risk (MCTR), diversification analysis, and position-level risk decomposition.</p>
-                </div>
-                <div className="flex items-center bg-slate-100 rounded-lg p-0.5 shrink-0">
-                    {(['actual', 'historical'] as PositionMode[]).map((mode) => (
-                        <button
-                            key={mode}
-                            onClick={() => setPositionMode(mode)}
-                            className={`px-3 py-1.5 text-xs font-bold uppercase tracking-wider rounded-md transition-all ${positionMode === mode
-                                ? 'bg-white text-slate-900 shadow-sm'
-                                : 'text-slate-500 hover:text-slate-700'
-                                }`}
-                        >
-                            {mode === 'actual' ? 'Actual Positions' : 'Historical'}
-                        </button>
-                    ))}
+                    <div className="flex items-center gap-3">
+                        <h2 className="text-3xl font-bold text-wallstreet-text font-mono tracking-tighter">
+                            RISK <span className="text-wallstreet-accent">CONTRIBUTION</span>
+                        </h2>
+                        <FreshnessBadge fetchedAt={data?.fetchedAt ?? null} />
+                    </div>
+                    <p className="text-wallstreet-500 mt-2 text-sm">
+                        Marginal contribution to risk, diversification analysis, and position-level risk decomposition. Based on 1 year of daily returns.
+                    </p>
                 </div>
             </div>
 
-            {/* KPI Cards */}
-            <div className="grid grid-cols-4 gap-4">
-                <MetricCard positiveLabel="Good" negativeLabel="High"
-                    title="Portfolio Volatility"
-                    value={data ? `${data.portfolioVol.toFixed(1)}%` : '—'}
-                    subtitle={data ? `Benchmark: ${data.benchmarkVol.toFixed(1)}%` : undefined}
-                    isPositive={data ? data.portfolioVol < data.benchmarkVol : undefined}
-                    icon={Activity}
+            <RiskKPIs data={data} loading={loading} />
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch">
+                <RiskBarChart
+                    riskBarData={riskBarData}
+                    sectorRisk={data?.sectorRisk ?? []}
+                    positions={data?.positions ?? []}
                     loading={loading}
                 />
-                <MetricCard positiveLabel="Good" negativeLabel="High"
-                    title="Diversification Ratio"
-                    value={data ? `${data.diversificationRatio.toFixed(2)}x` : '—'}
-                    subtitle="> 1.0 = diversification benefit"
-                    isPositive={data ? data.diversificationRatio > 1.0 : undefined}
-                    icon={Layers}
-                    loading={loading}
-                />
-                <MetricCard positiveLabel="Good" negativeLabel="High"
-                    title="Effective Bets"
-                    value={data ? data.numEffectiveBets.toFixed(1) : '—'}
-                    subtitle={data ? `of ${data.positions.length} positions` : undefined}
-                    isPositive={data ? data.numEffectiveBets > 3 : undefined}
-                    icon={Target}
-                    loading={loading}
-                />
-                <MetricCard positiveLabel="Good" negativeLabel="High"
-                    title="Top-3 Concentration"
-                    value={data ? `${data.top3Concentration.toFixed(1)}%` : '—'}
-                    subtitle="% of total risk from top 3"
-                    isPositive={data ? data.top3Concentration < 60 : undefined}
-                    icon={ShieldAlert}
-                    loading={loading}
-                />
+                <ReturnRiskScatter data={scatterData} loading={loading} />
             </div>
 
-            <RiskCharts
-                loading={loading}
-                riskBarData={riskBarData}
-                ratioBarData={ratioBarData}
-                scatterData={scatterData}
-                sectorRisk={data?.sectorRisk ?? []}
-                barChartMode={barChartMode}
-                setBarChartMode={setBarChartMode}
-                expandedChart={expandedChart}
-                setExpandedChart={setExpandedChart}
-            />
+            <div className={`grid gap-6 items-stretch ${hasCorrelation ? 'grid-cols-1 lg:grid-cols-[65%_1fr]' : 'grid-cols-1'}`}>
+                <div>
+                    <RiskTreemap positions={data?.positions ?? []} loading={loading} sectorCount={data?.sectorRisk?.length ?? 11} />
+                </div>
+                {hasCorrelation && (
+                    <div>
+                        <CorrelationHeatmap correlationMatrix={data!.correlationMatrix!} loading={loading} />
+                    </div>
+                )}
+            </div>
 
             <RiskTable
+                positions={data?.positions ?? []}
                 loading={loading}
-                sortedPositions={sortedPositions}
-                sortKey={sortKey}
-                sortAsc={sortAsc}
-                handleSort={handleSort}
                 missingTickers={data?.missingTickers ?? []}
+                portfolioBeta={data?.portfolioBeta}
             />
         </div>
     );

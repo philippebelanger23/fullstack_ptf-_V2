@@ -52,9 +52,23 @@
     --accent-primary: var(--wallstreet-accent);
   }
 
+  [data-theme="dark"] {
+    --wallstreet-900: #0f172a;
+    --wallstreet-800: #1e293b;
+    --wallstreet-700: #334155;
+    --wallstreet-600: #475569;
+    --wallstreet-accent: #60a5fa;
+    --wallstreet-text: #f1f5f9;
+    --wallstreet-500: #94a3b8;
+    --wallstreet-danger: #f87171;
+    --wallstreet-success: #4ade80;
+    --wallstreet-warning: #fbbf24;
+  }
+
   body {
     background-color: var(--bg-main);
     color: var(--text-main);
+    font-family: 'Inter', sans-serif;
   }
 }
 
@@ -98,15 +112,72 @@
   .print-row {
     display: grid !important;
     grid-template-columns: repeat(4, 1fr) !important;
-    gap: 6px !important;
+    gap: 4px !important;
     page-break-inside: avoid !important;
     break-inside: avoid !important;
-    margin-bottom: 6px !important;
+    margin-bottom: 4px !important;
   }
 
-  /* Page break after every 2 rows (8 tables) */
-  .print-row:nth-child(2n) {
-    page-break-after: always;
+  /* Two-row page wrapper: Q1+Q2 on page 1, Q3+Q4 on page 2 */
+  .print-page {
+    page-break-after: always !important;
+    break-after: page !important;
+  }
+
+  /* Collapse space-y-6 gaps between rows inside print-page */
+  .print-page > * + * {
+    margin-top: 0 !important;
+  }
+
+  /* Print-only title block (hidden in screen view via 'hidden' class) */
+  .print-title-block {
+    display: block !important;
+    text-align: center;
+    margin-bottom: 8px;
+    font-size: 14px;
+  }
+
+  /* --- Compact AttributionTable for print --- */
+
+  /* Title bar: cut py-4 down to 3px each side */
+  .print-table > div:first-child {
+    padding-top: 4px !important;
+    padding-bottom: 4px !important;
+    font-size: 9px !important;
+    letter-spacing: 0.03em !important;
+  }
+
+  /* Spacer rows (h-4 = 1rem) → near-zero */
+  .print-table tr.h-4 {
+    height: 3px !important;
+    line-height: 0 !important;
+  }
+
+  /* Section headings (Top Contributors / Top Disruptors) */
+  .print-table td[colspan="4"] {
+    padding-top: 2px !important;
+    padding-bottom: 2px !important;
+    font-size: 8px !important;
+  }
+
+  /* All table cells */
+  .print-table th,
+  .print-table td {
+    padding: 1px 3px !important;
+    font-size: 8px !important;
+    line-height: 1.25 !important;
+  }
+
+  /* Override wallstreet dark theme → white background for print */
+  [class*="bg-wallstreet"] {
+    background-color: #ffffff !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* Override wallstreet text → black for print */
+  [class*="text-wallstreet"] {
+    color: #000000 !important;
   }
 
   /* Compact Print Table - matches Excel styling */
@@ -183,6 +254,61 @@
   }
 }
 
+/* === REPORT ONE-PAGER PRINT OVERRIDES === */
+
+@media print {
+  .report-page {
+    width: 100vw !important;
+    max-height: 100vh !important;
+    overflow: hidden !important;
+    padding: 0.2in !important;
+    font-size: 9px !important;
+    background: white !important;
+    color: #111 !important;
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+
+  .report-page .report-kpi-strip {
+    gap: 4px !important;
+    grid-template-columns: repeat(8, 1fr) !important;
+  }
+
+  .report-page .report-body {
+    grid-template-columns: 55% 45% !important;
+    gap: 8px !important;
+  }
+
+  .report-page .report-chart-container {
+    max-height: 160px !important;
+  }
+
+  .report-page table {
+    font-size: 8px !important;
+  }
+
+  .report-page .bg-wallstreet-800 {
+    background: #f8fafc !important;
+    border-color: #cbd5e1 !important;
+  }
+
+  .report-page .text-wallstreet-text {
+    color: #111 !important;
+  }
+
+  .report-page .text-wallstreet-500 {
+    color: #64748b !important;
+  }
+
+  .report-page .border-wallstreet-700 {
+    border-color: #cbd5e1 !important;
+  }
+
+  .report-page .border-t.border-wallstreet-700 {
+    border-color: #cbd5e1 !important;
+  }
+}
+
 /* === CUSTOM SCROLLBARS === */
 /* Makes interactive areas "round and smooth" */
 ::-webkit-scrollbar {
@@ -195,17 +321,24 @@
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
-  /* slate-300 level for a light, professional look */
+  background: var(--wallstreet-600);
   border-radius: 10px;
   border: 2px solid transparent;
   background-clip: content-box;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #94a3b8;
-  /* slate-400 */
+  background: var(--wallstreet-500);
   background-clip: content-box;
+}
+
+/* Hide scrollbar utility */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
 }
 
 /* Smooth transitions for interactive elements */

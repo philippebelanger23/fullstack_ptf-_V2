@@ -1,20 +1,28 @@
-"""Portfolio analysis routes: /analyze-manual"""
+"""Portfolio analysis routes: /portfolio-workspace"""
 
 import json
 import logging
-from pathlib import Path
-from typing import List
+import re
 
-import pandas as pd
+import yfinance as yf
 from fastapi import APIRouter, HTTPException
 
-from data_loader import load_historic_nav_csvs
-from market_data import calculate_returns, build_results_dataframe
-from cache_manager import load_cache, save_cache
-from models import PortfolioItem, ManualAnalysisRequest
+from data_loader import load_historic_nav_csvs, load_manual_navs_json, merge_nav_sources
+from cache_manager import clear_cache, get_cache_info
+from services.path_utils import resolve_storage_path
+from services.workspace_service import build_portfolio_workspace
+from services.yfinance_setup import configure_yfinance_cache
+from models import ManualAnalysisRequest
+
+configure_yfinance_cache()
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+_COMPANY_SUFFIX_PATTERNS = [
+    re.compile(r"(?:,?\s+)(?:incorporated|inc|corporation|corp|company|co|limited|ltd|plc|llc|lp|l\.p\.|n\.v\.|nv|s\.a\.|sa|s\.p\.a\.|spa|ag|se)\.?$", re.IGNORECASE),
+    re.compile(r"(?:,?\s+)(?:etf|etfs)\.?$", re.IGNORECASE),
+]
 
 
 # ---------------------------------------------------------------------------
@@ -27,190 +35,149 @@ def get_aggregated_nav_data() -> dict:
     1. manual_navs.json
     2. historic_navs/*.csv
     """
-    nav_dict = {}
-
-    # 1. Load manually provided NAVs
-    manual_nav_path = Path("data/manual_navs.json")
-    if manual_nav_path.exists():
-        try:
-            with open(manual_nav_path, "r") as f:
-                static_navs = json.load(f)
-                for ticker, dates_data in static_navs.items():
-                    if ticker not in nav_dict:
-                        nav_dict[ticker] = {}
-                    for d, v in dates_data.items():
-                        nav_dict[ticker][pd.to_datetime(d)] = v
-        except Exception as e:
-            logger.warning(f"Failed to load manual_navs.json: {e}")
-
-    # 2. Load historical CSV NAVs
+    manual_navs = load_manual_navs_json("data/manual_navs.json")
+    csv_navs = {}
     try:
         csv_navs = load_historic_nav_csvs("data/historic_navs")
-        for ticker, dates_data in csv_navs.items():
-            if ticker not in nav_dict:
-                nav_dict[ticker] = {}
-            nav_dict[ticker].update(dates_data)
     except Exception as e:
         logger.warning(f"Failed to load historical CSV NAVs: {e}")
 
-    return nav_dict
+    return merge_nav_sources(manual_navs, csv_navs)
 
 
-# ---------------------------------------------------------------------------
-# Core analysis logic (shared between file-upload and manual entry)
-# ---------------------------------------------------------------------------
+def normalize_company_name(raw_name: str | None) -> str | None:
+    """
+    Trim common legal suffixes and cleanup noise from yfinance display names.
+    Returns the original string if normalization would over-trim it.
+    """
+    if not isinstance(raw_name, str):
+        return None
 
-def run_portfolio_analysis(
-    weights_dict,
-    nav_dict,
-    dates,
-    mutual_fund_tickers=None,
-    etf_tickers=None,
-) -> List[PortfolioItem]:
-    """Core logic shared between file upload and manual entry."""
-    cache = load_cache()
-    if mutual_fund_tickers is None:
-        mutual_fund_tickers = set()
-    if etf_tickers is None:
-        etf_tickers = set()
+    original = re.sub(r"\s+", " ", raw_name).strip()
+    if not original:
+        return None
 
-    logger.info("Fetching market data...")
-    returns, prices = calculate_returns(weights_dict, nav_dict, dates, cache, mutual_fund_tickers)
+    cleaned = re.sub(r"^\s*the\s+", "", original, flags=re.IGNORECASE)
 
-    save_cache(cache)
+    while True:
+        next_name = cleaned
+        for pattern in _COMPANY_SUFFIX_PATTERNS:
+            next_name = pattern.sub("", next_name)
+        next_name = re.sub(r"[,\s]+$", "", next_name).strip(" .,-")
+        next_name = re.sub(r"\s+", " ", next_name).strip()
+        if next_name == cleaned:
+            break
+        cleaned = next_name
 
-    # Load custom sector weights if available
-    custom_sectors = {}
-    sector_path = Path("data/custom_sectors.json")
-    if sector_path.exists():
+    if not cleaned:
+        return original
+
+    return cleaned
+
+
+def resolve_company_name_from_info(info: dict) -> str | None:
+    for key in ("shortName", "displayName", "longName", "name"):
+        name = normalize_company_name(info.get(key))
+        if name:
+            return name
+    return None
+
+
+def get_company_name_map(tickers: list[str], mutual_fund_tickers: set[str], cash_tickers: set[str]) -> dict[str, str]:
+    """
+    Resolve display names for stocks and ETFs.
+    Mutual funds stay ticker-based in the One Pager, so they are excluded here.
+    """
+    cache_file = resolve_storage_path("data/company_names_cache.json")
+    server_cache: dict[str, str] = {}
+    cache_dirty = False
+
+    if cache_file.exists():
         try:
-            with open(sector_path, "r") as f:
-                custom_sectors = json.load(f)
-        except Exception:
-            pass
+            with open(cache_file, "r") as f:
+                loaded = json.load(f)
+                if isinstance(loaded, dict):
+                    for key, value in loaded.items():
+                        if not isinstance(key, str) or not isinstance(value, str):
+                            continue
+                        normalized_key = key.upper()
+                        normalized_value = normalize_company_name(value)
+                        if normalized_value:
+                            server_cache[normalized_key] = normalized_value
+                            if normalized_value != value:
+                                cache_dirty = True
+        except Exception as e:
+            logger.warning(f"Failed to load company name cache file: {e}")
 
-    logger.info("Building results dataframe...")
-    df, periods = build_results_dataframe(
-        weights_dict, returns, prices, dates, cache, mutual_fund_tickers, custom_sectors
-    )
+    unique_tickers = sorted({
+        t.strip().upper()
+        for t in tickers
+        if isinstance(t, str) and t.strip()
+    })
+    missing = [
+        t for t in unique_tickers
+        if t not in server_cache and t not in mutual_fund_tickers and t not in cash_tickers
+    ]
 
-    result_items = []
+    cache_written = False
+    if missing:
+        try:
+            tickers_obj = yf.Tickers(" ".join(missing))
+            for ticker in missing:
+                try:
+                    info = tickers_obj.tickers[ticker].info
+                    display_name = resolve_company_name_from_info(info)
+                    if display_name:
+                        server_cache[ticker] = display_name
+                except Exception as e:
+                    logger.warning(f"Failed to fetch company name for {ticker}: {e}")
 
-    if df.empty:
-        return []
+            try:
+                cache_file.parent.mkdir(parents=True, exist_ok=True)
+                with open(cache_file, "w") as f:
+                    json.dump(server_cache, f)
+                cache_written = True
+            except Exception as e:
+                logger.warning(f"Failed to save company name cache: {e}")
+        except Exception as e:
+            logger.warning(f"Error fetching company names: {e}")
 
-    # Iterate through each period to create time-series data for the client
-    for i, period in enumerate(periods):
-        end_date_ts = period[1]
-        date_str = end_date_ts.strftime("%Y-%m-%d")
+    if cache_dirty and not cache_written:
+        try:
+            cache_file.parent.mkdir(parents=True, exist_ok=True)
+            with open(cache_file, "w") as f:
+                json.dump(server_cache, f)
+        except Exception as e:
+            logger.warning(f"Failed to rewrite normalized company name cache: {e}")
 
-        for _, row in df.iterrows():
-            ticker = row["Ticker"]
-            t_upper = ticker.upper().strip()
-
-            weight = row.get(f"Weight_{i}", 0.0)
-            ret = row.get(f"Return_{i}", 0.0)
-            contrib = row.get(f"Contrib_{i}", 0.0)
-
-            ticker_custom_sectors = custom_sectors.get(ticker)
-
-            item = PortfolioItem(
-                ticker=ticker,
-                weight=float(weight),
-                date=date_str,
-                returnPct=float(ret),
-                contribution=float(contrib),
-                companyName=None,
-                sector="Mixed" if ticker_custom_sectors else None,
-                notes=None,
-                isMutualFund=t_upper in mutual_fund_tickers,
-                isEtf=t_upper in etf_tickers,
-                sectorWeights=ticker_custom_sectors,
-            )
-            result_items.append(item)
-
-    return result_items
+    return {ticker: server_cache[ticker] for ticker in unique_tickers if ticker in server_cache}
 
 
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
 
-@router.post("/analyze-manual", response_model=List[PortfolioItem])
-async def analyze_manual(request: ManualAnalysisRequest):
+@router.post("/portfolio-workspace")
+async def portfolio_workspace(request: ManualAnalysisRequest):
     try:
-        weights_dict = {}
-        dates_set = set()
-
-        for item in request.items:
-            ticker = item.ticker.upper().strip()
-            if not ticker or "TICKER" in ticker:
-                continue
-
-            try:
-                dt = pd.to_datetime(item.date)
-                dates_set.add(dt)
-
-                if ticker not in weights_dict:
-                    weights_dict[ticker] = {}
-
-                w_val = item.weight
-                if isinstance(w_val, str):
-                    is_percentage = "%" in w_val
-                    val_str = w_val.replace("%", "").strip()
-                    try:
-                        w = float(val_str)
-                        if is_percentage:
-                            w = w / 100.0
-                    except ValueError:
-                        logger.warning(f"Invalid weight string: {w_val}")
-                        continue
-                else:
-                    w = float(w_val)
-
-                weights_dict[ticker][dt] = w
-            except Exception as e:
-                logger.warning(f"Skipping invalid item {item}: {e}")
-
-        dates = sorted(list(dates_set))
-        if not dates:
-            raise HTTPException(status_code=400, detail="No valid dates found in data")
-
-        # Automatically add 'Today' if the last date is in the past
-        latest_date = dates[-1]
-        now = pd.Timestamp.now().normalize()
-        if latest_date < now:
-            # Inject intermediate month-end dates between the last config date and today
-            month_end_dates = pd.date_range(
-                start=latest_date + pd.DateOffset(days=1),
-                end=now,
-                freq="ME",
-            )
-            for me_date in month_end_dates:
-                me_ts = pd.Timestamp(me_date).normalize()
-                if me_ts not in dates_set:
-                    dates.append(me_ts)
-                    dates_set.add(me_ts)
-                    for ticker in weights_dict:
-                        prior_dates = sorted([d for d in weights_dict[ticker] if d <= me_ts])
-                        if prior_dates:
-                            weights_dict[ticker][me_ts] = weights_dict[ticker][prior_dates[-1]]
-
-            dates.append(now)
-            for ticker in weights_dict:
-                prior_dates = sorted([d for d in weights_dict[ticker] if d < now])
-                if prior_dates:
-                    weights_dict[ticker][now] = weights_dict[ticker][prior_dates[-1]]
-
-            dates = sorted(dates)
-
-        nav_dict = get_aggregated_nav_data()
-
-        mutual_fund_tickers = {item.ticker.upper().strip() for item in request.items if item.isMutualFund}
-        etf_tickers = {item.ticker.upper().strip() for item in request.items if item.isEtf}
-
-        return run_portfolio_analysis(weights_dict, nav_dict, dates, mutual_fund_tickers, etf_tickers)
-
+        return build_portfolio_workspace(request.items)
     except Exception as e:
-        logger.error(f"Error in manual analysis: {str(e)}", exc_info=True)
+        logger.error(f"Error building portfolio workspace: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ---------------------------------------------------------------------------
+# Cache management endpoints
+# ---------------------------------------------------------------------------
+
+@router.post("/cache/clear")
+def clear_market_cache():
+    """Clear the entire market data price cache, forcing fresh yfinance fetches."""
+    clear_cache()
+    return {"success": True, "message": "Market data cache cleared"}
+
+
+@router.get("/cache/info")
+def market_cache_info():
+    """Return metadata about the current market data cache."""
+    return get_cache_info()

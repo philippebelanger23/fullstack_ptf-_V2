@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine, Area, AreaChart } from 'recharts';
 import { TrendingUp, TrendingDown, Minus, Calendar } from 'lucide-react';
 import { formatXAxis as formatXAxisBase, formatTooltipDate, formatPercent, getPerformanceColor } from '../utils/formatters';
+import { useThemeColors } from '../hooks/useThemeColors';
 
 type Period = 'YTD' | '3M' | '6M' | '1Y' | '3Y' | '5Y' | '2025';
 
@@ -31,7 +32,9 @@ const getDateRangeForPeriod = (period: Period): { start: Date; end?: Date } => {
                 end: new Date(2025, 11, 31)
             };
         case 'YTD':
-            return { start: new Date(now.getFullYear(), 0, 1) };
+            // Dec 31 of prior year — matches financial reporting convention and
+            // aligns with attribution's period-start (same as PerformanceView/ReportView).
+            return { start: new Date(now.getFullYear() - 1, 11, 31) };
         case '3M': {
             const date = new Date(now);
             date.setMonth(date.getMonth() - 3);
@@ -67,13 +70,14 @@ const getDateRangeForPeriod = (period: Period): { start: Date; end?: Date } => {
 
 export const IndexPerformanceChart: React.FC<IndexPerformanceChartProps> = ({ data }) => {
     const [selectedPeriod, setSelectedPeriod] = useState<Period>('YTD');
+    const tc = useThemeColors();
 
     const chartData = useMemo(() => {
         const acwi = data['ACWI'] || [];
-        const xiu = data['XIU.TO'] || [];
+        const xic = data['XIC.TO'] || [];
         const index = data['Index'] || [];
 
-        if (acwi.length === 0 || xiu.length === 0) return [];
+        if (acwi.length === 0 || xic.length === 0) return [];
 
         // Filter by period
         const { start, end } = getDateRangeForPeriod(selectedPeriod);
@@ -81,7 +85,7 @@ export const IndexPerformanceChart: React.FC<IndexPerformanceChartProps> = ({ da
         const endDateStr = end ? end.toISOString().split('T')[0] : '9999-12-31';
 
         // Create a map for quick lookup by date
-        const dateMap = new Map<string, { date: string, ACWI?: number, XIU?: number, Index?: number }>();
+        const dateMap = new Map<string, { date: string, ACWI?: number, XIC?: number, Index?: number }>();
 
         acwi.forEach(item => {
             if (item.date >= startDateStr && item.date <= endDateStr) {
@@ -89,10 +93,10 @@ export const IndexPerformanceChart: React.FC<IndexPerformanceChartProps> = ({ da
             }
         });
 
-        xiu.forEach(item => {
+        xic.forEach(item => {
             if (item.date >= startDateStr && item.date <= endDateStr) {
                 const existing = dateMap.get(item.date) || { date: item.date };
-                dateMap.set(item.date, { ...existing, XIU: item.value });
+                dateMap.set(item.date, { ...existing, XIC: item.value });
             }
         });
 
@@ -105,20 +109,20 @@ export const IndexPerformanceChart: React.FC<IndexPerformanceChartProps> = ({ da
 
         // Convert map to array and sort by date
         const combined = Array.from(dateMap.values())
-            .filter(item => item.ACWI !== undefined && item.XIU !== undefined)
+            .filter(item => item.ACWI !== undefined && item.XIC !== undefined)
             .sort((a, b) => a.date.localeCompare(b.date));
 
         // Normalize to start at 0%
         if (combined.length > 0) {
             const startACWI = combined[0].ACWI!;
-            const startXIU = combined[0].XIU!;
+            const startXIC = combined[0].XIC!;
             const startIndex = combined[0].Index;
 
             return combined.map(item => {
                 const pt: any = {
                     date: item.date,
                     ACWI: ((item.ACWI! - startACWI) / startACWI) * 100,
-                    XIU: ((item.XIU! - startXIU) / startXIU) * 100,
+                    XIC: ((item.XIC! - startXIC) / startXIC) * 100,
                 };
 
                 if (startIndex !== undefined && item.Index !== undefined) {
@@ -171,7 +175,7 @@ export const IndexPerformanceChart: React.FC<IndexPerformanceChartProps> = ({ da
 
         return {
             acwi: calcCAGR(lastPoint.ACWI),
-            xiu: calcCAGR(lastPoint.XIU),
+            xic: calcCAGR(lastPoint.XIC),
             index: calcCAGR(lastPoint.Index),
             isCAGR: years >= 1, // Only label as CAGR if period >= 1 year
         };
@@ -254,42 +258,39 @@ export const IndexPerformanceChart: React.FC<IndexPerformanceChartProps> = ({ da
             {/* Period Selector & Performance Summary */}
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-4">
                 {/* Period Selector Pills */}
-                <div className="flex bg-slate-100 px-1 rounded-xl items-center h-9 overflow-x-auto max-w-full">
+                <div className="grid w-full max-w-[440px] grid-cols-7 items-center h-9 bg-wallstreet-900 px-1 rounded-xl">
                     {(['2025', 'YTD', '3M', '6M', '1Y', '3Y', '5Y'] as Period[]).map((period) => (
-                        <React.Fragment key={period}>
-                            <button
-                                onClick={() => setSelectedPeriod(period)}
-                                className={`px-3 h-7 flex items-center justify-center text-xs font-bold rounded-lg transition-all duration-200 ${selectedPeriod === period
-                                    ? 'bg-wallstreet-accent text-white shadow-sm'
-                                    : 'text-slate-500 hover:text-slate-800 hover:bg-slate-200'
-                                    }`}
-                            >
-                                {period}
-                            </button>
-                            {period === '2025' && <div className="mx-1 w-px bg-slate-400 h-full" />}
-                        </React.Fragment>
+                        <button
+                            key={period}
+                            onClick={() => setSelectedPeriod(period)}
+                            className={`w-full h-7 flex items-center justify-center px-1 text-[10px] sm:text-[11px] font-bold rounded-lg transition-all duration-200 ${selectedPeriod === period
+                                ? 'bg-wallstreet-accent text-white shadow-sm'
+                                : 'text-wallstreet-500 hover:text-wallstreet-text hover:bg-wallstreet-900'
+                                } ${period === '2025' ? 'relative after:content-[""] after:absolute after:top-0 after:-right-[1px] after:h-full after:w-px after:bg-wallstreet-500/40 after:rounded-none pr-0.5' : ''}`}
+                        >
+                            {period}
+                        </button>
                     ))}
                 </div>
 
                 {/* Performance Summary Cards */}
                 {performanceMetrics && (
-                    <div className="flex items-center gap-3 text-xs font-mono">
-                        <span className="text-slate-400 italic text-[15px] tracking-wider">CAGR (Annualized)</span>
-                        <div className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-emerald-50 border border-emerald-200 ${getPerformanceColor(performanceMetrics.index)}`}>
-                            {getPerformanceIcon(performanceMetrics.index)}
-                            <span className="font-bold text-emerald-700">75/25:</span>
-                            <span className="font-bold">{formatPercent(performanceMetrics.index)}</span>
-                        </div>
-                        <div className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-blue-50 border border-blue-200 ${getPerformanceColor(performanceMetrics.acwi)}`}>
-                            {getPerformanceIcon(performanceMetrics.acwi)}
-                            <span className="font-bold text-blue-700">ACWI:</span>
-                            <span className="font-bold">{formatPercent(performanceMetrics.acwi)}</span>
-                        </div>
-                        <div className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-red-50 border border-red-200 ${getPerformanceColor(performanceMetrics.xiu)}`}>
-                            {getPerformanceIcon(performanceMetrics.xiu)}
-                            <span className="font-bold text-red-700">XIU:</span>
-                            <span className="font-bold">{formatPercent(performanceMetrics.xiu)}</span>
-                        </div>
+                    <div className="flex items-center justify-end gap-3 flex-wrap w-full text-xs font-mono">
+                            <div className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-950 border border-emerald-200 dark:border-emerald-700 ${getPerformanceColor(performanceMetrics.index)}`}>
+                                {getPerformanceIcon(performanceMetrics.index)}
+                                <span className="font-bold text-emerald-700 dark:text-emerald-300">75/25 Composite:</span>
+                                <span className="font-bold">{formatPercent(performanceMetrics.index)}</span>
+                            </div>
+                            <div className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-700 ${getPerformanceColor(performanceMetrics.acwi)}`}>
+                                {getPerformanceIcon(performanceMetrics.acwi)}
+                                <span className="font-bold text-blue-700 dark:text-blue-300">ACWI:</span>
+                                <span className="font-bold">{formatPercent(performanceMetrics.acwi)}</span>
+                            </div>
+                            <div className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-700 ${getPerformanceColor(performanceMetrics.xic)}`}>
+                                {getPerformanceIcon(performanceMetrics.xic)}
+                                <span className="font-bold text-red-700 dark:text-red-300">TSX:</span>
+                                <span className="font-bold">{formatPercent(performanceMetrics.xic)}</span>
+                            </div>
                     </div>
                 )}
             </div>
@@ -304,18 +305,18 @@ export const IndexPerformanceChart: React.FC<IndexPerformanceChartProps> = ({ da
                                 <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
                             </linearGradient>
                         </defs>
-                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={tc.gridStroke} />
                         <XAxis
                             dataKey="date"
                             tickFormatter={formatXAxis}
-                            tick={{ fontSize: 11, fill: '#64748b' }}
+                            tick={{ fontSize: 11, fill: tc.tickFill }}
                             tickLine={false}
                             axisLine={false}
                             ticks={getMonthlyTicks}
                         />
                         <YAxis
                             tickFormatter={(val) => val < 0 ? `(${Math.abs(val).toFixed(0)}%)` : `${val > 0 ? '+' : ''}${val.toFixed(0)}%`}
-                            tick={{ fontSize: 11, fill: '#64748b' }}
+                            tick={{ fontSize: 11, fill: tc.tickFill }}
                             tickLine={false}
                             axisLine={false}
                             width={50}
@@ -328,15 +329,15 @@ export const IndexPerformanceChart: React.FC<IndexPerformanceChartProps> = ({ da
                                 const sorted = [...payload].sort((a, b) => (b.value as number) - (a.value as number));
 
                                 const getDisplayName = (dataKey: string) => {
-                                    if (dataKey === 'Index') return 'Global 75/25';
-                                    if (dataKey === 'ACWI') return 'ACWI (Global)';
-                                    if (dataKey === 'XIU') return 'XIU (Canada)';
+                                    if (dataKey === 'Index') return '75/25 Composite';
+                                    if (dataKey === 'ACWI') return 'ACWI (CAD)';
+                                    if (dataKey === 'XIC') return 'XIC.TO (Canada)';
                                     return dataKey;
                                 };
 
                                 return (
-                                    <div className="bg-white/95 border border-slate-200 rounded-xl shadow-lg p-3 font-mono text-sm">
-                                        <p className="font-bold text-slate-600 mb-2 border-b pb-1">{formatTooltipDate(String(label))}</p>
+                                    <div className="bg-wallstreet-800 border border-wallstreet-700 rounded-xl shadow-lg p-3 font-mono text-sm">
+                                        <p className="font-bold text-wallstreet-500 mb-2 border-b border-wallstreet-700 pb-1">{formatTooltipDate(String(label))}</p>
                                         {sorted.map((entry, idx) => (
                                             <div key={entry.dataKey} className="flex justify-between items-center gap-4 py-0.5">
                                                 <span style={{ color: entry.color }} className="font-medium">
@@ -354,19 +355,19 @@ export const IndexPerformanceChart: React.FC<IndexPerformanceChartProps> = ({ da
                         <Legend
                             wrapperStyle={{ paddingTop: '15px' }}
                             formatter={(value) => {
-                                if (value === 'Index') return 'Global 75/25 (Composite)';
-                                if (value === 'ACWI') return 'ACWI (Global Markets)';
-                                if (value === 'XIU') return 'XIU (Canada TSX)';
+                                if (value === 'Index') return '75/25 Composite';
+                                if (value === 'ACWI') return 'ACWI (CAD)';
+                                if (value === 'XIC') return 'XIC.TO (Canada)';
                                 return value;
                             }}
                         />
-                        <ReferenceLine y={0} stroke="#94a3b8" strokeDasharray="4 4" />
+                        <ReferenceLine y={0} stroke={tc.referenceLine} strokeDasharray="4 4" />
                         {/* Quarter-end and year-end vertical lines */}
                         {quarterEndLines.map((line, idx) => (
                             <ReferenceLine
                                 key={`q-${idx}`}
                                 x={line.date}
-                                stroke="#cbd5e1"
+                                stroke={tc.gridStroke}
                                 strokeWidth={line.isYearEnd ? 1.5 : 1}
                                 strokeDasharray={line.isYearEnd ? '0' : '4 4'}
                             />
@@ -374,7 +375,7 @@ export const IndexPerformanceChart: React.FC<IndexPerformanceChartProps> = ({ da
                         <Line
                             type="monotone"
                             dataKey="Index"
-                            name="Index"
+                            name="75/25 Composite"
                             stroke="#10b981"
                             strokeWidth={3}
                             dot={false}
@@ -383,7 +384,7 @@ export const IndexPerformanceChart: React.FC<IndexPerformanceChartProps> = ({ da
                         <Line
                             type="monotone"
                             dataKey="ACWI"
-                            name="ACWI"
+                            name="ACWI (CAD)"
                             stroke="#2563eb"
                             strokeWidth={2}
                             dot={false}
@@ -391,8 +392,8 @@ export const IndexPerformanceChart: React.FC<IndexPerformanceChartProps> = ({ da
                         />
                         <Line
                             type="monotone"
-                            dataKey="XIU"
-                            name="XIU"
+                            dataKey="XIC"
+                            name="XIC.TO"
                             stroke="#dc2626"
                             strokeWidth={2}
                             dot={false}

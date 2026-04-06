@@ -24,11 +24,17 @@ export interface PeriodMetrics {
 
 interface PerformanceKPIsProps {
     periodMetrics: PeriodMetrics | null;
+    previousPeriodMetrics?: PeriodMetrics | null;
     selectedPeriod: Period;
     loading: boolean;
 }
 
-export const PerformanceKPIs: React.FC<PerformanceKPIsProps> = ({ periodMetrics, selectedPeriod, loading }) => (
+const delta = (current: PeriodMetrics | null, previous: PeriodMetrics | null | undefined, key: keyof PeriodMetrics): number | undefined => {
+    if (!current || !previous) return undefined;
+    return current[key] - previous[key];
+};
+
+export const PerformanceKPIs: React.FC<PerformanceKPIsProps> = ({ periodMetrics, previousPeriodMetrics, selectedPeriod, loading }) => (
     <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <MetricCard
             title={`Return (${selectedPeriod})`}
@@ -37,6 +43,7 @@ export const PerformanceKPIs: React.FC<PerformanceKPIsProps> = ({ periodMetrics,
             isPositive={periodMetrics ? periodMetrics.totalReturn > periodMetrics.benchmarkReturn : undefined}
             icon={TrendingUp}
             loading={loading}
+            delta={delta(periodMetrics, previousPeriodMetrics, 'totalReturn')}
         />
         <MetricCard
             title="Alpha"
@@ -45,6 +52,7 @@ export const PerformanceKPIs: React.FC<PerformanceKPIsProps> = ({ periodMetrics,
             isPositive={periodMetrics ? periodMetrics.alpha > 0 : undefined}
             icon={Target}
             loading={loading}
+            delta={delta(periodMetrics, previousPeriodMetrics, 'alpha')}
         />
         <MetricCard
             title="Sharpe"
@@ -53,6 +61,7 @@ export const PerformanceKPIs: React.FC<PerformanceKPIsProps> = ({ periodMetrics,
             isPositive={periodMetrics ? periodMetrics.sharpeRatio > periodMetrics.benchmarkSharpe : undefined}
             icon={Award}
             loading={loading}
+            delta={delta(periodMetrics, previousPeriodMetrics, 'sharpeRatio')}
         />
         <MetricCard
             title="Sortino"
@@ -61,6 +70,7 @@ export const PerformanceKPIs: React.FC<PerformanceKPIsProps> = ({ periodMetrics,
             isPositive={periodMetrics ? periodMetrics.sortinoRatio > periodMetrics.benchmarkSortino : undefined}
             icon={Award}
             loading={loading}
+            delta={delta(periodMetrics, previousPeriodMetrics, 'sortinoRatio')}
         />
         <MetricCard
             title="Info Ratio"
@@ -69,6 +79,7 @@ export const PerformanceKPIs: React.FC<PerformanceKPIsProps> = ({ periodMetrics,
             isPositive={periodMetrics ? periodMetrics.informationRatio > 0 : undefined}
             icon={Target}
             loading={loading}
+            delta={delta(periodMetrics, previousPeriodMetrics, 'informationRatio')}
         />
         <MetricCard
             title="Beta"
@@ -76,6 +87,7 @@ export const PerformanceKPIs: React.FC<PerformanceKPIsProps> = ({ periodMetrics,
             subtitle={periodMetrics?.beta && periodMetrics.beta < 1 ? 'Defensive' : 'Aggressive'}
             icon={Activity}
             loading={loading}
+            delta={delta(periodMetrics, previousPeriodMetrics, 'beta')}
         />
         <MetricCard
             title="Volatility"
@@ -84,6 +96,7 @@ export const PerformanceKPIs: React.FC<PerformanceKPIsProps> = ({ periodMetrics,
             isPositive={periodMetrics ? periodMetrics.volatility < periodMetrics.benchmarkVolatility : undefined}
             icon={BarChart3}
             loading={loading}
+            delta={delta(periodMetrics, previousPeriodMetrics, 'volatility')}
         />
         <MetricCard
             title="Max Drawdown"
@@ -92,6 +105,7 @@ export const PerformanceKPIs: React.FC<PerformanceKPIsProps> = ({ periodMetrics,
             isPositive={periodMetrics ? periodMetrics.maxDrawdown > periodMetrics.benchmarkMaxDrawdown : undefined}
             icon={ShieldAlert}
             loading={loading}
+            delta={delta(periodMetrics, previousPeriodMetrics, 'maxDrawdown')}
         />
     </div>
 );

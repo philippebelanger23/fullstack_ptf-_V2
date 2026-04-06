@@ -1,7 +1,8 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { Globe, DollarSign, TrendingUp, PieChart } from 'lucide-react';
-import { fetchIndexExposure, fetchCurrencyPerformance, fetchIndexHistory } from '../services/api';
-import { CountryTreemap } from '../components/CountryTreemap';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { Globe, DollarSign, TrendingUp, PieChart, RefreshCw } from 'lucide-react';
+import { fetchIndexExposure, fetchCurrencyPerformance, fetchIndexHistory, triggerIndexRefresh } from '../services/api';
+import { FreshnessBadge } from '../components/ui/FreshnessBadge';
+import { WorldChoroplethMap } from '../components/WorldChoroplethMap';
 import { ClevelandDotPlot } from '../components/ClevelandDotPlot';
 import { IndexPerformanceChart } from '../components/IndexPerformanceChart';
 
@@ -16,6 +17,8 @@ interface SectorExposure {
 interface GeoExposure {
     region: string;
     weight: number;
+    ACWI: number;
+    TSX: number;
 }
 
 interface IndexExposureData {
@@ -48,6 +51,27 @@ const COUNTRY_CURRENCY_MAP: Record<string, string> = {
     'India': 'INR',
 };
 
+const COUNTRY_MARKET_CLASS: Record<string, 'NA' | 'DM' | 'EM'> = {
+    'United States': 'NA', 'Canada': 'NA',
+    'Japan': 'DM', 'United Kingdom': 'DM', 'France': 'DM', 'Switzerland': 'DM',
+    'Germany': 'DM', 'Australia': 'DM', 'Netherlands': 'DM', 'Sweden': 'DM',
+    'Spain': 'DM', 'Italy': 'DM', 'Hong Kong': 'DM', 'Singapore': 'DM',
+    'Denmark': 'DM', 'Finland': 'DM', 'Belgium': 'DM', 'Norway': 'DM',
+    'Israel': 'DM', 'New Zealand': 'DM', 'Austria': 'DM', 'Ireland': 'DM', 'Portugal': 'DM',
+    'China': 'EM', 'Taiwan': 'EM', 'Korea (South)': 'EM', 'India': 'EM',
+    'Brazil': 'EM', 'South Africa': 'EM', 'Saudi Arabia': 'EM', 'Mexico': 'EM',
+    'Malaysia': 'EM', 'Thailand': 'EM', 'United Arab Emirates': 'EM', 'Indonesia': 'EM',
+    'Philippines': 'EM', 'Turkey': 'EM', 'Poland': 'EM', 'Egypt': 'EM',
+    'Peru': 'EM', 'Colombia': 'EM', 'Kuwait': 'EM', 'Qatar': 'EM',
+    'Hungary': 'EM', 'Czech Republic': 'EM', 'Greece': 'EM',
+};
+
+const MARKET_COLORS: Record<'NA' | 'DM' | 'EM', { inner: string; label: string; shades: string[] }> = {
+    NA: { inner: '#1e3a8a', label: 'North America',    shades: ['#1e3a8a', '#1e40af', '#2563eb', '#3b82f6', '#60a5fa', '#93c5fd'] },
+    DM: { inner: '#9d174d', label: 'Developed Mkts',   shades: ['#9d174d', '#be185d', '#db2777', '#ec4899', '#f472b6', '#fbcfe8'] },
+    EM: { inner: '#064e3b', label: 'Emerging Mkts',    shades: ['#064e3b', '#065f46', '#047857', '#059669', '#10b981', '#34d399', '#6ee7b7'] },
+};
+
 const CURRENCY_CODE_TO_TICKER: Record<string, string> = {
     'USD': 'USDCAD=X',
     'JPY': 'JPYCAD=X',
@@ -57,70 +81,75 @@ const CURRENCY_CODE_TO_TICKER: Record<string, string> = {
 
 const formatPerf = (val: number | undefined) => {
     if (val === undefined) return '-';
-    const color = val > 0 ? 'text-green-600' : val < 0 ? 'text-red-500' : 'text-slate-400';
+    const color = val > 0 ? 'text-green-600' : val < 0 ? 'text-red-500' : 'text-wallstreet-500';
     const pct = val * 100;
     const display = pct < 0 ? `(${Math.abs(pct).toFixed(1)}%)` : `${pct.toFixed(1)}%`;
     return <span className={color}>{display}</span>;
 };
 
-/** Format "YYYY-MM-DD" → "DD / MM / YYYY" */
-const formatDateDMY = (dateStr: string): string => {
-    const parts = dateStr.split('-');
-    if (parts.length === 3) {
-        const [y, m, d] = parts;
-        return `${d} / ${m} / ${y}`;
-    }
-    return dateStr;
-};
 
 export const IndexView: React.FC = () => {
     const [exposure, setExposure] = useState<IndexExposureData>({ sectors: [], geography: [] });
     const [currencyPerf, setCurrencyPerf] = useState<Record<string, Record<string, number>>>({});
     const [indexHistory, setIndexHistory] = useState<Record<string, { date: string, value: number }[]>>({});
     const [loading, setLoading] = useState(true);
+    const [refreshing, setRefreshing] = useState(false);
+    const [fetchedAt, setFetchedAt] = useState<string | null>(null);
     const [loadProgress, setLoadProgress] = useState<Record<string, 'pending' | 'done' | 'error'>>({
         exposure: 'pending',
         currency: 'pending',
         history: 'pending',
     });
 
-    useEffect(() => {
-        const load = async () => {
-            setLoading(true);
-            setLoadProgress({ exposure: 'pending', currency: 'pending', history: 'pending' });
+    const load = useCallback(async () => {
+        setLoading(true);
+        setLoadProgress({ exposure: 'pending', currency: 'pending', history: 'pending' });
 
-            const trackFetch = async <T,>(
-                key: string,
-                fn: () => Promise<T>,
-            ): Promise<T> => {
-                try {
-                    const result = await fn();
-                    setLoadProgress(prev => ({ ...prev, [key]: 'done' }));
-                    return result;
-                } catch (err) {
-                    setLoadProgress(prev => ({ ...prev, [key]: 'error' }));
-                    throw err;
-                }
-            };
-
+        const trackFetch = async <T,>(
+            key: string,
+            fn: () => Promise<T>,
+        ): Promise<T> => {
             try {
-                const [res, perf, history] = await Promise.all([
-                    trackFetch('exposure', fetchIndexExposure),
-                    trackFetch('currency', () => fetchCurrencyPerformance(CURRENCY_TICKERS)),
-                    trackFetch('history', fetchIndexHistory),
-                ]);
-
-                setExposure(res);
-                setCurrencyPerf(perf);
-                setIndexHistory(history);
+                const result = await fn();
+                setLoadProgress(prev => ({ ...prev, [key]: 'done' }));
+                return result;
             } catch (err) {
-                console.error("Failed to load index data:", err);
-            } finally {
-                setLoading(false);
+                setLoadProgress(prev => ({ ...prev, [key]: 'error' }));
+                throw err;
             }
         };
-        load();
+
+        try {
+            const [res, perf, history] = await Promise.all([
+                trackFetch('exposure', fetchIndexExposure),
+                trackFetch('currency', () => fetchCurrencyPerformance(CURRENCY_TICKERS)),
+                trackFetch('history', fetchIndexHistory),
+            ]);
+
+            setExposure(res);
+            setCurrencyPerf(perf);
+            setIndexHistory(history);
+        } catch (err) {
+            console.error("Failed to load index data:", err);
+        } finally {
+            setLoading(false);
+            setFetchedAt(new Date().toISOString());
+        }
     }, []);
+
+    useEffect(() => { load(); }, [load]);
+
+    const handleRefresh = useCallback(async () => {
+        if (refreshing) return;
+        setRefreshing(true);
+        try {
+            await triggerIndexRefresh();
+        } catch (err) {
+            console.error("Refresh trigger failed:", err);
+        }
+        await load();
+        setRefreshing(false);
+    }, [refreshing, load]);
 
 
 
@@ -167,34 +196,37 @@ export const IndexView: React.FC = () => {
         return rows;
     }, [currencyExposure]);
 
-    // Treemap data: top 9 countries + Others bucket
-    const treemapData = useMemo(() => {
-        const data = exposure.geography
-            .map(g => ({ name: g.region, value: g.weight }))
-            .sort((a, b) => b.value - a.value);
+    // Sunburst: grouped segments (NA / DM / EM) with country children
+    const sunburstSegments = useMemo(() => {
+        if (exposure.geography.length === 0) return [];
 
-        const top9 = data.slice(0, 9);
-        const others = data.slice(9);
+        const groups: Record<'NA' | 'DM' | 'EM', { region: string; weight: number }[]> = { NA: [], DM: [], EM: [] };
+        exposure.geography.forEach(g => {
+            const cls = COUNTRY_MARKET_CLASS[g.region] ?? 'EM';
+            groups[cls].push({ region: g.region, weight: g.weight });
+        });
+        (['NA', 'DM', 'EM'] as const).forEach(cls => groups[cls].sort((a, b) => b.weight - a.weight));
 
-        let othersVal = others.reduce((sum, item) => sum + item.value, 0);
-        const top9Total = top9.reduce((sum, item) => sum + item.value, 0);
-
-        if (top9Total + othersVal < 99.9) {
-            othersVal += (100 - (top9Total + othersVal));
-        }
-
-        if (othersVal > 0.01) {
-            top9.push({ name: 'Others', value: othersVal });
-        }
-
-        return top9;
+        return (['NA', 'DM', 'EM'] as const).map(cls => {
+            const { inner, label, shades } = MARKET_COLORS[cls];
+            const children = groups[cls].map((c, i) => ({
+                name: c.region,
+                value: c.weight,
+                color: shades[Math.min(i, shades.length - 1)],
+            }));
+            const value = parseFloat(children.reduce((s, c) => s + c.value, 0).toFixed(2));
+            return { name: label, value, color: inner, children };
+        }).filter(s => s.value > 0);
     }, [exposure.geography]);
+
+    // Geography data for choropleth map (no bucketing needed — map shows all countries)
+    const geoMapData = exposure.geography;
 
     if (loading) {
         const steps = [
-            { key: 'exposure', label: 'Index Composition', sub: 'Sectors & geography from iShares' },
+            { key: 'exposure', label: 'Benchmark Composition', sub: 'Sectors & geography from iShares' },
             { key: 'currency', label: 'Currency Rates', sub: 'FX performance vs CAD' },
-            { key: 'history', label: 'Price History', sub: 'ACWI, XIU.TO & composite index' },
+            { key: 'history', label: 'Price History', sub: 'ACWI (CAD), XIC.TO & 75/25 composite' },
         ];
         const doneCount = Object.values(loadProgress).filter(s => s === 'done').length;
 
@@ -202,22 +234,32 @@ export const IndexView: React.FC = () => {
             <div className="max-w-[100vw] mx-auto p-4 md:p-6 overflow-x-hidden min-h-screen flex flex-col items-center justify-center">
                 <div className="flex flex-col items-center gap-8 w-full max-w-sm">
 
-                    {/* Animated bars */}
-                    <div className="flex items-end gap-1.5 h-12">
-                        {[0, 1, 2, 3, 4].map(i => (
-                            <div
-                                key={i}
-                                className="w-2 bg-wallstreet-accent rounded-t"
-                                style={{
-                                    animation: `barPulse 1s ease-in-out ${i * 0.15}s infinite`,
-                                    height: '30%',
-                                }}
-                            />
-                        ))}
+                    {/* Animated bar chart */}
+                    <div className="relative overflow-hidden rounded" style={{ width: '176px', height: '60px' }}>
+                        <div className="flex items-end h-full gap-1.5">
+                            {[28, 50, 36, 66, 42, 78, 54, 92, 46, 72, 58, 88, 64].map((h, i) => (
+                                <div
+                                    key={i}
+                                    className="flex-1 rounded-t-sm origin-bottom"
+                                    style={{
+                                        height: `${h}%`,
+                                        background: i === 12 ? '#3b82f6' : '#374151',
+                                        animation: `idxBarPulse 2.2s ease-in-out ${i * 0.14}s infinite`,
+                                    }}
+                                />
+                            ))}
+                        </div>
+                        <div
+                            className="absolute top-0 bottom-0 w-px"
+                            style={{
+                                background: 'linear-gradient(to bottom, transparent, rgba(59,130,246,0.65), transparent)',
+                                animation: 'idxScanLine 2.2s linear infinite',
+                            }}
+                        />
                     </div>
 
-                    <p className="text-sm font-mono text-wallstreet-500 tracking-wide uppercase">
-                        Fetching Index Data
+                    <p className="text-[11px] font-mono text-wallstreet-500 tracking-[0.25em] uppercase">
+                        Fetching Benchmark Data
                     </p>
 
                     {/* Progress bar */}
@@ -260,9 +302,13 @@ export const IndexView: React.FC = () => {
 
                 </div>
                 <style>{`
-                    @keyframes barPulse {
-                        0%, 100% { height: 30%; opacity: 0.4; }
-                        50% { height: 100%; opacity: 1; }
+                    @keyframes idxBarPulse {
+                        0%, 100% { transform: scaleY(0.12); opacity: 0.1; }
+                        50%      { transform: scaleY(1);    opacity: 1;   }
+                    }
+                    @keyframes idxScanLine {
+                        0%   { left: -2px; }
+                        100% { left: calc(100% + 2px); }
                     }
                 `}</style>
             </div>
@@ -270,61 +316,89 @@ export const IndexView: React.FC = () => {
     }
 
     return (
-        <div className="w-full max-w-[100vw] mx-auto p-6 space-y-8 animate-in fade-in duration-500 pb-20 overflow-x-hidden">
+        <div className="w-full flex flex-col lg:h-full overflow-x-hidden px-6 pt-6 animate-in fade-in duration-500">
 
-            <div className="border-b border-wallstreet-700 pb-6">
+            <div className="flex-shrink-0 border-b border-wallstreet-700 pb-4 mb-4">
                 <div className="flex justify-between items-start">
                     <div>
-                        <h2 className="text-3xl font-bold font-mono text-wallstreet-text flex items-center gap-3"><Globe className="text-wallstreet-accent" /> Global 75/25 Index</h2>
-                        <p className="text-wallstreet-500 mt-2 max-w-2xl">A custom synthetic benchmark. <span className="font-bold text-wallstreet-text ml-2">75% ACWI (USD) + 25% XIU.TO (CAD)</span></p>
+                        <h2 className="text-3xl font-bold font-mono text-wallstreet-text flex items-center gap-3"><Globe className="text-wallstreet-accent" /> Global 75/25 Composite</h2>
+                        <p className="text-wallstreet-500 mt-2 max-w-2xl">A custom synthetic benchmark. <span className="font-bold text-wallstreet-text ml-2">75% ACWI (CAD) + 25% XIC.TO</span></p>
                     </div>
-                    {exposure.last_scraped && (
-                        <div className="text-red-500 font-mono font-bold text-sm flex-shrink-0 ml-4 mt-1">
-                            last updated : {formatDateDMY(exposure.last_scraped)}
-                        </div>
-                    )}
+                    <div className="flex items-center gap-3">
+                        <button
+                            onClick={handleRefresh}
+                            disabled={refreshing}
+                            title="Refresh benchmark data"
+                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-wallstreet-700 bg-wallstreet-800 text-wallstreet-400 hover:text-wallstreet-text hover:border-wallstreet-accent hover:bg-wallstreet-700 text-xs font-mono transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                            <RefreshCw size={13} className={refreshing ? 'animate-spin' : ''} />
+                            {refreshing ? 'Refreshing…' : 'Refresh Data'}
+                        </button>
+                        <FreshnessBadge fetchedAt={fetchedAt} />
+                    </div>
                 </div>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            <div className="flex flex-col lg:flex-row gap-6 pb-6 lg:flex-1 lg:min-h-0 lg:overflow-hidden">
 
-                {/* Top Left: Index Performance Graph */}
-                <div className="bg-white p-6 rounded-xl border border-wallstreet-700 shadow-sm flex flex-col h-full min-h-[600px]">
-                    <div className="flex justify-between items-center mb-2">
-                        <h3 className="text-lg font-bold font-mono text-wallstreet-text flex items-center gap-2">
-                            <TrendingUp size={20} className="text-wallstreet-accent" />
-                            Index Performance
-                        </h3>
+                {/* Left column: Composite Performance + Sector Exposure (equal split) */}
+                <div className="flex flex-col gap-6 lg:w-1/2 lg:min-h-0">
+                    {/* Composite Performance Graph */}
+                    <div className="bg-wallstreet-800 p-6 rounded-xl border border-wallstreet-700 shadow-sm flex flex-col min-h-[400px] lg:min-h-0 lg:flex-1">
+                        <div className="flex items-start justify-between gap-4 mb-3">
+                            <h3 className="text-lg font-bold font-mono text-wallstreet-text flex items-center gap-2">
+                                <TrendingUp size={20} className="text-wallstreet-accent" />
+                                Composite Performance
+                            </h3>
+                            <span className="pt-0.5 text-wallstreet-500 italic text-[15px] tracking-wider whitespace-nowrap">
+                                Annualized Return (all in CAD)
+                            </span>
+                        </div>
+                        <div className="flex-1 w-full min-h-0">
+                            <IndexPerformanceChart data={indexHistory} />
+                        </div>
                     </div>
-                    <div className="flex-1 w-full min-h-0">
-                        <IndexPerformanceChart data={indexHistory} />
+
+                    {/* Sector Exposure */}
+                    <div className="bg-wallstreet-800 p-6 rounded-xl border border-wallstreet-700 shadow-sm flex flex-col min-h-[400px] lg:min-h-0 lg:flex-1">
+                        <div className="flex justify-between items-center mb-6">
+                            <h3 className="text-lg font-bold font-mono text-wallstreet-text flex items-center gap-2">
+                                <PieChart size={20} className="text-wallstreet-accent" />
+                                Sector Exposure
+                            </h3>
+                        </div>
+                        <div className="flex-1 w-full min-h-0">
+                            <ClevelandDotPlot data={exposure.sectors} />
+                        </div>
                     </div>
                 </div>
 
-                {/* Top Right: Sector Exposure */}
-                <div className="bg-white p-6 rounded-xl border border-wallstreet-700 shadow-sm flex flex-col h-full min-h-[600px]">
-                    <div className="flex justify-between items-center mb-6">
-                        <h3 className="text-lg font-bold font-mono text-wallstreet-text flex items-center gap-2">
-                            <PieChart size={20} className="text-wallstreet-accent" />
-                            Sector Exposure
-                        </h3>
-                    </div>
-                    <div className="flex-1 w-full min-h-0">
-                        <ClevelandDotPlot data={exposure.sectors} />
-                    </div>
-                </div>
+                {/* Right column: Geographic Breakdown (2/3) + Currency Exposure (1/3) */}
+                <div className="flex flex-col gap-6 lg:w-1/2 lg:min-h-0">
+                    {/* Geographic Breakdown — 80% */}
+                    <div className="bg-wallstreet-800 p-6 rounded-xl border border-wallstreet-700 shadow-sm flex flex-col min-h-[400px] lg:min-h-0 lg:flex-[7]">
+                        <div className="flex justify-between items-center mb-4">
+                            <h3 className="text-lg font-bold font-mono text-wallstreet-text flex items-center gap-2">
+                                <Globe size={20} className="text-wallstreet-accent" />
+                                Geographic Breakdown
+                            </h3>
+                        </div>
 
-                {/* Bottom Left: Currency Exposure */}
-                <div className="bg-white p-6 rounded-xl border border-wallstreet-700 shadow-sm flex flex-col h-full min-h-[600px]">
-                    <div className="mb-4 flex justify-between items-center border-b border-wallstreet-100 pb-2">
-                        <h3 className="text-lg font-bold font-mono text-wallstreet-text flex items-center gap-2">
-                            <DollarSign size={20} className="text-wallstreet-accent" />
-                            Currency Exposure
-                        </h3>
+                        <div className="flex-1 w-full relative min-h-0">
+                            <WorldChoroplethMap data={geoMapData} />
+                        </div>
                     </div>
 
-                    <div className="flex-1">
-                        <div className="flex flex-col h-full">
+                    {/* Currency Exposure — 20% */}
+                    <div className="bg-wallstreet-800 p-6 rounded-xl border border-wallstreet-700 shadow-sm flex flex-col min-h-[200px] lg:min-h-0 lg:flex-[3]">
+                        <div className="mb-4 flex justify-between items-center border-b border-wallstreet-100 pb-2">
+                            <h3 className="text-lg font-bold font-mono text-wallstreet-text flex items-center gap-2">
+                                <DollarSign size={20} className="text-wallstreet-accent" />
+                                Currency Exposure
+                            </h3>
+                        </div>
+
+                        <div className="flex-1 min-h-0 overflow-auto">
                             <div className="mb-2">
                                 <p className="text-xs text-wallstreet-400">Derived from geographic allocation.</p>
                             </div>
@@ -348,9 +422,9 @@ export const IndexView: React.FC = () => {
                                         }
 
                                         return (
-                                            <tr key={c.code} className={`border-b border-wallstreet-100 hover:bg-wallstreet-50 ${c.code === 'Other' ? 'text-slate-400' : ''}`}>
+                                            <tr key={c.code} className={`border-b border-wallstreet-100 hover:bg-wallstreet-50 ${c.code === 'Other' ? 'text-wallstreet-500' : ''}`}>
                                                 <td className="py-1.5 px-2 font-medium">{c.code}</td>
-                                                <td className={`py-1.5 px-2 text-center ${c.code === 'Other' ? 'font-normal' : `font-bold ${c.code === 'USD' ? 'text-blue-700' : c.code === 'CAD' ? 'text-red-700' : 'text-slate-700'}`}`}>
+                                                <td className={`py-1.5 px-2 text-center ${c.code === 'Other' ? 'font-normal' : `font-bold ${c.code === 'USD' ? 'text-blue-700' : c.code === 'CAD' ? 'text-red-700' : 'text-wallstreet-text'}`}`}>
                                                     {c.weight.toFixed(1)}%
                                                 </td>
                                                 {c.code !== 'Other' ? (
@@ -361,7 +435,7 @@ export const IndexView: React.FC = () => {
                                                         <td className="py-1.5 px-2 text-center">{formatPerf(perf['1Y'])}</td>
                                                     </>
                                                 ) : (
-                                                    <td colSpan={4} className="py-1.5 px-2 text-center text-slate-300">-</td>
+                                                    <td colSpan={4} className="py-1.5 px-2 text-center text-wallstreet-500">-</td>
                                                 )}
                                             </tr>
                                         );
@@ -369,19 +443,6 @@ export const IndexView: React.FC = () => {
                                 </tbody>
                             </table>
                         </div>
-                    </div>
-                </div>
-
-                {/* Bottom Right: Geographic Breakdown */}
-                <div className="bg-white p-6 rounded-xl border border-wallstreet-700 shadow-sm flex flex-col h-full min-h-[600px]">
-                    <div className="flex justify-between items-center mb-6">
-                        <h3 className="text-lg font-bold font-mono text-wallstreet-text flex items-center gap-2">
-                            <Globe size={20} className="text-wallstreet-accent" />
-                            Geographic Breakdown
-                        </h3>
-                    </div>
-                    <div className="flex-1 w-full relative min-h-0">
-                        <CountryTreemap data={treemapData} />
                     </div>
                 </div>
 
