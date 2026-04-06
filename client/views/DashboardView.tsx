@@ -7,6 +7,8 @@ import { SectorDeviationCard } from '../components/SectorDeviationCard';
 import { SectorGeographyDeviationCard } from '../components/SectorGeographyDeviationCard';
 import { Wallet, Layers, PieChart as PieChartIcon, Wallet2Icon, WalletIcon, AlertCircle, RefreshCw } from 'lucide-react';
 import { FreshnessBadge } from '../components/ui/FreshnessBadge';
+import { LoadingSequencePanel, type LoadStatus } from '../components/ui/LoadingSequencePanel';
+import { fetchBetas, fetchDividends, fetchIndexExposure, fetchSectors, loadAssetGeo, loadSectorWeights } from '../services/api';
 
 interface DashboardViewProps {
   data: PortfolioItem[];
@@ -23,6 +25,11 @@ const COLORS = [
 ];
 
 const isCashHolding = (item: PortfolioItem) => !!item.isCash || item.sector === 'CASH' || item.ticker.toUpperCase() === '*CASH*';
+const DASHBOARD_LOAD_STEPS = [
+  { key: 'sectors', label: 'Sector Classification', sub: 'Holdings & industry mapping' },
+  { key: 'market', label: 'Market Data', sub: 'Betas & dividend yields' },
+  { key: 'benchmark', label: 'Benchmark Exposure', sub: 'Index sector & geography weights' },
+] as const;
 
 export const DashboardView: React.FC<DashboardViewProps> = ({ data, customSectors, assetGeo, isActive, workspaceRisk }) => {
   const { dates, latestDate, currentHoldings, totalWeight } = useMemo(() => {
@@ -164,8 +171,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ data, customSector
   const [isLoadingMarketData, setIsLoadingMarketData] = React.useState(true);
   const [fetchedAt, setFetchedAt] = React.useState<string | null>(null);
   const [loadProgress, setLoadProgress] = React.useState<Record<string, 'pending' | 'done' | 'error'>>({
-    sectors: 'pending', market: 'pending', risk: 'pending', benchmark: 'pending',
+    sectors: 'pending', market: 'pending', benchmark: 'pending',
   });
+
+  React.useEffect(() => {
+    setPortfolioBeta(workspaceRisk?.portfolioBeta ?? null);
+  }, [workspaceRisk]);
 
   // Fetch Sectors, Betas, Dividends, and Portfolio Beta effect
   React.useEffect(() => {
@@ -203,14 +214,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ data, customSector
 
       if (cancelled) return;
       setIsLoadingMarketData(true);
-      setLoadProgress({ sectors: 'pending', market: 'pending', risk: 'pending', benchmark: 'pending' });
+      setLoadProgress({ sectors: 'pending', market: 'pending', benchmark: 'pending' });
 
       const errors: string[] = [];
 
       try {
-        const { fetchSectors, fetchBetas, fetchDividends, loadSectorWeights, loadAssetGeo, fetchIndexExposure } = await import('../services/api');
-        if (cancelled) return;
-
         // Fetch Sectors with error handling
         try {
           const sectors = await fetchSectors(currentTickers);
@@ -232,36 +240,22 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ data, customSector
           const directStockTickers = currentHoldings
             .filter(isDirectStock)
             .map(item => item.ticker);
-          const betas = directStockTickers.length > 0 ? await fetchBetas(directStockTickers) : {};
+          const [betas, dividends] = await Promise.all([
+            directStockTickers.length > 0 ? fetchBetas(directStockTickers) : Promise.resolve<Record<string, number>>({}),
+            fetchDividends(currentTickers),
+          ]);
           if (cancelled) return;
           if (Object.keys(betas).length > 0) {
             setMarketBetaMap(betas);
           }
-        } catch (e) {
-          console.error("Failed to fetch market betas:", e);
-          errors.push("market betas");
-        }
-
-        // Fetch holding-level dividend yields with error handling
-        try {
-          const dividends = await fetchDividends(currentTickers);
-          if (cancelled) return;
           if (Object.keys(dividends).length > 0) {
             setMarketDividendYieldMap(dividends);
           }
           setLoadProgress(prev => ({ ...prev, market: 'done' }));
         } catch (e) {
-          console.error("Failed to fetch dividends:", e);
-          errors.push("dividends");
+          console.error("Failed to fetch market data:", e);
+          errors.push("market data");
           if (!cancelled) setLoadProgress(prev => ({ ...prev, market: 'error' }));
-        }
-
-        if (workspaceRisk && workspaceRisk.portfolioBeta !== undefined) {
-          setPortfolioBeta(workspaceRisk.portfolioBeta);
-          setLoadProgress(prev => ({ ...prev, risk: 'done' }));
-        } else {
-          errors.push("portfolio beta");
-          if (!cancelled) setLoadProgress(prev => ({ ...prev, risk: 'error' }));
         }
 
         // Only fetch if props are missing
@@ -314,11 +308,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ data, customSector
 
       } catch (error) {
         if (cancelled) return;
-        console.error("Critical error fetching market data:", error);
-        setDataFetchError("Failed to connect to market data service. Please check your connection and try again.");
-      } finally {
-        if (cancelled) return;
-        setIsLoadingMarketData(false);
+          console.error("Critical error fetching market data:", error);
+          setDataFetchError("Failed to connect to market data service. Please check your connection and try again.");
+        } finally {
+          if (cancelled) return;
+          setIsLoadingMarketData(false);
         setFetchedAt(new Date().toISOString());
       }
     };
@@ -330,7 +324,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ data, customSector
     return () => {
       cancelled = true;
     };
-  }, [data, customSectors, assetGeo, currentHoldings, workspaceRisk]);
+  }, [data, customSectors, assetGeo, currentHoldings]);
 
   // Derive enrichedCurrentHoldings by merging sectorMap at render time
   const enrichedCurrentHoldings = useMemo(() => {
@@ -354,78 +348,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ data, customSector
 
 
   if (isLoadingMarketData) {
-    const steps = [
-      { key: 'sectors',   label: 'Sector Classification', sub: 'Holdings & industry mapping' },
-      { key: 'market',    label: 'Market Data',           sub: 'Betas & dividend yields' },
-      { key: 'risk',      label: 'Portfolio Beta',        sub: 'Sensitivity to benchmark' },
-      { key: 'benchmark', label: 'Benchmark Exposure',    sub: 'Index sector & geography weights' },
-    ];
-    const doneCount = Object.values(loadProgress).filter(s => s === 'done').length;
     return (
       <div className="max-w-[100vw] mx-auto p-4 md:p-6 overflow-x-hidden min-h-screen flex flex-col items-center justify-center select-none">
-        <style>{`
-          @keyframes dashBarPulse {
-            0%, 100% { transform: scaleY(0.12); opacity: 0.1; }
-            50%      { transform: scaleY(1);    opacity: 1;   }
-          }
-          @keyframes dashScanLine {
-            0%   { left: -2px; }
-            100% { left: calc(100% + 2px); }
-          }
-        `}</style>
-        <div className="flex flex-col items-center gap-8 w-full max-w-sm">
-          <div className="relative overflow-hidden rounded" style={{ width: '176px', height: '60px' }}>
-            <div className="flex items-end h-full gap-1.5">
-              {[28, 50, 36, 66, 42, 78, 54, 92, 46, 72, 58, 88, 64].map((h, i) => (
-                <div key={i} className="flex-1 rounded-t-sm origin-bottom" style={{
-                  height: `${h}%`,
-                  background: i === 12 ? '#3b82f6' : '#374151',
-                  animation: `dashBarPulse 2.2s ease-in-out ${i * 0.14}s infinite`,
-                }} />
-              ))}
-            </div>
-            <div className="absolute top-0 bottom-0 w-px" style={{
-              background: 'linear-gradient(to bottom, transparent, rgba(59,130,246,0.65), transparent)',
-              animation: 'dashScanLine 2.2s linear infinite',
-            }} />
-          </div>
-
-          <p className="text-[11px] font-mono text-wallstreet-500 tracking-[0.25em] uppercase">
-            Loading Holdings Data
-          </p>
-
-          <div className="w-full bg-wallstreet-700 rounded-full h-1.5 overflow-hidden">
-            <div className="bg-wallstreet-accent h-full rounded-full transition-all duration-500 ease-out"
-              style={{ width: `${(doneCount / steps.length) * 100}%` }} />
-          </div>
-
-          <div className="w-full space-y-3">
-            {steps.map(({ key, label, sub }) => {
-              const status = loadProgress[key];
-              return (
-                <div key={key} className="flex items-center gap-3">
-                  <div className="w-5 h-5 flex items-center justify-center flex-shrink-0">
-                    {status === 'done' ? (
-                      <svg className="w-5 h-5 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                      </svg>
-                    ) : status === 'error' ? (
-                      <svg className="w-5 h-5 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                      </svg>
-                    ) : (
-                      <div className="w-3.5 h-3.5 border-2 border-wallstreet-600 border-t-wallstreet-accent rounded-full animate-spin" />
-                    )}
-                  </div>
-                  <div className="min-w-0">
-                    <p className={`text-sm font-mono font-medium ${status === 'done' ? 'text-wallstreet-text' : status === 'error' ? 'text-red-500' : 'text-wallstreet-500'}`}>{label}</p>
-                    <p className="text-xs text-wallstreet-500 truncate">{sub}</p>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
+        <LoadingSequencePanel
+          title="Loading Holdings Data"
+          steps={DASHBOARD_LOAD_STEPS.map(step => ({ ...step, status: loadProgress[step.key] as LoadStatus }))}
+        />
       </div>
     );
   }

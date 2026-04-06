@@ -20,9 +20,6 @@ Server runs at `http://localhost:8000`.
 | --- | --- |
 | `POST /portfolio-workspace` | Canonical portfolio workspace used by the live app |
 | `POST /analyze-manual` | Legacy attribution analysis response kept for compatibility |
-| `POST /portfolio-backcast` | Legacy compatibility wrapper backed by the canonical workspace |
-| `POST /risk-contribution` | Legacy compatibility wrapper backed by the canonical workspace |
-| `POST /rolling-metrics` | Legacy compatibility wrapper backed by the canonical workspace |
 | `GET /fetch-sectors` | Sector classification lookup |
 | `GET /sector-history` | Sector benchmark history |
 | `GET /index-history` | Benchmark index history |
@@ -66,7 +63,6 @@ server/
    - `risk`
    - `audit`
 4. Supporting routes such as sector history and index exposure enrich view-specific benchmark context.
-5. Legacy routes remain available only as compatibility shims or debugging references.
 
 ## Special Cases
 

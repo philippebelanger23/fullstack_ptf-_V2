@@ -8,7 +8,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-import services.backcast_service as backcast_service
+import services.performance_service as performance_service
 import services.workspace_service as workspace_service
 from services.period_normalizer import normalize_portfolio_periods as normalize_periods_impl
 
@@ -50,7 +50,7 @@ def test_build_portfolio_workspace_normalizes_duplicate_rows_and_latest_snapshot
     monkeypatch.setattr(
         workspace_service,
         "_build_performance_section",
-        lambda *args, **kwargs: {"defaultBenchmark": "75/25", "variants": {}, "rollingMetrics": {}},
+        lambda *args, **kwargs: {"defaultBenchmark": "75/25", "variants": {}},
     )
     monkeypatch.setattr(
         workspace_service,
@@ -134,7 +134,7 @@ def test_build_performance_section_emits_all_benchmark_variants(monkeypatch):
     )
     monkeypatch.setattr(
         workspace_service,
-        "compute_backcast_metrics",
+        "compute_performance_metrics",
         lambda portfolio_returns, benchmark_returns: {
             "metrics": {"totalReturn": 1.0},
             "series": [{"date": "2026-04-02", "portfolio": 101.0, "benchmark": 100.6}],
@@ -142,12 +142,7 @@ def test_build_performance_section_emits_all_benchmark_variants(monkeypatch):
         },
     )
     monkeypatch.setattr(
-        workspace_service,
-        "compute_rolling_metrics",
-        lambda portfolio_returns, benchmark_returns: {"windows": {21: [], 63: [], 126: []}},
-    )
-    monkeypatch.setattr(
-        backcast_service,
+        performance_service,
         "compute_period_attribution",
         lambda returns_df, period_weights, nav_tickers=None: [{"ticker": "AAA", "date": "2026-04-02", "weight": 10.0, "returnPct": 0.03, "contribution": 0.3}],
     )
@@ -163,7 +158,6 @@ def test_build_performance_section_emits_all_benchmark_variants(monkeypatch):
     assert set(performance["variants"].keys()) == {"75/25", "TSX", "SP500", "ACWI"}
     assert performance["variants"]["75/25"]["periodAttribution"][0]["ticker"] == "AAA"
     assert "periodAttribution" not in performance["variants"]["TSX"]
-    assert set(performance["rollingMetrics"].keys()) == {"75/25", "TSX", "SP500", "ACWI"}
 
 
 def test_build_portfolio_workspace_emits_canonical_monthly_return_maps(monkeypatch):
@@ -175,7 +169,7 @@ def test_build_portfolio_workspace_emits_canonical_monthly_return_maps(monkeypat
     monkeypatch.setattr(
         workspace_service,
         "_build_performance_section",
-        lambda *args, **kwargs: {"defaultBenchmark": "75/25", "variants": {}, "rollingMetrics": {}},
+        lambda *args, **kwargs: {"defaultBenchmark": "75/25", "variants": {}},
     )
     monkeypatch.setattr(
         workspace_service,
@@ -239,10 +233,16 @@ def test_waterfall_layout_uses_top_ten_by_weight():
 
     waterfall = workspace_service._build_waterfall_layout(summary_rows, portfolio_return=1.23)
 
-    names = [bar["name"] for bar in waterfall["bars"]]
+    bars = waterfall["bars"]
+    names = [bar["name"] for bar in bars]
     assert names[:3] == ["HIGHWT", "MIDWT", "T1"]
     assert "BIGCONTRIB" not in names[:10]
     assert names[-2:] == ["Others", "Total"]
+
+    total_bar = bars[-1]
+    others_bar = next(bar for bar in bars if bar["name"] == "Others")
+    top_sum = sum(bar["delta"] for bar in bars if not bar["isTotal"] and bar["name"] != "Others")
+    assert abs((top_sum + others_bar["delta"]) - total_bar["delta"]) < 1e-9
 
 
 def test_waterfall_layout_excludes_non_current_holdings():
@@ -254,7 +254,7 @@ def test_waterfall_layout_excludes_non_current_holdings():
     waterfall = workspace_service._build_waterfall_layout(summary_rows, portfolio_return=0.75)
 
     names = [bar["name"] for bar in waterfall["bars"]]
-    assert names == ["CURRENT", "Total"]
+    assert names == ["CURRENT", "Others", "Total"]
 
 
 def test_build_risk_section_aligns_portfolio_and_benchmark_series(monkeypatch):

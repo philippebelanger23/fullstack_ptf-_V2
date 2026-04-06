@@ -29,3 +29,30 @@ FX_TICKERS = {"CAD=X"}
 BENCHMARK_BLEND_WEIGHTS = {"ACWI": 0.75, "XIC": 0.25}
 BENCHMARK_BLEND_TICKERS = ["ACWI", "XIC.TO", "XUS.TO", "USDCAD=X"]
 
+# Sector/reference ETFs that should be warmed alongside the portfolio
+# so downstream attribution and sector analysis read from the same canonical cache.
+SECTOR_REFERENCE_TICKERS = [
+    "XLK",
+    "XLF",
+    "XLV",
+    "XLY",
+    "XLC",
+    "XLI",
+    "XLP",
+    "XLE",
+    "XLU",
+    "XLRE",
+    "XLB",
+    "XFN.TO",
+    "XEG.TO",
+    "XMA.TO",
+    "ZIN.TO",
+    "XIT.TO",
+    "XUT.TO",
+    "XRE.TO",
+    "XST.TO",
+    "XCD.TO",
+    "XIC.TO",
+    "SPY",
+]
+

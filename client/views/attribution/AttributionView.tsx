@@ -4,6 +4,7 @@ import { Dropdown } from '../../components/Dropdown';
 import { AlertTriangle, Calendar, Grid, Layers, Info, Printer } from 'lucide-react';
 import { PortfolioWorkspaceAttribution } from '../../types';
 import { FreshnessBadge } from '../../components/ui/FreshnessBadge';
+import { formatBps } from '../../utils/formatters';
 import { getAvailableCalendarYears } from '../../utils/selectedYear';
 import { buildCanonicalMonthlyHistory, compoundContribution, compoundReturnPct } from './canonicalAttribution';
 import { AttributionTable } from './AttributionTable';
@@ -15,7 +16,6 @@ import {
     buildCanonicalPortfolioMonthlyPerformance,
     type CanonicalAttributionMatrixLayout,
     type CanonicalContributorPageLayout,
-    compoundCanonicalMonthlyPerformance,
 } from '../../selectors/attributionSelectors';
 
 // â”€â”€ ErrorBoundary â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -231,7 +231,7 @@ const formatMatrixReturn = (value: number | null) => {
 
 const formatMatrixContribution = (value: number | null) => {
     if (value === null || value === undefined) return '-';
-    return value < 0 ? `(${Math.abs(value * 100).toFixed(2)}%)` : `${Math.abs(value * 100).toFixed(2)}%`;
+    return formatBps(value);
 };
 
 const formatContributionShare = (value: number | null) => {
@@ -373,8 +373,12 @@ interface HeatmapSectionProps {
 const HeatmapSection: React.FC<HeatmapSectionProps> = ({ matrixData, allMonths, portfolioMonthlyPerformance, portfolioTotalPerformance, tc }) => {
     const [heatmapMode, setHeatmapMode] = useState<'CONTRIBUTION' | 'PERFORMANCE'>('CONTRIBUTION');
 
-    const formatHeatmapPct = useCallback((value: number) => {
+    const formatHeatmapReturn = useCallback((value: number) => {
         return value < 0 ? `(${Math.abs(value).toFixed(2)}%)` : `${value > 0 ? '+' : ''}${value.toFixed(2)}%`;
+    }, []);
+
+    const formatHeatmapContribution = useCallback((value: number) => {
+        return value < 0 ? `(${Math.abs(value).toFixed(2)}%)` : `${Math.abs(value).toFixed(2)}%`;
     }, []);
 
     const getHeatmapCellStyle = useCallback((value: number | null, mode: 'CONTRIBUTION' | 'PERFORMANCE') => {
@@ -445,11 +449,11 @@ const HeatmapSection: React.FC<HeatmapSectionProps> = ({ matrixData, allMonths, 
         return {
             totals,
             hasDataMap,
-            grandTotal: matrixData.reduce((sum, row) => sum + row.total, 0),
+            grandTotal: portfolioTotalPerformance ?? 0,
         };
     }, [allMonths, heatmapMode, matrixData, portfolioMonthlyPerformance, portfolioTotalPerformance]);
 
-    const heatmapFooterLabel = heatmapMode === 'PERFORMANCE' ? 'YTD Performance' : 'Compounded Total';
+    const heatmapFooterLabel = heatmapMode === 'PERFORMANCE' ? 'YTD Performance' : 'Portfolio Total';
 
     return (
         <div className="bg-wallstreet-800 rounded-xl border border-wallstreet-700 shadow-lg flex flex-col mt-6">
@@ -520,16 +524,16 @@ const HeatmapSection: React.FC<HeatmapSectionProps> = ({ matrixData, allMonths, 
                                                         style={{ backgroundColor: displayBg, color: showHyphen ? tc.tickFill : text }}
                                                         title={showHyphen ? undefined : `${row.ticker} - ${date.toLocaleDateString('en-US', { month: 'short' }).toUpperCase()}`}
                                                     >
-                                                        {!showHyphen ? (
-                                                            <span className="opacity-100">
-                                                                {formatHeatmapPct(val!)}
+                                                {!showHyphen ? (
+                                                    <span className="opacity-100">
+                                                                {heatmapMode === 'PERFORMANCE' ? formatHeatmapReturn(val!) : formatHeatmapContribution(val!)}
                                                                 {isPartialMf && <sup className="ml-0.5 text-[10px] text-amber-300">*</sup>}
                                                             </span>
                                                         ) : <span className="text-gray-300">-</span>}
                                                         {!showHyphen && val !== null && (
                                                             <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 px-3 py-2 bg-slate-900 text-white text-[10px] rounded opacity-0 group-hover/cell:opacity-100 pointer-events-none z-50 whitespace-nowrap shadow-xl flex flex-col items-center gap-1">
                                                                 <div className="font-bold border-b-0 pb-0 mb-0">{row.ticker} - {date.toLocaleDateString('en-US', { month: 'short' }).toUpperCase()}</div>
-                                                                <div className="text-wallstreet-500">{tooltipLabel}: {formatHeatmapPct(val)}</div>
+                                                                <div className="text-wallstreet-500">{tooltipLabel}: {heatmapMode === 'PERFORMANCE' ? formatHeatmapReturn(val) : formatHeatmapContribution(val)}</div>
                                                                 {isPartialMf && <div className="text-amber-300 font-bold">* Partial MF NAV coverage through the period</div>}
                                                             </div>
                                                         )}
@@ -549,7 +553,7 @@ const HeatmapSection: React.FC<HeatmapSectionProps> = ({ matrixData, allMonths, 
                                         if (showTotalHyphen) {
                                             return <span className="text-gray-300">-</span>;
                                         }
-                                        return <span className={rowTotal >= 0 ? 'text-green-700' : 'text-red-700'}>{formatHeatmapPct(rowTotal)}</span>;
+                                        return <span className={rowTotal >= 0 ? 'text-green-700' : 'text-red-700'}>{heatmapMode === 'PERFORMANCE' ? formatHeatmapReturn(rowTotal) : formatHeatmapContribution(rowTotal)}</span>;
                                     })()}
                                 </td>
                             </tr>
@@ -564,12 +568,12 @@ const HeatmapSection: React.FC<HeatmapSectionProps> = ({ matrixData, allMonths, 
                                 const val = heatmapTotals.totals[key];
                                 return (
                                     <td key={date.toISOString()} className="px-3 py-1 text-center font-mono font-bold text-sm border-b border-wallstreet-700 border-l border-wallstreet-700">
-                                        {hasData ? <span className={val >= 0 ? 'text-green-700' : 'text-red-700'}>{formatHeatmapPct(val)}</span> : <span className="text-gray-300">-</span>}
+                                        {hasData ? <span className={val >= 0 ? 'text-green-700' : 'text-red-700'}>{heatmapMode === 'PERFORMANCE' ? formatHeatmapReturn(val) : formatHeatmapContribution(val)}</span> : <span className="text-gray-300">-</span>}
                                     </td>
                                 )
                             })}
                             <td className="px-3 py-1 text-center font-mono font-bold text-sm border-l border-wallstreet-300 bg-wallstreet-200 text-wallstreet-text">
-                                <span className={heatmapTotals.grandTotal >= 0 ? 'text-green-800' : 'text-red-800'}>{formatHeatmapPct(heatmapTotals.grandTotal)}</span>
+                                <span className={heatmapTotals.grandTotal >= 0 ? 'text-green-800' : 'text-red-800'}>{heatmapMode === 'PERFORMANCE' ? formatHeatmapReturn(heatmapTotals.grandTotal) : formatHeatmapContribution(heatmapTotals.grandTotal)}</span>
                             </td>
                         </tr>
                     </tfoot>
@@ -738,36 +742,91 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ selectedYear, 
     const sortedByContrib = useMemo(() => [...overviewTickerStats].sort((a, b) => b.totalContrib - a.totalContrib), [overviewTickerStats]);
     const matrixData = useMemo(() => buildAttributionMatrixData(sortedByContrib, allMonths), [sortedByContrib, allMonths]);
 
-    const portfolioMonthlyPerformance = useMemo(() => (
-        buildCanonicalPortfolioMonthlyPerformance(analysisResponse, allMonths, selectedYear, timeRange)
-    ), [analysisResponse, allMonths, selectedYear, timeRange]);
-
-    const canonicalYtdTotalReturn = useMemo(() => {
-        if (!analysisResponse || timeRange !== 'YTD') return null;
-        const reportingYears = analysisResponse.monthlyPeriods
-            .map(period => new Date(`${period.end}T00:00:00`).getFullYear())
-            .filter(year => !Number.isNaN(year));
-        if (reportingYears.length === 0) return null;
-
-        const latestReportingYear = Math.max(...reportingYears);
-        return latestReportingYear === selectedYear ? analysisResponse.portfolioYtdReturn * 100 : null;
-    }, [analysisResponse, selectedYear, timeRange]);
-
-    const portfolioTotalReturn = useMemo(() => {
-        return canonicalYtdTotalReturn ?? compoundCanonicalMonthlyPerformance(portfolioMonthlyPerformance);
-    }, [canonicalYtdTotalReturn, portfolioMonthlyPerformance]);
-
     const selectedOverviewLayout = useMemo(() => (
         analysisResponse?.overviewLayouts?.[String(selectedYear)]?.[timeRange] ?? null
     ), [analysisResponse, selectedYear, timeRange]);
 
-    const canonicalWaterfallData = useMemo(() => (
-        selectedOverviewLayout?.waterfall?.bars ?? []
-    ), [selectedOverviewLayout]);
+    const portfolioMonthlyPerformance = useMemo(() => (
+        buildCanonicalPortfolioMonthlyPerformance(analysisResponse, allMonths, selectedYear, timeRange)
+    ), [analysisResponse, allMonths, selectedYear, timeRange]);
 
-    const canonicalWaterfallDomain = useMemo<[number, number]>(() => (
-        selectedOverviewLayout?.waterfall?.domain ?? [0, 10]
-    ), [selectedOverviewLayout]);
+    const portfolioTotalReturn = useMemo(() => {
+        const rangeTotal = selectedOverviewLayout?.waterfall?.portfolioReturn;
+        return typeof rangeTotal === 'number' ? rangeTotal : null;
+    }, [selectedOverviewLayout]);
+
+    const canonicalWaterfallLayout = useMemo(() => {
+        const waterfall = selectedOverviewLayout?.waterfall;
+        if (!waterfall?.bars?.length) {
+            return {
+                bars: [],
+                domain: [0, 10] as [number, number],
+            };
+        }
+
+        const canonicalTotal = portfolioTotalReturn;
+        if (canonicalTotal === null) {
+            return {
+                bars: waterfall.bars,
+                domain: waterfall.domain,
+            };
+        }
+
+        const nonTotalBars = waterfall.bars.filter((bar) => !bar.isTotal);
+        const topBars = nonTotalBars.filter((bar) => bar.name !== 'Others');
+        const topBarTotal = topBars.reduce((sum, bar) => sum + Number(bar.delta ?? 0), 0);
+        const othersDelta = canonicalTotal - topBarTotal;
+        const hasOthersBar = nonTotalBars.some((bar) => bar.name === 'Others');
+        const totalBar = waterfall.bars.find((bar) => bar.isTotal);
+
+        const bars = topBars.map((bar) => ({ ...bar }));
+        if (hasOthersBar || Math.abs(othersDelta) > 0.0001) {
+            const baseOthers = nonTotalBars.find((bar) => bar.name === 'Others');
+            bars.push(
+                baseOthers
+                    ? { ...baseOthers, value: [Math.min(topBarTotal, canonicalTotal), Math.max(topBarTotal, canonicalTotal)] as [number, number], delta: othersDelta }
+                    : {
+                        name: 'Others',
+                        value: [Math.min(topBarTotal, canonicalTotal), Math.max(topBarTotal, canonicalTotal)] as [number, number],
+                        delta: othersDelta,
+                        isTotal: false,
+                    },
+            );
+        }
+
+        bars.push(
+            totalBar
+                ? {
+                    ...totalBar,
+                    value: [0, canonicalTotal] as [number, number],
+                    delta: canonicalTotal,
+                }
+                : {
+                    name: 'Total',
+                    value: [0, canonicalTotal] as [number, number],
+                    delta: canonicalTotal,
+                    isTotal: true,
+                },
+        );
+
+        const allValues = bars.flatMap((bar) => bar.value);
+        if (allValues.length === 0) {
+            return {
+                bars,
+                domain: [0, 10] as [number, number],
+            };
+        }
+
+        const minValue = Math.min(...allValues);
+        const maxValue = Math.max(...allValues);
+        const span = maxValue - minValue;
+        const buffer = span > 0 ? span * 0.15 : 1;
+
+        return {
+            bars,
+            domain: [minValue - buffer, maxValue + buffer] as [number, number],
+        };
+    }, [portfolioTotalReturn, selectedOverviewLayout]);
 
     const emptySectorAttributionData = useMemo(() => ({
         data: [],
@@ -779,22 +838,6 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ selectedYear, 
     const canonicalSectorAttributionData = useMemo(() => (
         selectedOverviewLayout?.sectorAttribution?.[regionFilter]?.[benchmarkMode] ?? emptySectorAttributionData
     ), [benchmarkMode, emptySectorAttributionData, regionFilter, selectedOverviewLayout]);
-
-    React.useEffect(() => {
-        if (process.env.NODE_ENV !== 'development') return;
-        if (canonicalYtdTotalReturn === null) return;
-
-        const compoundedMonthlyTotal = compoundCanonicalMonthlyPerformance(portfolioMonthlyPerformance);
-        if (compoundedMonthlyTotal === null) return;
-        if (Math.abs(canonicalYtdTotalReturn - compoundedMonthlyTotal) <= 0.0001) return;
-
-        console.warn('[AttributionView] portfolioYtdReturn diverges from compounded canonical monthly returns', {
-            selectedYear,
-            canonicalYtdTotalReturn,
-            compoundedMonthlyTotal,
-            canonicalMonthlyPerformance: portfolioMonthlyPerformance,
-        });
-    }, [canonicalYtdTotalReturn, portfolioMonthlyPerformance, selectedYear]);
 
     const canonicalContributorPages = useMemo(() => (
         buildCanonicalContributorPages(analysisResponse, selectedYear)
@@ -869,7 +912,7 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ selectedYear, 
 
                     <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 h-auto lg:h-[500px]">
 
-                        <WaterfallChart waterfallData={canonicalWaterfallData} waterfallDomain={canonicalWaterfallDomain} />
+                        <WaterfallChart waterfallData={canonicalWaterfallLayout.bars} waterfallDomain={canonicalWaterfallLayout.domain} />
 
                         <SectorAttributionCharts
                             sectorAttributionData={canonicalSectorAttributionData}
@@ -889,13 +932,13 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ selectedYear, 
 
 
 
-                    <HeatmapSection
-                        matrixData={matrixData}
-                        allMonths={allMonths}
-                        portfolioMonthlyPerformance={portfolioMonthlyPerformance}
-                        portfolioTotalPerformance={portfolioTotalReturn}
-                        tc={tc}
-                    />
+                        <HeatmapSection
+                            matrixData={matrixData}
+                            allMonths={allMonths}
+                            portfolioMonthlyPerformance={portfolioMonthlyPerformance}
+                            portfolioTotalPerformance={portfolioTotalReturn}
+                            tc={tc}
+                        />
                 </div>
                 )
             ) : (
@@ -924,6 +967,9 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ selectedYear, 
                                 </button>
                             </div>
                         </div>
+                        <p className="text-[10px] font-mono text-wallstreet-500 uppercase tracking-widest">
+                            Table totals are summed from the displayed rows.
+                        </p>
 
                         {tableMode === 'monthly' ? (
                             <CanonicalContributorPagesSection

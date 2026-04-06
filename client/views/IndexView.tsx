@@ -1,10 +1,11 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Globe, DollarSign, TrendingUp, PieChart, RefreshCw } from 'lucide-react';
 import { fetchIndexExposure, fetchCurrencyPerformance, fetchIndexHistory, triggerIndexRefresh } from '../services/api';
 import { FreshnessBadge } from '../components/ui/FreshnessBadge';
 import { WorldChoroplethMap } from '../components/WorldChoroplethMap';
 import { ClevelandDotPlot } from '../components/ClevelandDotPlot';
 import { IndexPerformanceChart } from '../components/IndexPerformanceChart';
+import { LoadingSequencePanel, type LoadStatus } from '../components/ui/LoadingSequencePanel';
 
 // --- Types ---
 interface SectorExposure {
@@ -35,6 +36,11 @@ interface CurrencyWeight {
 
 // --- Constants ---
 const CURRENCY_TICKERS = ["USDCAD=X", "JPYCAD=X", "EURCAD=X"];
+const INDEX_LOAD_STEPS = [
+    { key: 'exposure', label: 'Benchmark Composition', sub: 'Sectors & geography from iShares' },
+    { key: 'currency', label: 'Currency Rates', sub: 'FX performance vs CAD' },
+    { key: 'history', label: 'Price History', sub: 'ACWI (CAD), XIC.TO & 75/25 composite' },
+] as const;
 
 const COUNTRY_CURRENCY_MAP: Record<string, string> = {
     'United States': 'USD',
@@ -100,38 +106,46 @@ export const IndexView: React.FC = () => {
         currency: 'pending',
         history: 'pending',
     });
+    const loadTokenRef = useRef(0);
 
     const load = useCallback(async () => {
+        const loadToken = ++loadTokenRef.current;
+        const isCurrent = () => loadTokenRef.current === loadToken;
+
         setLoading(true);
         setLoadProgress({ exposure: 'pending', currency: 'pending', history: 'pending' });
 
-        const trackFetch = async <T,>(
-            key: string,
-            fn: () => Promise<T>,
-        ): Promise<T> => {
+        const trackFetch = async <T,>(key: string, fn: () => Promise<T>): Promise<T> => {
             try {
                 const result = await fn();
+                if (!isCurrent()) return result;
                 setLoadProgress(prev => ({ ...prev, [key]: 'done' }));
                 return result;
             } catch (err) {
+                if (!isCurrent()) throw err;
                 setLoadProgress(prev => ({ ...prev, [key]: 'error' }));
                 throw err;
             }
         };
 
         try {
-            const [res, perf, history] = await Promise.all([
-                trackFetch('exposure', fetchIndexExposure),
-                trackFetch('currency', () => fetchCurrencyPerformance(CURRENCY_TICKERS)),
-                trackFetch('history', fetchIndexHistory),
-            ]);
-
+            const res = await trackFetch('exposure', fetchIndexExposure);
+            if (!isCurrent()) return;
             setExposure(res);
+
+            const perf = await trackFetch('currency', () => fetchCurrencyPerformance(CURRENCY_TICKERS));
+            if (!isCurrent()) return;
             setCurrencyPerf(perf);
+
+            const history = await trackFetch('history', fetchIndexHistory);
+            if (!isCurrent()) return;
             setIndexHistory(history);
+
         } catch (err) {
             console.error("Failed to load index data:", err);
+            if (!isCurrent()) return;
         } finally {
+            if (!isCurrent()) return;
             setLoading(false);
             setFetchedAt(new Date().toISOString());
         }
@@ -223,94 +237,12 @@ export const IndexView: React.FC = () => {
     const geoMapData = exposure.geography;
 
     if (loading) {
-        const steps = [
-            { key: 'exposure', label: 'Benchmark Composition', sub: 'Sectors & geography from iShares' },
-            { key: 'currency', label: 'Currency Rates', sub: 'FX performance vs CAD' },
-            { key: 'history', label: 'Price History', sub: 'ACWI (CAD), XIC.TO & 75/25 composite' },
-        ];
-        const doneCount = Object.values(loadProgress).filter(s => s === 'done').length;
-
         return (
             <div className="max-w-[100vw] mx-auto p-4 md:p-6 overflow-x-hidden min-h-screen flex flex-col items-center justify-center">
-                <div className="flex flex-col items-center gap-8 w-full max-w-sm">
-
-                    {/* Animated bar chart */}
-                    <div className="relative overflow-hidden rounded" style={{ width: '176px', height: '60px' }}>
-                        <div className="flex items-end h-full gap-1.5">
-                            {[28, 50, 36, 66, 42, 78, 54, 92, 46, 72, 58, 88, 64].map((h, i) => (
-                                <div
-                                    key={i}
-                                    className="flex-1 rounded-t-sm origin-bottom"
-                                    style={{
-                                        height: `${h}%`,
-                                        background: i === 12 ? '#3b82f6' : '#374151',
-                                        animation: `idxBarPulse 2.2s ease-in-out ${i * 0.14}s infinite`,
-                                    }}
-                                />
-                            ))}
-                        </div>
-                        <div
-                            className="absolute top-0 bottom-0 w-px"
-                            style={{
-                                background: 'linear-gradient(to bottom, transparent, rgba(59,130,246,0.65), transparent)',
-                                animation: 'idxScanLine 2.2s linear infinite',
-                            }}
-                        />
-                    </div>
-
-                    <p className="text-[11px] font-mono text-wallstreet-500 tracking-[0.25em] uppercase">
-                        Fetching Benchmark Data
-                    </p>
-
-                    {/* Progress bar */}
-                    <div className="w-full bg-wallstreet-100 rounded-full h-1.5 overflow-hidden">
-                        <div
-                            className="bg-wallstreet-accent h-full rounded-full transition-all duration-500 ease-out"
-                            style={{ width: `${(doneCount / steps.length) * 100}%` }}
-                        />
-                    </div>
-
-                    {/* Step checklist */}
-                    <div className="w-full space-y-3">
-                        {steps.map(({ key, label, sub }) => {
-                            const status = loadProgress[key];
-                            return (
-                                <div key={key} className="flex items-center gap-3">
-                                    <div className="w-5 h-5 flex items-center justify-center flex-shrink-0">
-                                        {status === 'done' ? (
-                                            <svg className="w-5 h-5 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                                                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                                            </svg>
-                                        ) : status === 'error' ? (
-                                            <svg className="w-5 h-5 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                                                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                                            </svg>
-                                        ) : (
-                                            <div className="w-3.5 h-3.5 border-2 border-wallstreet-300 border-t-wallstreet-accent rounded-full animate-spin" />
-                                        )}
-                                    </div>
-                                    <div className="min-w-0">
-                                        <p className={`text-sm font-mono font-medium ${status === 'done' ? 'text-wallstreet-text' : status === 'error' ? 'text-red-500' : 'text-wallstreet-400'}`}>
-                                            {label}
-                                        </p>
-                                        <p className="text-xs text-wallstreet-400 truncate">{sub}</p>
-                                    </div>
-                                </div>
-                            );
-                        })}
-                    </div>
-
-                </div>
-                <style>{`
-                    @keyframes idxBarPulse {
-                        0%, 100% { transform: scaleY(0.12); opacity: 0.1; }
-                        50%      { transform: scaleY(1);    opacity: 1;   }
-                    }
-                    @keyframes idxScanLine {
-                        0%   { left: -2px; }
-                        100% { left: calc(100% + 2px); }
-                    }
-                `}</style>
+                <LoadingSequencePanel
+                    title="Fetching Benchmark Data"
+                    steps={INDEX_LOAD_STEPS.map(step => ({ ...step, status: loadProgress[step.key] as LoadStatus }))}
+                />
             </div>
         );
     }

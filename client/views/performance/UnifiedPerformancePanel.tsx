@@ -20,7 +20,6 @@ interface UnifiedPerformancePanelProps {
 
 const METRIC_DESCRIPTIONS: Record<string, string> = {
     'Total Return': 'Cumulative return of the portfolio over the selected period, expressed as a percentage.',
-    'Alpha': 'Excess return of the portfolio compared to the benchmark. Positive alpha indicates outperformance.',
     'Sharpe Ratio': 'Risk-adjusted return metric. Higher values indicate better risk-adjusted performance.',
     'Sortino Ratio': 'Similar to Sharpe but only penalizes downside volatility, ignoring upside movements.',
     'Volatility': 'Standard deviation of returns, measuring the variability and risk of the portfolio.',
@@ -106,7 +105,6 @@ export const UnifiedPerformancePanel: React.FC<UnifiedPerformancePanelProps> = (
 
     const metrics = [
         { label: 'Total Return', ptf: periodMetrics?.totalReturn, bmk: periodMetrics?.benchmarkReturn, format: 'percent' },
-        { label: 'Alpha', ptf: periodMetrics?.alpha, bmk: 0, format: 'percent' },
         { label: 'Sharpe Ratio', ptf: periodMetrics?.sharpeRatio, bmk: periodMetrics?.benchmarkSharpe, format: 'decimal' },
         { label: 'Sortino Ratio', ptf: periodMetrics?.sortinoRatio, bmk: periodMetrics?.benchmarkSortino, format: 'decimal' },
         { label: 'Volatility', ptf: periodMetrics?.volatility, bmk: periodMetrics?.benchmarkVolatility, format: 'vol' },
@@ -141,7 +139,7 @@ export const UnifiedPerformancePanel: React.FC<UnifiedPerformancePanelProps> = (
     const getDeltaColor = (value: number | undefined, metricLabel: string) => {
         if (value === undefined || value === null) return 'text-wallstreet-500';
         // Metrics where positive delta (higher) is better
-        const positiveBetter = ['Total Return', 'Alpha', 'Sharpe Ratio', 'Sortino Ratio', 'Info Ratio', 'Max Drawdown'];
+        const positiveBetter = ['Total Return', 'Sharpe Ratio', 'Sortino Ratio', 'Info Ratio', 'Max Drawdown'];
         // Metrics where negative delta (lower) is better
         const negativeBetter = ['Volatility'];
 

@@ -1,10 +1,10 @@
 """
-Backcast calculation logic shared between /portfolio-backcast and /risk-contribution.
+Shared performance and risk calculation primitives used by the canonical workspace.
 
 Provides helpers for:
 - Aggregating portfolio weights from PortfolioItem lists
 - Fetching price data and building FX-adjusted returns DataFrames
-- Computing all risk / performance metrics for the backcast response
+- Computing all risk / performance metrics for the canonical performance response
 
 KPI primitives (compute_beta, compute_annualized_vol, compute_sharpe, compute_sortino)
 are the canonical single source of truth — all endpoints must call these instead of
@@ -91,14 +91,14 @@ def compute_sortino(daily_rets: np.ndarray) -> float:
 CASH_TICKER_NAMES: set[str] = {"CASH", "*CASH*"}
 
 
-def load_backcast_nav_data() -> dict[str, dict[pd.Timestamp, float]]:
-    """Load NAV data for backcast/risk endpoints."""
+def load_performance_nav_data() -> dict[str, dict[pd.Timestamp, float]]:
+    """Load NAV data for canonical performance and risk calculations."""
     manual_navs = load_manual_navs_json("data/manual_navs.json")
     csv_navs = {}
     try:
         csv_navs = load_historic_nav_csvs("data/historic_navs")
     except Exception as e:
-        logger.warning(f"Could not load historic NAVs for backcast: {e}")
+        logger.warning(f"Could not load historic NAVs for canonical performance: {e}")
 
     return merge_nav_sources(manual_navs, csv_navs)
 
@@ -159,8 +159,8 @@ def aggregate_period_weights(
     Returns a **sorted** list of (date_str, weights_by_ticker, mutual_fund_tickers)
     tuples — one entry per rebalance date found in *items*.
 
-    Used by /portfolio-backcast so the daily return series reflects actual
-    rebalancing decisions instead of static max-weights.
+    Used by the canonical workspace performance builder so the daily return
+    series reflects actual rebalancing decisions instead of static max-weights.
     """
     from collections import defaultdict
 
@@ -210,7 +210,7 @@ def build_period_weighted_portfolio_returns(
     The weights in each entry apply from the *previous* period's end date (exclusive)
     up to and including this period's end date.
 
-    For the first period: covers all dates up to its end date (including backcast lookback).
+    For the first period: covers all dates up to its end date (including the pre-period lookback).
     For the last period: covers all dates after the previous period's end date.
     """
     portfolio_returns = pd.Series(0.0, index=returns_df.index)
@@ -277,7 +277,7 @@ def compute_period_attribution(
       contribution — %-form  (= weight * returnPct, e.g. 0.5)
 
     Using the daily-chain approach guarantees that the sum of period
-    portfolio returns compounds to exactly the same total as the backcast
+    portfolio returns compounds to exactly the same total as the canonical performance series
     cumulative series.
     """
     n = len(period_weights)
@@ -359,7 +359,7 @@ def fetch_returns_df(
     - raw_returns_df: pct_change with NaN preserved — for pairwise correlation
     Mutual fund tickers are excluded from the yfinance fetch (their data comes from CSV).
     """
-    nav_dict = nav_dict or load_backcast_nav_data()
+    nav_dict = nav_dict or load_performance_nav_data()
     nav_tickers = set(nav_dict.keys())
     mf = (mutual_fund_tickers or set()) | nav_tickers
     yf_tickers = [t for t in portfolio_tickers if t not in mf]
@@ -374,7 +374,7 @@ def fetch_returns_df(
             local_closes = local_closes.loc[local_closes.index < normalized_end]
     missing_fetch_list = [ticker for ticker in fetch_list if ticker not in local_closes.columns]
     logger.info(
-        "backcast.fetch_returns_df start: portfolio_tickers=%s, yfinance_tickers=%s, local_tickers=%s, nav_tickers=%s, period=%s, start=%s, end=%s",
+        "performance.fetch_returns_df start: portfolio_tickers=%s, yfinance_tickers=%s, local_tickers=%s, nav_tickers=%s, period=%s, start=%s, end=%s",
         len(portfolio_tickers),
         len(missing_fetch_list),
         len(local_closes.columns),
@@ -402,10 +402,10 @@ def fetch_returns_df(
             data = yf.download(missing_fetch_list, **download_kwargs)
             downloaded_closes = _normalize_close_download(data, missing_fetch_list)
         except Exception as exc:
-            logger.warning("backcast.fetch_returns_df download failed: %s", exc)
+            logger.warning("performance.fetch_returns_df download failed: %s", exc)
             downloaded_closes = pd.DataFrame()
         logger.info(
-            "backcast.fetch_returns_df download end: duration=%.3fs, rows=%s",
+            "performance.fetch_returns_df download end: duration=%.3fs, rows=%s",
             perf_counter() - started_at,
             len(downloaded_closes.index),
         )
@@ -506,13 +506,13 @@ def build_benchmark_returns(
 # Composite metric functions
 # =============================================================================
 
-def compute_backcast_metrics(
+def compute_performance_metrics(
     portfolio_returns: pd.Series,
     benchmark_returns: pd.Series,
 ) -> dict:
     """
     Given aligned portfolio and benchmark daily return Series, compute all
-    risk / performance metrics returned by the /portfolio-backcast endpoint.
+    risk / performance metrics returned by the canonical workspace.
     """
     portfolio_cumulative = (1 + portfolio_returns).cumprod() * 100
     benchmark_cumulative = (1 + benchmark_returns).cumprod() * 100

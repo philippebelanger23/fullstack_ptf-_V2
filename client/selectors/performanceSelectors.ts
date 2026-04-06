@@ -1,4 +1,4 @@
-import type { BackcastSeriesPoint } from '../types';
+import type { PerformanceSeriesPoint, PortfolioWorkspaceAttribution } from '../types';
 import type { Period, PeriodMetrics } from '../views/performance/PerformanceKPIs';
 import { getDateRangeForPeriod } from '../utils/dateUtils';
 
@@ -29,9 +29,9 @@ const downsideDeviation = (values: number[]) => {
 };
 
 export const filterSeriesByPeriod = (
-    series: BackcastSeriesPoint[] | null | undefined,
+    series: PerformanceSeriesPoint[] | null | undefined,
     selectedPeriod: Period,
-): BackcastSeriesPoint[] => {
+): PerformanceSeriesPoint[] => {
     if (!series?.length) return [];
     const { start, end } = getDateRangeForPeriod(selectedPeriod);
     const startDateStr = start.toISOString().split('T')[0];
@@ -40,7 +40,7 @@ export const filterSeriesByPeriod = (
 };
 
 export const buildChartDataFromSeries = (
-    filteredSeries: BackcastSeriesPoint[],
+    filteredSeries: PerformanceSeriesPoint[],
     chartView: PerformanceChartView,
 ): PerformanceChartPoint[] => {
     if (filteredSeries.length === 0) return [];
@@ -81,7 +81,7 @@ export const buildChartDataFromSeries = (
 };
 
 export const computePeriodMetricsFromSeries = (
-    filteredSeries: BackcastSeriesPoint[],
+    filteredSeries: PerformanceSeriesPoint[],
 ): PeriodMetrics | null => {
     if (filteredSeries.length < 5) return null;
 
@@ -148,4 +148,11 @@ export const computePeriodMetricsFromSeries = (
         maxDrawdown: maxDrawdown * 100,
         benchmarkMaxDrawdown: benchmarkMaxDrawdown * 100,
     };
+};
+
+export const buildCanonicalPerformanceSeries = (
+    attribution: PortfolioWorkspaceAttribution | null | undefined,
+    benchmark: string,
+): PerformanceSeriesPoint[] => {
+    return attribution?.dailyPerformanceSeries?.[benchmark] ?? [];
 };

@@ -66,7 +66,7 @@ export const CorrelationHeatmap: React.FC<CorrelationHeatmapProps> = ({ correlat
                     {displayMatrix.map((row, i) => (
                         <div key={i} className="flex items-center">
                             <div
-                                className={`shrink-0 text-right pr-2 text-[13px] font-mono font-medium truncate transition-colors ${
+                                className={`shrink-0 text-right pr-2 text-[14px] font-mono font-medium truncate transition-colors ${
                                     hovered?.i === i ? 'text-wallstreet-text' : 'text-wallstreet-500'
                                 }`}
                                 style={{ width: labelWidth }}
@@ -120,7 +120,7 @@ export const CorrelationHeatmap: React.FC<CorrelationHeatmapProps> = ({ correlat
                         {displayTickers.map((ticker, j) => (
                             <div
                                 key={j}
-                                className={`shrink-0 flex items-center justify-center pt-1 text-[13px] font-mono font-medium transition-colors ${
+                                className={`shrink-0 flex items-center justify-center pt-1 text-[14px] font-mono font-medium transition-colors ${
                                     hovered?.j === j ? 'text-wallstreet-text' : 'text-wallstreet-500'
                                 }`}
                                 style={{ width: CELL_SIZE + 2 }}

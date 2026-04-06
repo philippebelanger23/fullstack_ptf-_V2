@@ -8,10 +8,16 @@ import { AttributionView } from './views/attribution/AttributionView';
 import { IndexView } from './views/IndexView';
 import { PerformanceView } from './views/PerformanceView';
 import { RiskContributionView } from './views/RiskContributionView';
-import { PortfolioItem, ViewState, BackcastResponse, PortfolioWorkspaceAttribution, PortfolioWorkspaceResponse } from './types';
+import { LoadingSequencePanel, type LoadStatus } from './components/ui/LoadingSequencePanel';
+import { PortfolioItem, ViewState, PerformanceVariantResponse, PortfolioWorkspaceAttribution, PortfolioWorkspaceResponse } from './types';
 import { loadPortfolioConfig, convertConfigToItems, loadSectorWeights, loadAssetGeo, fetchPortfolioWorkspace } from './services/api';
 
 const AUTOLOAD_WORKSPACE_TIMEOUT_MS = 60000;
+const BOOT_STEPS = [
+  { key: 'metadata', label: 'Loading Portfolio Metadata', sub: 'Sector weights and geography maps' },
+  { key: 'config', label: 'Restoring Saved Config', sub: 'Tickers and period selections' },
+  { key: 'workspace', label: 'Building Workspace', sub: 'Charts, tables, and shared state' },
+] as const;
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number, timeoutLabel: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {
@@ -109,14 +115,18 @@ function App() {
   // Deep-link state: incremented to trigger Attribution view to switch to TABLES mode
   const [attributionTablesRequest, setAttributionTablesRequest] = useState(0);
 
-  // Single canonical backcast — fetched once whenever portfolioData changes, shared to all views.
-  // includeAttribution=true adds per-period, per-ticker return data derived from the same daily
-  // series, ensuring all views (waterfall, performance graph, one pager) are consistent.
+  // Single canonical workspace payload — fetched once whenever portfolioData changes and
+  // redistributed to the views that need performance, attribution, and risk slices.
   const [isBootstrapping, setIsBootstrapping] = useState(false);
   const [showBootOverlay, setShowBootOverlay] = useState(false);
+  const [bootProgress, setBootProgress] = useState<Record<string, LoadStatus>>({
+    metadata: 'pending',
+    config: 'pending',
+    workspace: 'pending',
+  });
   const portfolioData = useMemo<PortfolioItem[]>(() => workspace?.holdings.items ?? [], [workspace]);
   const attributionData = useMemo<PortfolioWorkspaceAttribution | null>(() => workspace?.attribution ?? null, [workspace]);
-  const performanceVariant = useMemo<BackcastResponse | null>(() => workspace?.performance?.variants?.['75/25'] ?? null, [workspace]);
+  const performanceVariant = useMemo<PerformanceVariantResponse | null>(() => workspace?.performance?.variants?.['75/25'] ?? null, [workspace]);
   const workspaceRisk = useMemo(() => workspace?.risk ?? null, [workspace]);
   // Portfolio items come from the canonical workspace payload.
   // Shared attribution and performance selectors derive container-specific views from that spine.
@@ -159,22 +169,23 @@ function App() {
     let cancelled = false;
     const autoLoad = async () => {
       try {
+        setBootProgress({ metadata: 'pending', config: 'pending', workspace: 'pending' });
         // Load reference metadata opportunistically. This should never block the app shell.
-        const [sectors, geo] = await Promise.all([
-          loadSectorWeights(),
-          loadAssetGeo(),
-        ]);
+        const [sectors, geo] = await Promise.all([loadSectorWeights(), loadAssetGeo()]);
         if (cancelled) return;
         setCustomSectors(sectors);
         setAssetGeo(geo);
+        setBootProgress(prev => ({ ...prev, metadata: 'done' }));
 
         const config = await loadPortfolioConfig();
         if (cancelled) return;
+        setBootProgress(prev => ({ ...prev, config: 'done' }));
         if (config.tickers && config.tickers.length > 0 && config.periods && config.periods.length > 0) {
           const flatItems = convertConfigToItems(config.tickers, config.periods);
           if (flatItems.length > 0) {
             setBootError(null);
             setIsBootstrapping(true);
+            setBootProgress(prev => ({ ...prev, workspace: 'pending' }));
             try {
               const nextWorkspace = await withTimeout(
                 fetchPortfolioWorkspace(flatItems),
@@ -182,10 +193,12 @@ function App() {
                 'Workspace autoload'
               );
               if (cancelled) return;
+              setBootProgress(prev => ({ ...prev, workspace: 'done' }));
               handleDataLoaded(nextWorkspace, { name: "Manual Entry", count: nextWorkspace.holdings.items.length });
             } catch (analysisErr) {
               console.error("Backend workspace build failed during auto-load:", analysisErr);
               if (!cancelled) {
+                setBootProgress(prev => ({ ...prev, workspace: 'error' }));
                 setBootError(analysisErr instanceof Error ? analysisErr.message : 'Workspace auto-load failed.');
               }
             } finally {
@@ -219,11 +232,8 @@ function App() {
   }, [isBootstrapping]);
 
   const bootSteps = [
-    { key: 'portfolio', label: 'Loading Portfolio Data', sub: 'Saved holdings and allocations' },
-    { key: 'nav', label: 'Refreshing NAV History', sub: 'Mutual fund CSV inputs and lag status' },
-    { key: 'benchmarks', label: 'Prefetching Benchmarks', sub: 'Backcast series and performance views' },
-    { key: 'views', label: 'Building Workspace', sub: 'Charts, tables, and shared state' },
-  ] as const;
+    ...BOOT_STEPS.map(step => ({ ...step, status: bootProgress[step.key] })),
+  ];
 
   const handleDataLoaded = (nextWorkspace: PortfolioWorkspaceResponse | null, fileInfo?: { name: string, count: number }) => {
     setWorkspace(nextWorkspace);
@@ -278,73 +288,11 @@ function App() {
             aria-busy="true"
             aria-live="polite"
           >
-            <div className="flex flex-col items-center gap-8 w-full max-w-sm px-6">
-              <style>{`
-                @keyframes bootBarPulse {
-                  0%, 100% { transform: scaleY(0.14); opacity: 0.12; }
-                  50% { transform: scaleY(1); opacity: 1; }
-                }
-                @keyframes bootScanLine {
-                  0% { left: -2px; }
-                  100% { left: calc(100% + 2px); }
-                }
-                @keyframes bootStepPulse {
-                  0%, 100% { opacity: 0.45; transform: translateY(0); }
-                  50% { opacity: 1; transform: translateY(-1px); }
-                }
-              `}</style>
-              <div className="relative overflow-hidden rounded" style={{ width: '176px', height: '60px' }}>
-                <div className="flex items-end h-full gap-1.5">
-                  {[20, 44, 30, 58, 40, 74, 50, 86, 44, 68, 56, 84, 60].map((h, i) => (
-                    <div
-                      key={i}
-                      className="flex-1 rounded-t-sm origin-bottom"
-                      style={{
-                        height: `${h}%`,
-                        background: i === 12 ? 'var(--wallstreet-accent)' : 'var(--wallstreet-700)',
-                        animation: `bootBarPulse 2.2s ease-in-out ${i * 0.14}s infinite`,
-                      }}
-                    />
-                  ))}
-                </div>
-                <div
-                  className="absolute top-0 bottom-0 w-px"
-                  style={{
-                    background: 'linear-gradient(to bottom, transparent, rgba(10,35,81,0.72), transparent)',
-                    animation: 'bootScanLine 2.2s linear infinite',
-                  }}
-                />
-              </div>
-
-              <p className="text-[11px] font-mono text-wallstreet-500 tracking-[0.28em] uppercase">
-                Loading Workspace
-              </p>
-
-              <div className="w-full bg-wallstreet-700 rounded-full h-1.5 overflow-hidden">
-                <div className="bg-wallstreet-accent h-full rounded-full w-2/5 transition-all duration-500 ease-out" />
-              </div>
-
-              <div className="w-full space-y-3">
-                {bootSteps.map(({ key, label, sub }, index) => (
-                  <div key={key} className="flex items-center gap-3" style={{ animation: `bootStepPulse 2.2s ease-in-out ${index * 0.16}s infinite` }}>
-                    <div className="w-5 h-5 flex items-center justify-center flex-shrink-0">
-                      {index === 0 ? (
-                        <svg className="w-5 h-5 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                        </svg>
-                      ) : (
-                        <div className={`w-3.5 h-3.5 border-2 border-wallstreet-600 rounded-full ${index === 1 ? 'border-t-wallstreet-accent animate-spin' : 'border-wallstreet-600 opacity-70'}`} />
-                      )}
-                    </div>
-                    <div className="min-w-0">
-                      <p className="text-sm font-mono font-medium text-wallstreet-500">
-                        {label}
-                      </p>
-                      <p className="text-xs text-wallstreet-500 truncate">{sub}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
+              <div className="flex flex-col items-center gap-8 w-full max-w-sm px-6">
+              <LoadingSequencePanel
+                title="Loading Workspace"
+                steps={bootSteps}
+              />
             </div>
           </div>
         )}
@@ -394,8 +342,8 @@ function App() {
           {visited.has(ViewState.PERFORMANCE) && viewPane(ViewState.PERFORMANCE,
             <PerformanceView
               isActive={currentView === ViewState.PERFORMANCE}
-              variants={workspace?.performance?.variants}
               defaultBenchmark={workspace?.performance?.defaultBenchmark}
+              attributionData={attributionData}
             />
           )}
           {visited.has(ViewState.RISK_CONTRIBUTION) && viewPane(ViewState.RISK_CONTRIBUTION,

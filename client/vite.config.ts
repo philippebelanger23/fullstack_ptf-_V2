@@ -17,7 +17,7 @@ export default defineConfig(({ mode }) => {
           '/save-sector-weights', '/load-sector-weights',
           '/save-asset-geo', '/load-asset-geo',
           '/check-nav-lag', '/upload-nav', '/nav-audit', '/save-manual-nav',
-          '/portfolio-backcast', '/portfolio-workspace', '/sector-history', '/risk-contribution', '/rolling-metrics',
+          '/portfolio-workspace', '/sector-history',
         ].map(route => [route, { target: 'http://localhost:8000', changeOrigin: true, secure: false }])
       ),
     },

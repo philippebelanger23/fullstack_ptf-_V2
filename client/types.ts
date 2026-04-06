@@ -37,7 +37,7 @@ export interface CorrelationData {
   analysis: string;
 }
 
-export interface BackcastMetrics {
+export interface PerformanceMetrics {
   totalReturn: number;
   benchmarkReturn: number;
   alpha: number;
@@ -54,7 +54,7 @@ export interface BackcastMetrics {
   benchmarkSortino: number;
 }
 
-export interface BackcastSeriesPoint {
+export interface PerformanceSeriesPoint {
   date: string;
   portfolio: number;
   benchmark: number;
@@ -69,7 +69,7 @@ export interface DrawdownEpisode {
   recoveryDays: number | null;
 }
 
-// Per-period, per-ticker attribution derived from the backcast daily series.
+// Per-period, per-ticker attribution derived from the canonical daily performance series.
 // Shaped like PortfolioItem so it can be merged directly into portfolioData.
 export interface PeriodAttributionItem {
   ticker: string;
@@ -80,9 +80,9 @@ export interface PeriodAttributionItem {
   isCash?: boolean;
 }
 
-export interface BackcastResponse {
-  metrics: BackcastMetrics;
-  series: BackcastSeriesPoint[];
+export interface PerformanceVariantResponse {
+  metrics: PerformanceMetrics;
+  series: PerformanceSeriesPoint[];
   missingTickers: string[];
   topDrawdowns?: DrawdownEpisode[];
   fetchedAt?: string;
@@ -249,7 +249,7 @@ export interface SectorAttributionRow {
   selectionEffect: number;
   allocationEffect: number;
   interactionEffect: number;
-  benchmarkReturn: number;
+  benchmarkReturn: number | null;
   benchmarkWeight: number;
   portfolioWeight: number;
   portfolioReturn: number;
@@ -275,11 +275,14 @@ export interface PortfolioWorkspaceAttribution extends PortfolioAnalysisResponse
   portfolioPeriodReturns: Record<string, number>;
   portfolioMonthlyReturns: Record<string, number>;
   portfolioYtdReturn: number;
+  dailyPerformanceSeries?: Record<string, PerformanceSeriesPoint[]>;
+  performanceFetchedAt?: string | null;
+  performanceErrors?: Record<string, string>;
 }
 
 export interface PerformanceWorkspaceSection {
   defaultBenchmark: string;
-  variants: Record<string, BackcastResponse>;
+  variants: Record<string, PerformanceVariantResponse>;
 }
 
 export interface PortfolioWorkspaceResponse {

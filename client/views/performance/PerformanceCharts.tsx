@@ -1,6 +1,5 @@
 import React from 'react';
 import type { Period, PeriodMetrics } from './PerformanceKPIs';
-import type { BackcastResponse } from '../../types';
 import { UnifiedPerformancePanel } from './UnifiedPerformancePanel';
 import type { PerformanceChartView } from '../../selectors/performanceSelectors';
 
@@ -14,12 +13,9 @@ const BENCHMARKS = [
 ] as const;
 
 interface PerformanceChartsProps {
-    data: BackcastResponse | null;
     chartData: Record<string, unknown>[];
     chartView: ChartView;
     setChartView: (v: ChartView) => void;
-    isFullscreen: boolean;
-    setIsFullscreen: (v: boolean) => void;
     selectedPeriod: Period;
     setSelectedPeriod: (v: Period) => void;
     periodMetrics: PeriodMetrics | null;
@@ -32,12 +28,9 @@ interface PerformanceChartsProps {
 }
 
 export const PerformanceCharts: React.FC<PerformanceChartsProps> = ({
-    data,
     chartData,
     chartView,
     setChartView,
-    isFullscreen,
-    setIsFullscreen,
     selectedPeriod,
     setSelectedPeriod,
     periodMetrics,
@@ -89,7 +82,7 @@ export const PerformanceCharts: React.FC<PerformanceChartsProps> = ({
                         </>)}
                 </div>
                 <div className="flex bg-wallstreet-900 p-1 rounded-xl">
-                        {(['2025', 'YTD', '3M', '6M', '1Y'] as Period[]).map((period) => (
+                        {(['2025', 'YTD', 'Q1', '3M', '6M', '1Y'] as Period[]).map((period) => (
                             <React.Fragment key={period}>
                                 <button
                                     onClick={() => setSelectedPeriod(period)}

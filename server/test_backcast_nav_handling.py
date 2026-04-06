@@ -1,4 +1,4 @@
-"""Regression tests for NAV-backed tickers in the backcast layer."""
+"""Regression tests for NAV-backed tickers in the canonical performance layer."""
 
 import sys
 from pathlib import Path
@@ -7,7 +7,7 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-import services.backcast_service as backcast_service
+import services.performance_service as performance_service
 
 
 def test_fetch_returns_df_includes_nav_tickers_without_yahoo_fetch(monkeypatch):
@@ -41,11 +41,11 @@ def test_fetch_returns_df_includes_nav_tickers_without_yahoo_fetch(monkeypatch):
         }
     }
 
-    monkeypatch.setattr(backcast_service.yf, "download", fake_download)
-    monkeypatch.setattr(backcast_service, "load_backcast_nav_data", lambda: nav_dict)
-    monkeypatch.setattr(backcast_service, "BENCHMARK_BLEND_TICKERS", ["USDCAD=X"])
+    monkeypatch.setattr(performance_service.yf, "download", fake_download)
+    monkeypatch.setattr(performance_service, "load_performance_nav_data", lambda: nav_dict)
+    monkeypatch.setattr(performance_service, "BENCHMARK_BLEND_TICKERS", ["USDCAD=X"])
 
-    returns_df, raw_returns_df, missing = backcast_service.fetch_returns_df(
+    returns_df, raw_returns_df, missing = performance_service.fetch_returns_df(
         ["AAA", "BIP791"],
         mutual_fund_tickers=set(),
     )

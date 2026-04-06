@@ -26,17 +26,18 @@ const InfoBubble = ({ type }: { type: 'selection' | 'allocation' | 'interaction'
     return (
         <span className="relative inline-flex items-center ml-1 align-middle">
             <button
-                className="w-3.5 h-3.5 rounded-full bg-wallstreet-700 text-wallstreet-400 text-[9px] font-bold leading-none flex items-center justify-center hover:bg-wallstreet-600 hover:text-wallstreet-200 transition-colors focus:outline-none"
+                className="w-4 h-4 rounded-full bg-wallstreet-600 text-white text-[10px] font-bold leading-none flex items-center justify-center hover:bg-wallstreet-accent hover:text-white transition-colors focus:outline-none border border-wallstreet-500"
                 onMouseEnter={() => setOpen(true)}
                 onMouseLeave={() => setOpen(false)}
                 onClick={() => setOpen(v => !v)}
                 aria-label={`Info about ${type}`}
             >?</button>
             {open && (
-                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 z-50 w-56 bg-gray-950 border border-gray-600 rounded-lg shadow-xl p-3 font-mono text-left pointer-events-none">
-                    <div className="text-[11px] text-white leading-snug mb-2">{tip.desc}</div>
-                    <div className="text-[10px] font-bold text-yellow-300 font-mono bg-black rounded px-2 py-1 tracking-wide">{tip.formula}</div>
-                    <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-gray-600" />
+                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-3 z-[9999] w-80 bg-wallstreet-800 border border-wallstreet-700 rounded-lg shadow-xl p-4 font-mono text-center pointer-events-none">
+                    <div className="text-[13px] text-wallstreet-text font-bold leading-snug mb-3 border-b border-wallstreet-700 pb-3">{tip.desc}</div>
+                    <div className="text-[10px] text-wallstreet-500 uppercase tracking-widest font-bold mb-1.5">Formula</div>
+                    <div className="text-[15px] font-bold tracking-wide" style={{ color: '#0A2351' }}>{tip.formula}</div>
+                    <div className="absolute top-full left-1/2 -translate-x-1/2 border-[5px] border-transparent border-t-wallstreet-700" />
                 </div>
             )}
         </span>
@@ -181,6 +182,7 @@ export const SectorAttributionCharts: React.FC<SectorAttributionChartsProps> = (
         `<strong class="${val >= 0 ? 'text-green-600' : 'text-red-600'}">${text}</strong>`;
 
     const fmt = (val: number) => val < 0 ? `(${Math.abs(val).toFixed(2)}%)` : `${val > 0 ? '+' : ''}${val.toFixed(2)}%`;
+    const fmtBench = (val: number | null) => val === null ? 'N/A' : fmt(val);
 
     const buildExplanationHTML = useCallback((d: any, chart: string): string => {
         const regionLabel = regionFilter === 'ALL' ? '' : regionFilter === 'US' ? 'US ' : 'Canadian ';
@@ -194,9 +196,11 @@ export const SectorAttributionCharts: React.FC<SectorAttributionChartsProps> = (
             if (!d.hasDirectHoldings) {
                 return `Your <strong>${d.displayName}</strong> exposure (${d.portfolioWeight.toFixed(1)}%) comes entirely from ETFs/index funds — no stock picks to evaluate, so selection effect is zero.`;
             }
-            const diff = d.portfolioReturn - d.benchmarkReturn;
-            const verb = diff >= 0 ? 'outperformed' : 'underperformed';
-            return `Your ${regionLabel}<strong>${d.displayName}</strong> picks returned ${colorSpan(d.portfolioReturn, fmt(d.portfolioReturn))} vs. ${benchLabel}'s <strong>${fmt(d.benchmarkReturn)}</strong> — your stock selection ${verb} by ${colorSpan(d.selectionEffect, Math.abs(diff).toFixed(2) + '%')}, contributing a ${colorSpan(d.selectionEffect, fmt(d.selectionEffect))} selection effect to the portfolio.`;
+            const diff = d.benchmarkReturn !== null ? d.portfolioReturn - d.benchmarkReturn : null;
+            const verb = diff === null ? 'performed' : diff >= 0 ? 'outperformed' : 'underperformed';
+            const benchReturnStr = d.benchmarkReturn !== null ? `<strong>${fmt(d.benchmarkReturn)}</strong>` : '<strong>N/A</strong>';
+            const diffStr = diff !== null ? ` by ${colorSpan(d.selectionEffect, Math.abs(diff).toFixed(2) + '%')}` : '';
+            return `Your ${regionLabel}<strong>${d.displayName}</strong> picks returned ${colorSpan(d.portfolioReturn, fmt(d.portfolioReturn))} vs. ${benchLabel}'s ${benchReturnStr} — your stock selection ${verb}${diffStr}, contributing a ${colorSpan(d.selectionEffect, fmt(d.selectionEffect))} selection effect to the portfolio.`;
         }
 
         if (chart === 'allocation') {
@@ -204,8 +208,9 @@ export const SectorAttributionCharts: React.FC<SectorAttributionChartsProps> = (
                 return `Allocation effect is N/A when benchmarking against a single broad index (${benchmarkMode}).`;
             }
             const overUnder = d.portfolioWeight > d.benchmarkWeight ? 'overweight' : 'underweight';
-            const sectorBeat = d.benchmarkReturn >= 0 ? 'outperformed' : 'underperformed';
-            return `Your portfolio holds <strong>${d.portfolioWeight.toFixed(1)}%</strong> in ${regionLabel}<strong>${d.displayName}</strong> vs. the benchmark's <strong class="text-blue-600">${d.benchmarkWeight.toFixed(1)}%</strong> — you are ${overUnder}. ${d.displayName} ${sectorBeat} (${benchLabel} ${fmt(d.benchmarkReturn)}), resulting in a ${colorSpan(d.allocationEffect, fmt(d.allocationEffect))} allocation effect.`;
+            const sectorBeat = d.benchmarkReturn === null ? 'performed' : d.benchmarkReturn >= 0 ? 'outperformed' : 'underperformed';
+            const benchRetStr = d.benchmarkReturn !== null ? `(${benchLabel} ${fmt(d.benchmarkReturn)})` : `(${benchLabel} N/A)`;
+            return `Your portfolio holds <strong>${d.portfolioWeight.toFixed(1)}%</strong> in ${regionLabel}<strong>${d.displayName}</strong> vs. the benchmark's <strong class="text-blue-600">${d.benchmarkWeight.toFixed(1)}%</strong> — you are ${overUnder}. ${d.displayName} ${sectorBeat} ${benchRetStr}, resulting in a ${colorSpan(d.allocationEffect, fmt(d.allocationEffect))} allocation effect.`;
         }
 
         if (!d.hasDirectHoldings) {
@@ -283,8 +288,8 @@ export const SectorAttributionCharts: React.FC<SectorAttributionChartsProps> = (
                 </div>
             </div>
         ) : (<>
-        <div className="flex h-full min-h-0 w-full">
-            <div className="grid grid-cols-3 gap-1 flex-1 min-h-0">
+        <div className="flex h-full min-h-0 w-full overflow-visible">
+            <div className="grid grid-cols-3 gap-1 flex-1 min-h-0 overflow-visible">
                 {/* SELECTION EFFECT */}
                 <div className="flex flex-col">
                     <div className="mb-4 w-full text-center">
@@ -295,7 +300,7 @@ export const SectorAttributionCharts: React.FC<SectorAttributionChartsProps> = (
                             {totals.selection < 0 ? `(${Math.abs(totals.selection).toFixed(2)}%)` : `+${totals.selection.toFixed(2)}%`}
                         </div>
                     </div>
-                    <div className="flex-1 w-full relative overflow-hidden">
+                    <div className="flex-1 w-full relative overflow-visible">
                         <ResponsiveContainer width="100%" height="100%">
                             <BarChart
                                 data={sectorAttributionData.data}
@@ -332,7 +337,7 @@ export const SectorAttributionCharts: React.FC<SectorAttributionChartsProps> = (
                                                     </div>
                                                     <div className="flex justify-between gap-4">
                                                         <span className="text-wallstreet-500">Bench Return ({d.benchmarkETF}):</span>
-                                                        <span className="font-bold">{d.benchmarkReturn < 0 ? `(${Math.abs(d.benchmarkReturn).toFixed(2)}%)` : `${d.benchmarkReturn.toFixed(2)}%`}</span>
+                                                        <span className={`font-bold ${d.benchmarkReturn === null ? 'text-wallstreet-500 italic' : ''}`}>{fmtBench(d.benchmarkReturn)}</span>
                                                     </div>
                                                     <div className="flex justify-between gap-4">
                                                         <span className="text-wallstreet-500">Benchmark Weight:</span>
@@ -381,10 +386,12 @@ export const SectorAttributionCharts: React.FC<SectorAttributionChartsProps> = (
                         <span className="text-[12px] font-mono font-black text-wallstreet-text uppercase tracking-wider inline-flex items-center">
                             Allocation<InfoBubble type="allocation" />
                         </span>
-                        {benchmarkMode === 'SECTOR' && (
+                        {benchmarkMode === 'SECTOR' ? (
                             <div className={`text-[11px] font-mono font-bold ${totals.allocation >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                                 {totals.allocation < 0 ? `(${Math.abs(totals.allocation).toFixed(2)}%)` : `+${totals.allocation.toFixed(2)}%`}
                             </div>
+                        ) : (
+                            <div className="text-[11px] font-mono font-bold text-wallstreet-500">N/A</div>
                         )}
                     </div>
                     {benchmarkMode !== 'SECTOR' ? (
@@ -395,7 +402,7 @@ export const SectorAttributionCharts: React.FC<SectorAttributionChartsProps> = (
                             </div>
                         </div>
                     ) : (
-                    <div className="flex-1 w-full relative overflow-hidden">
+                    <div className="flex-1 w-full relative overflow-visible">
                         <ResponsiveContainer width="100%" height="100%">
                             <BarChart
                                 data={sectorAttributionData.data}
@@ -429,7 +436,7 @@ export const SectorAttributionCharts: React.FC<SectorAttributionChartsProps> = (
                                                     </div>
                                                     <div className="flex justify-between gap-4">
                                                         <span className="text-wallstreet-500">Bench Return ({d.benchmarkETF}):</span>
-                                                        <span className="font-bold">{d.benchmarkReturn < 0 ? `(${Math.abs(d.benchmarkReturn).toFixed(2)}%)` : `${d.benchmarkReturn.toFixed(2)}%`}</span>
+                                                        <span className={`font-bold ${d.benchmarkReturn === null ? 'text-wallstreet-500 italic' : ''}`}>{fmtBench(d.benchmarkReturn)}</span>
                                                     </div>
                                                 </div>
                                             </div>
@@ -461,7 +468,7 @@ export const SectorAttributionCharts: React.FC<SectorAttributionChartsProps> = (
                             {totals.interaction < 0 ? `(${Math.abs(totals.interaction).toFixed(2)}%)` : `+${totals.interaction.toFixed(2)}%`}
                         </div>
                     </div>
-                    <div className="flex-1 w-full relative overflow-hidden">
+                    <div className="flex-1 w-full relative overflow-visible">
                         <ResponsiveContainer width="100%" height="100%">
                             <BarChart
                                 data={sectorAttributionData.data}

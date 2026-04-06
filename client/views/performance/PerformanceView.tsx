@@ -1,10 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { AlertCircle } from 'lucide-react';
-import type { BackcastResponse } from '../../types';
+import type { PortfolioWorkspaceAttribution } from '../../types';
 import { FreshnessBadge } from '../../components/ui/FreshnessBadge';
 import type { Period, PeriodMetrics } from './PerformanceKPIs';
 import { PerformanceCharts, type ChartView } from './PerformanceCharts';
 import {
+    buildCanonicalPerformanceSeries,
     buildChartDataFromSeries,
     computePeriodMetricsFromSeries,
     filterSeriesByPeriod,
@@ -12,55 +13,48 @@ import {
 
 export const PerformanceView: React.FC<{
     isActive?: boolean;
-    variants?: Record<string, BackcastResponse>;
     defaultBenchmark?: string;
-}> = ({ isActive, variants, defaultBenchmark = '75/25' }) => {
+    attributionData?: PortfolioWorkspaceAttribution | null;
+}> = ({ isActive, defaultBenchmark = '75/25', attributionData }) => {
     const [selectedPeriod, setSelectedPeriod] = useState<Period>('YTD');
     const [chartView, setChartView] = useState<ChartView>('absolute');
-    const [isFullscreen, setIsFullscreen] = useState(false);
     const [benchmark, setBenchmark] = useState<string>(defaultBenchmark);
 
-    const variantMap = variants ?? {};
-    const data = variantMap[benchmark] ?? null;
-    const loading = isActive !== false && !data && Object.keys(variantMap).length === 0;
-    const error = data?.error ?? (!loading && !data ? 'No performance workspace data available.' : null);
+    const availableBenchmarks = useMemo(
+        () => Object.keys(attributionData?.dailyPerformanceSeries ?? {}),
+        [attributionData],
+    );
+    const canonicalSeries = useMemo(() => buildCanonicalPerformanceSeries(attributionData, benchmark), [attributionData, benchmark]);
+    const loading = isActive !== false && !attributionData;
+    const error = attributionData?.performanceErrors?.[benchmark]
+        ?? (!loading && canonicalSeries.length === 0 ? 'No canonical performance series available.' : null);
 
     useEffect(() => {
-        const handleEsc = (e: KeyboardEvent) => {
-            if (e.key === 'Escape') setIsFullscreen(false);
-        };
-        if (isFullscreen) {
-            document.addEventListener('keydown', handleEsc);
-            return () => document.removeEventListener('keydown', handleEsc);
-        }
-    }, [isFullscreen]);
-
-    useEffect(() => {
-        if (variantMap[benchmark]) return;
-        if (variantMap[defaultBenchmark]) {
+        if (availableBenchmarks.includes(benchmark)) return;
+        if (availableBenchmarks.includes(defaultBenchmark)) {
             setBenchmark(defaultBenchmark);
             return;
         }
-        const firstAvailable = Object.keys(variantMap)[0];
+        const firstAvailable = availableBenchmarks[0];
         if (firstAvailable) setBenchmark(firstAvailable);
-    }, [benchmark, defaultBenchmark, variantMap]);
+    }, [availableBenchmarks, benchmark, defaultBenchmark]);
 
     const chartData = useMemo(() => {
         return buildChartDataFromSeries(
-            filterSeriesByPeriod(data?.series, selectedPeriod),
+            filterSeriesByPeriod(canonicalSeries, selectedPeriod),
             chartView,
         );
-    }, [chartView, data?.series, selectedPeriod]);
+    }, [canonicalSeries, chartView, selectedPeriod]);
 
     const filteredSeries = useMemo(() => {
-        return filterSeriesByPeriod(data?.series, selectedPeriod);
-    }, [data?.series, selectedPeriod]);
+        return filterSeriesByPeriod(canonicalSeries, selectedPeriod);
+    }, [canonicalSeries, selectedPeriod]);
 
     const periodMetrics = useMemo((): PeriodMetrics | null => {
         return computePeriodMetricsFromSeries(filteredSeries);
     }, [filteredSeries]);
 
-    if (loading && !data) {
+    if (loading) {
         return (
             <div className="max-w-[100vw] mx-auto p-4 md:p-6 overflow-x-hidden min-h-screen flex flex-col items-center justify-center select-none">
                 <style>{`
@@ -123,20 +117,17 @@ export const PerformanceView: React.FC<{
                 <div>
                     <div className="flex items-center gap-3">
                         <h1 className="text-3xl font-bold text-wallstreet-text tracking-tight">Performance Deep Dive</h1>
-                        <FreshnessBadge fetchedAt={data?.fetchedAt ?? null} />
+                        <FreshnessBadge fetchedAt={attributionData?.performanceFetchedAt ?? null} />
                     </div>
-                    <p className="text-wallstreet-500 mt-1">Portfolio backcast based on canonical workspace performance data.</p>
+                    <p className="text-wallstreet-500 mt-1">Canonical workspace performance series and relative return metrics.</p>
                 </div>
             </div>
             <div className="flex-1 min-h-0">
                 <PerformanceCharts
                     noWrapper
-                    data={data}
                     chartData={chartData}
                     chartView={chartView}
                     setChartView={setChartView}
-                    isFullscreen={isFullscreen}
-                    setIsFullscreen={setIsFullscreen}
                     selectedPeriod={selectedPeriod}
                     setSelectedPeriod={setSelectedPeriod}
                     periodMetrics={periodMetrics}

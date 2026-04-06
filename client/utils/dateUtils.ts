@@ -15,6 +15,8 @@ export const getDateRangeForPeriod = (period: Period): { start: Date; end?: Date
             return { start: new Date(2024, 11, 31), end: new Date(2025, 11, 31) };
         case 'YTD':
             return { start: new Date(now.getFullYear() - 1, 11, 31) };
+        case 'Q1':
+            return { start: new Date(now.getFullYear() - 1, 11, 31), end: new Date(now.getFullYear(), 2, 31) };
         case '3M':
             return { start: new Date(new Date().setMonth(now.getMonth() - 3)) };
         case '6M':

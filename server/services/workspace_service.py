@@ -34,17 +34,17 @@ from services.attribution_math import (
     geometric_chain,
     price_return,
 )
-from services.backcast_service import (
+from services.performance_service import (
     aggregate_period_weights,
     build_benchmark_returns,
     build_period_weighted_portfolio_returns,
-    compute_backcast_metrics,
+    compute_performance_metrics,
     compute_beta,
     compute_annualized_vol,
-    compute_rolling_metrics,
     fetch_returns_df,
     is_cash_ticker,
 )
+from services.sector_history_service import load_sector_history_cache as load_shared_sector_history_cache
 from services.period_normalizer import normalize_portfolio_periods
 from services.path_utils import resolve_storage_path
 from services.yfinance_setup import configure_yfinance_cache
@@ -463,14 +463,7 @@ def _load_index_exposure_sectors() -> list[dict[str, float | str]]:
 
 
 def _load_sector_history_cache() -> dict[str, Any]:
-    raw = _read_storage_json("data/sector_history_cache.json", {})
-    if not isinstance(raw, dict):
-        return {"US": {}, "CA": {}, "OVERALL": {}}
-    return {
-        "US": raw.get("US", {}) if isinstance(raw.get("US"), dict) else {},
-        "CA": raw.get("CA", {}) if isinstance(raw.get("CA"), dict) else {},
-        "OVERALL": raw.get("OVERALL", {}) if isinstance(raw.get("OVERALL"), dict) else {},
-    }
+    return load_shared_sector_history_cache()
 
 
 def _canonicalize_sector_name(raw_sector: str | None) -> str | None:
@@ -1042,8 +1035,8 @@ def _build_waterfall_layout(
         ),
     )
     top_rows = contributors[:10]
-    top_tickers = {str(row["ticker"]) for row in top_rows}
-    others_contribution = sum(float(row["contribution"]) for row in contributors if str(row["ticker"]) not in top_tickers)
+    top_contribution_total = sum(float(row["contribution"]) for row in top_rows)
+    others_contribution = float(portfolio_return) - top_contribution_total
 
     bars: list[dict[str, Any]] = []
     running_total = 0.0
@@ -1097,6 +1090,130 @@ def _build_waterfall_layout(
         "domain": [min_value - buffer, max_value + buffer],
         "portfolioReturn": float(portfolio_return),
     }
+
+
+def _build_canonical_waterfall_for_range(
+    period_attribution: list[dict[str, Any]],
+    performance_series: list[dict[str, Any]],
+    selected_month_keys: list[tuple[int, int]],
+    ticker_flags: dict[str, dict[str, bool]],
+) -> dict[str, Any]:
+    """Build a waterfall layout from canonical periodAttribution + performance series.
+
+    Uses the same canonical yfinance-based returns as the Relative Performance tab so that
+    the Contribution Waterfall Total bar matches the Performance view's total return exactly.
+    """
+    from collections import defaultdict
+    import calendar
+
+    month_set = set(selected_month_keys)
+
+    # Group period_attribution entries by ticker, filtered to the requested months
+    ticker_periods: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for entry in period_attribution:
+        if entry.get("isCash"):
+            continue
+        try:
+            dt = pd.Timestamp(entry["date"])
+            if (dt.year, dt.month) in month_set:
+                ticker_periods[entry["ticker"]].append(entry)
+        except (KeyError, ValueError, TypeError):
+            continue
+
+    # Aggregate per-ticker across periods using forward-compounded contribution
+    summary_rows: list[dict[str, Any]] = []
+    for ticker, entries in ticker_periods.items():
+        flags = ticker_flags.get(ticker, {})
+        sorted_entries = sorted(entries, key=lambda e: e["date"])
+        # weight is %-form, returnPct is decimal — matches forward_compounded_contribution convention
+        pairs = [(e["weight"], e["returnPct"]) for e in sorted_entries]
+        contrib = forward_compounded_contribution(pairs)
+        period_return = float(geometric_chain([e["returnPct"] for e in sorted_entries]))
+        latest = sorted_entries[-1]
+        summary_rows.append({
+            "ticker": ticker,
+            "contribution": contrib,
+            "returnPct": period_return,
+            "weight": latest["weight"],
+            "latestWeight": latest["weight"],
+            "isCash": False,
+            "isEtf": bool(flags.get("isEtf")),
+            "isMutualFund": bool(flags.get("isMutualFund")),
+        })
+
+    # Canonical portfolio return derived from the performance series for this date range
+    portfolio_return: float
+    if selected_month_keys and performance_series:
+        first_year, first_month = min(selected_month_keys)
+        last_year, last_month = max(selected_month_keys)
+        last_day = calendar.monthrange(last_year, last_month)[1]
+        range_start = f"{first_year}-{first_month:02d}-01"
+        range_end = f"{last_year}-{last_month:02d}-{last_day:02d}"
+        filtered_series = [p for p in performance_series if range_start <= p["date"] <= range_end]
+        if len(filtered_series) >= 2:
+            start_val = filtered_series[0]["portfolio"]
+            end_val = filtered_series[-1]["portfolio"]
+            portfolio_return = (end_val / start_val - 1.0) * 100.0 if start_val else 0.0
+        else:
+            portfolio_return = sum(r["contribution"] for r in summary_rows)
+    else:
+        portfolio_return = sum(r["contribution"] for r in summary_rows)
+
+    return _build_waterfall_layout(summary_rows, portfolio_return)
+
+
+def _patch_overview_waterfall_with_canonical(
+    overview_layouts: dict[str, Any],
+    period_attribution: list[dict[str, Any]],
+    performance_series: list[dict[str, Any]],
+    ticker_flags: dict[str, dict[str, bool]],
+) -> None:
+    """Replace waterfall data in overview_layouts with canonical performance data (mutates in place).
+
+    Ensures the Contribution Waterfall Total bar matches the Performance tab's return exactly,
+    since both now use the same yfinance auto_adjust=True price series.
+    """
+    if not period_attribution or not performance_series:
+        return
+
+    for year_str, year_layouts in overview_layouts.items():
+        try:
+            year = int(year_str)
+        except (ValueError, TypeError):
+            continue
+
+        for range_name, range_layout in year_layouts.items():
+            if not isinstance(range_layout, dict) or "waterfall" not in range_layout:
+                continue
+
+            if range_name == "YTD":
+                months_in_series = {
+                    pd.Timestamp(p["date"]).month
+                    for p in performance_series
+                    if p["date"].startswith(str(year))
+                }
+                selected_month_keys = sorted((year, m) for m in months_in_series)
+            else:
+                quarter_months = OVERVIEW_RANGE_MONTHS.get(range_name, set())
+                selected_month_keys = sorted(
+                    (year, m) for m in quarter_months
+                    if any(p["date"].startswith(f"{year}-{m:02d}") for p in performance_series)
+                )
+
+            if not selected_month_keys:
+                continue
+
+            try:
+                range_layout["waterfall"] = _build_canonical_waterfall_for_range(
+                    period_attribution=period_attribution,
+                    performance_series=performance_series,
+                    selected_month_keys=selected_month_keys,
+                    ticker_flags=ticker_flags,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "canonical waterfall patch failed for %s/%s: %s", year_str, range_name, exc
+                )
 
 
 def _build_sector_attribution_layout(
@@ -1274,7 +1391,8 @@ def _build_sector_attribution_layout(
     for sector in FIXED_SECTOR_ORDER:
         group = sector_groups.get(sector, {"stocks": [], "sumWeight": 0.0, "stockOnlyWeight": 0.0, "stockOnlyWeightedReturn": 0.0})
         benchmark_weight = float(benchmark_weights.get(sector, 0.0))
-        benchmark_return = float(effective_benchmark_returns.get(sector, 0.0))
+        raw_benchmark_return = effective_benchmark_returns.get(sector)  # None = no data, 0.0 = truly flat
+        benchmark_return = float(raw_benchmark_return) if raw_benchmark_return is not None else 0.0
         if group["sumWeight"] <= 0.001 and benchmark_weight <= 0:
             continue
 
@@ -1304,7 +1422,7 @@ def _build_sector_attribution_layout(
                 "selectionEffect": selection_effect,
                 "allocationEffect": allocation_effect,
                 "interactionEffect": interaction_effect,
-                "benchmarkReturn": benchmark_return,
+                "benchmarkReturn": benchmark_return if raw_benchmark_return is not None else None,
                 "benchmarkWeight": benchmark_weight,
                 "portfolioWeight": float(group["sumWeight"]),
                 "portfolioReturn": stock_return if has_direct_holdings else 0.0,
@@ -1572,7 +1690,7 @@ def _build_performance_section(
     normalized_items = [_SimpleItem(item) for item in holdings_items]
     period_weights = aggregate_period_weights(normalized_items, nav_tickers=nav_tickers)
     if not period_weights:
-        return {"defaultBenchmark": "75/25", "variants": {}, "rollingMetrics": {}}
+        return {"defaultBenchmark": "75/25", "variants": {}}
 
     all_tickers = list({ticker for _, weights, _ in period_weights for ticker in weights if not is_cash_ticker(ticker)})
     all_mutual_fund_tickers = {ticker for _, _, mf_tickers in period_weights for ticker in mf_tickers}
@@ -1601,22 +1719,17 @@ def _build_performance_section(
                 name: {"metrics": {}, "series": [], "missingTickers": sorted(all_tickers), "fetchedAt": timestamp, "error": f"Performance workspace unavailable: {exc}"}
                 for name in benchmark_names
             },
-            "rollingMetrics": {
-                name: {"windows": {21: [], 63: [], 126: []}, "error": f"Performance workspace unavailable: {exc}"}
-                for name in benchmark_names
-            },
         }
     missing = [ticker for ticker in sorted(set(missing_tickers + extra_missing)) if not is_cash_ticker(ticker)]
 
     variants: dict[str, Any] = {}
-    rolling_metrics: dict[str, Any] = {}
     for benchmark_name in benchmark_names:
         benchmark_returns = build_benchmark_returns(returns_df, benchmark=benchmark_name)
-        variant = compute_backcast_metrics(portfolio_returns, benchmark_returns)
+        variant = compute_performance_metrics(portfolio_returns, benchmark_returns)
         variant["missingTickers"] = missing
         variant["fetchedAt"] = timestamp
         if benchmark_name == "75/25":
-            from services.backcast_service import compute_period_attribution
+            from services.performance_service import compute_period_attribution
 
             variant["periodAttribution"] = compute_period_attribution(
                 returns_df,
@@ -1624,12 +1737,10 @@ def _build_performance_section(
                 nav_tickers=nav_tickers,
             )
         variants[benchmark_name] = variant
-        rolling_metrics[benchmark_name] = compute_rolling_metrics(portfolio_returns, benchmark_returns)
 
     return {
         "defaultBenchmark": "75/25",
         "variants": variants,
-        "rollingMetrics": rolling_metrics,
     }
 
 
@@ -1668,7 +1779,7 @@ def _build_risk_section(
             "fetchedAt": timestamp,
         }
 
-    from services.backcast_service import aggregate_weights
+    from services.performance_service import aggregate_weights
 
     weights_by_ticker, mutual_fund_tickers = aggregate_weights(items, nav_tickers=nav_tickers)
     tradeable_tickers = [ticker for ticker in weights_by_ticker if not is_cash_ticker(ticker)]
@@ -1824,14 +1935,14 @@ def _build_risk_section(
         corr_tickers = [position["ticker"] for position in sorted_positions]
         raw_corr_cols = {}
         for ticker in corr_tickers:
-            if ticker not in raw_returns_df.columns:
+            if ticker not in returns_df.columns:
                 continue
             is_mf = ticker in (mutual_fund_tickers | nav_tickers)
-            if needs_fx_adjustment(ticker, is_mutual_fund=is_mf) and "USDCAD=X" in raw_returns_df.columns:
-                fx_ret = raw_returns_df["USDCAD=X"]
-                raw_corr_cols[ticker] = (1 + raw_returns_df[ticker]) * (1 + fx_ret) - 1
+            if needs_fx_adjustment(ticker, is_mutual_fund=is_mf) and "USDCAD=X" in returns_df.columns:
+                fx_ret = returns_df["USDCAD=X"]
+                raw_corr_cols[ticker] = (1 + returns_df[ticker]) * (1 + fx_ret) - 1
             else:
-                raw_corr_cols[ticker] = raw_returns_df[ticker]
+                raw_corr_cols[ticker] = returns_df[ticker]
 
         corr_returns = pd.DataFrame(raw_corr_cols).iloc[1:]
         ewma_cov_panel = corr_returns.ewm(halflife=63, min_periods=21).cov()
@@ -2000,6 +2111,33 @@ def build_portfolio_workspace(items: list[Any]) -> dict[str, Any]:
                 prefetched_returns_df=_shared_returns_df,
             )
 
+        # Patch the attribution waterfall to use the same canonical yfinance data as the
+        # Relative Performance tab, so the Waterfall Total matches the Performance view.
+        _patch_overview_waterfall_with_canonical(
+            overview_layouts,
+            performance.get("variants", {}).get("75/25", {}).get("periodAttribution", []),
+            performance.get("variants", {}).get("75/25", {}).get("series", []),
+            input_state["ticker_flags"],
+        )
+
+        daily_performance_series = {
+            name: list(variant.get("series", []))
+            for name, variant in performance.get("variants", {}).items()
+        }
+        performance_errors = {
+            name: variant.get("error")
+            for name, variant in performance.get("variants", {}).items()
+            if variant.get("error")
+        }
+        performance_fetched_at = next(
+            (
+                variant.get("fetchedAt")
+                for variant in performance.get("variants", {}).values()
+                if variant.get("fetchedAt")
+            ),
+            None,
+        )
+
         with _timed_step("build_risk_section", holdings=len(latest_items)):
             risk = _build_risk_section(latest_items, set(nav_dict.keys()), nav_dict, prefetched_returns_df=_shared_returns_df)
 
@@ -2049,6 +2187,9 @@ def build_portfolio_workspace(items: list[Any]) -> dict[str, Any]:
             "portfolioPeriodReturns": portfolio_period_returns,
             "portfolioMonthlyReturns": portfolio_monthly_returns,
             "portfolioYtdReturn": portfolio_ytd_return,
+            "dailyPerformanceSeries": daily_performance_series,
+            "performanceFetchedAt": performance_fetched_at,
+            "performanceErrors": performance_errors,
         },
         "performance": performance,
         "risk": risk,

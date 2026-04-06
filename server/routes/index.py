@@ -1,4 +1,4 @@
-"""Index data routes: /index-exposure, /index-history, /currency-performance, /sector-history"""
+﻿"""Index data routes: /index-exposure, /index-history, /currency-performance, /sector-history"""
 
 import datetime
 import json
@@ -11,6 +11,7 @@ from fastapi import APIRouter
 
 from cache_manager import load_cache, save_cache
 from market_data import extract_download_price_frame, get_ticker_performance
+from services.sector_history_service import load_sector_history_cache
 from services.yfinance_setup import configure_yfinance_cache
 
 configure_yfinance_cache()
@@ -273,97 +274,5 @@ def get_sector_history():
     Fetch historical data for major sector ETFs to use as benchmarks.
     Returns nested structure: {"US": {sector: [{date, value}]}, "CA": {sector: [{date, value}]}}
     """
-    cache_file = Path("data/sector_history_cache.json")
+    return load_sector_history_cache()
 
-    if cache_file.exists():
-        try:
-            mtime = datetime.datetime.fromtimestamp(cache_file.stat().st_mtime)
-            if datetime.datetime.now() - mtime < datetime.timedelta(hours=1):
-                with open(cache_file, "r") as f:
-                    cached = json.load(f)
-                    if "US" in cached and "OVERALL" in cached:
-                        return cached
-        except Exception as e:
-            logger.warning(f"Failed to read sector history cache: {e}")
-
-    # US Select Sector SPDR ETFs
-    us_sector_map = {
-        "Information Technology": "XLK",
-        "Financials": "XLF",
-        "Health Care": "XLV",
-        "Consumer Discretionary": "XLY",
-        "Communication Services": "XLC",
-        "Industrials": "XLI",
-        "Consumer Staples": "XLP",
-        "Energy": "XLE",
-        "Utilities": "XLU",
-        "Real Estate": "XLRE",
-        "Materials": "XLB",
-    }
-
-    # Canadian iShares / BMO sector ETFs (TSX-listed)
-    # Sectors without a pure Canadian ETF fall back to TSX (XIC.TO)
-    ca_sector_map = {
-        "Financials": "XFN.TO",
-        "Energy": "XEG.TO",
-        "Materials": "XMA.TO",
-        "Industrials": "ZIN.TO",
-        "Information Technology": "XIT.TO",
-        "Utilities": "XUT.TO",
-        "Real Estate": "XRE.TO",
-        "Consumer Staples": "XST.TO",
-        "Consumer Discretionary": "XCD.TO",
-        "Health Care": "XIC.TO",           # No pure CA healthcare ETF → TSX fallback
-        "Communication Services": "XIC.TO", # No CA comm services ETF → TSX fallback
-    }
-
-    # Overall market benchmarks for broad index comparison
-    overall_map = {
-        "SP500": "SPY",
-        "TSX": "XIC.TO",
-    }
-
-    all_tickers = list(set(list(us_sector_map.values()) + list(ca_sector_map.values()) + list(overall_map.values())))
-    logger.info(f"Fetching fresh sector history for {len(all_tickers)} tickers (US + CA)...")
-
-    try:
-        data = yf.download(all_tickers, period="5y", interval="1d", progress=False, auto_adjust=True)
-        if data.empty:
-            return {"US": {}, "CA": {}}
-
-        closes = extract_download_price_frame(data, all_tickers)
-
-        closes = closes.ffill().bfill()
-        dates = closes.index.strftime("%Y-%m-%d").tolist()
-
-        def build_region_data(sector_map):
-            region_data = {}
-            for sector, ticker in sector_map.items():
-                if ticker in closes.columns:
-                    series = closes[ticker].tolist()
-                    points = [
-                        {"date": d, "value": v}
-                        for d, v in zip(dates, series)
-                        if pd.notna(v)
-                    ]
-                    if points:
-                        region_data[sector] = points
-            return region_data
-
-        result_data = {
-            "US": build_region_data(us_sector_map),
-            "CA": build_region_data(ca_sector_map),
-            "OVERALL": build_region_data(overall_map),
-        }
-
-        try:
-            cache_file.parent.mkdir(parents=True, exist_ok=True)
-            with open(cache_file, "w") as f:
-                json.dump(result_data, f)
-        except Exception as e:
-            logger.error(f"Failed to write sector history cache: {e}")
-
-        return result_data
-    except Exception as e:
-        logger.error(f"Error fetching sector history: {e}")
-        return {"US": {}, "CA": {}}

@@ -9,6 +9,7 @@ import yfinance as yf
 from dateutil.relativedelta import relativedelta
 from fastapi import APIRouter
 from market_data import extract_history_price_series
+from services.yfinance_parallel import parallel_fetch
 from services.yfinance_setup import configure_yfinance_cache
 
 configure_yfinance_cache()
@@ -51,22 +52,21 @@ async def fetch_sectors(request: dict):
 
     if missing_on_server:
         try:
-            tickers_obj = yf.Tickers(" ".join(missing_on_server))
+            def _fetch_sector(ticker: str) -> str | None:
+                info = yf.Ticker(ticker).info
+                sector = info.get("sector")
+                if not sector:
+                    quote_type = info.get("quoteType", "").upper()
+                    if quote_type in ["ETF", "MUTUALFUND"]:
+                        sector = "Mixed"
+                return sector
 
-            for ticker in missing_on_server:
-                try:
-                    info = tickers_obj.tickers[ticker].info
-                    sector = info.get("sector")
-
-                    if not sector:
-                        quote_type = info.get("quoteType", "").upper()
-                        if quote_type in ["ETF", "MUTUALFUND"]:
-                            sector = "Mixed"
-
-                    if sector:
-                        server_cache[ticker] = sector
-                except Exception as e:
-                    logger.warning(f"Failed to fetch info for {ticker}: {e}")
+            sector_results, failures = parallel_fetch(missing_on_server, _fetch_sector, max_workers=8)
+            for ticker, sector in sector_results.items():
+                if sector:
+                    server_cache[ticker] = sector
+            for ticker, exc in failures.items():
+                logger.warning(f"Failed to fetch info for {ticker}: {exc}")
 
             try:
                 cache_file.parent.mkdir(parents=True, exist_ok=True)
@@ -91,48 +91,48 @@ async def fetch_performance(request: dict):
     results = {}
 
     try:
-        tickers_obj = yf.Tickers(" ".join(unique_tickers))
-
         today = datetime.date.today()
 
-        for ticker in unique_tickers:
-            try:
-                hist = tickers_obj.tickers[ticker].history(period="1y", auto_adjust=True)
-                price_series = extract_history_price_series(hist).dropna()
+        def _fetch_performance(ticker: str) -> dict[str, float | None] | None:
+            hist = yf.Ticker(ticker).history(period="1y", auto_adjust=True)
+            price_series = extract_history_price_series(hist).dropna()
 
-                if hist.empty or price_series.empty:
-                    continue
+            if hist.empty or price_series.empty:
+                return None
 
-                current_price = float(price_series.iloc[-1])
+            current_price = float(price_series.iloc[-1])
 
-                def get_pct_change(days_ago=None, months_ago=None, start_year=False):
+            def get_pct_change(days_ago=None, months_ago=None, start_year=False):
+                if start_year:
+                    start_date = datetime.date(today.year, 1, 1)
+                elif months_ago:
+                    start_date = today - relativedelta(months=months_ago)
+                else:
+                    return 0.0
+
+                target_idx = price_series.index[price_series.index.date <= start_date]
+                if target_idx.empty:
                     if start_year:
-                        start_date = datetime.date(today.year, 1, 1)
-                    elif months_ago:
-                        start_date = today - relativedelta(months=months_ago)
-                    else:
-                        return 0.0
+                        first_price = float(price_series.iloc[0])
+                        return (current_price - first_price) / first_price
+                    return None
 
-                    target_idx = price_series.index[price_series.index.date <= start_date]
-                    if target_idx.empty:
-                        if start_year:
-                            first_price = float(price_series.iloc[0])
-                            return (current_price - first_price) / first_price
-                        return None
+                start_price = float(price_series.loc[target_idx[-1]])
+                return (current_price - start_price) / start_price
 
-                    start_price = float(price_series.loc[target_idx[-1]])
-                    return (current_price - start_price) / start_price
+            return {
+                "YTD": get_pct_change(start_year=True),
+                "1Y": get_pct_change(months_ago=12),
+                "6M": get_pct_change(months_ago=6),
+                "3M": get_pct_change(months_ago=3),
+            }
 
-                perf = {}
-                perf["YTD"] = get_pct_change(start_year=True)
-                perf["1Y"] = get_pct_change(months_ago=12)
-                perf["6M"] = get_pct_change(months_ago=6)
-                perf["3M"] = get_pct_change(months_ago=3)
-
+        perf_results, failures = parallel_fetch(unique_tickers, _fetch_performance, max_workers=8)
+        for ticker, perf in perf_results.items():
+            if perf is not None:
                 results[ticker] = perf
-
-            except Exception as e:
-                logger.warning(f"Failed to fetch performance for {ticker}: {e}")
+        for ticker, exc in failures.items():
+            logger.warning(f"Failed to fetch performance for {ticker}: {exc}")
 
         return results
 
@@ -185,30 +185,22 @@ async def fetch_betas(request: dict):
 
     if to_fetch:
         try:
-            tickers_obj = yf.Tickers(" ".join(to_fetch))
+            def _fetch_beta(ticker: str) -> float:
+                info = yf.Ticker(ticker).info
+                quote_type = info.get("quoteType", "").upper()
+                if quote_type in ["ETF", "MUTUALFUND"]:
+                    return 1.0
+                beta = info.get("beta")
+                return beta if beta is not None else 1.0
 
-            for ticker in to_fetch:
-                try:
-                    found_ticker = tickers_obj.tickers.get(ticker)
-                    if not found_ticker:
-                        found_ticker = yf.Ticker(ticker)
-
-                    info = found_ticker.info
-
-                    quote_type = info.get("quoteType", "").upper()
-                    if quote_type in ["ETF", "MUTUALFUND"]:
-                        beta_value = 1.0
-                    else:
-                        beta = info.get("beta")
-                        beta_value = beta if beta is not None else 1.0
-
-                    results[ticker] = beta_value
-                    server_cache[ticker] = beta_value
-
-                except Exception as e:
-                    logger.warning(f"Failed to fetch beta for {ticker}: {e}")
-                    results[ticker] = 1.0
-                    server_cache[ticker] = 1.0
+            beta_results, failures = parallel_fetch(to_fetch, _fetch_beta, max_workers=8)
+            for ticker, beta_value in beta_results.items():
+                results[ticker] = beta_value
+                server_cache[ticker] = beta_value
+            for ticker, exc in failures.items():
+                logger.warning(f"Failed to fetch beta for {ticker}: {exc}")
+                results[ticker] = 1.0
+                server_cache[ticker] = 1.0
 
         except Exception as e:
             logger.error(f"Error fetching betas: {e}")
@@ -239,67 +231,65 @@ async def fetch_dividends(request: dict):
         try:
             with open(cache_file, "r") as f:
                 server_cache = json.load(f)
+            server_cache = {str(k).upper(): v for k, v in server_cache.items()}
         except Exception as e:
             logger.warning(f"Failed to load dividend cache file: {e}")
 
     to_fetch = []
 
     for ticker in unique_tickers:
-        if ticker in server_cache:
-            results[ticker] = server_cache[ticker]
+        ticker_key = ticker.upper()
+
+        if ticker_key in server_cache:
+            results[ticker_key] = server_cache[ticker_key]
             continue
 
-        t_upper = ticker.upper()
-        if "CASH" in t_upper or "$" in t_upper:
-            results[ticker] = 0.0
-            server_cache[ticker] = 0.0
+        if "CASH" in ticker_key or "$" in ticker_key:
+            results[ticker_key] = 0.0
+            server_cache[ticker_key] = 0.0
         else:
-            to_fetch.append(ticker)
+            to_fetch.append(ticker_key)
 
     if to_fetch:
         try:
-            tickers_obj = yf.Tickers(" ".join(to_fetch))
+            def _fetch_dividend(ticker: str) -> float:
+                info = yf.Ticker(ticker).info
 
-            for ticker in to_fetch:
-                try:
-                    found_ticker = tickers_obj.tickers.get(ticker)
-                    if not found_ticker:
-                        found_ticker = yf.Ticker(ticker)
+                # yfinance 1.2.0: dividendYield is already a percentage value
+                # (e.g. 0.41 = 0.41%, 5.15 = 5.15%) - use as-is.
+                # trailingAnnualDividendYield is a decimal fraction
+                # (e.g. 0.00408 = 0.41%) - multiply by 100.
+                def pct_from_fraction(val):
+                    if val is None:
+                        return 0.0
+                    try:
+                        v = float(val)
+                        return max(0.0, v * 100.0)
+                    except (ValueError, TypeError):
+                        return 0.0
 
-                    info = found_ticker.info
-
-                    # yfinance 1.2.0: dividendYield is already a percentage value
-                    # (e.g. 0.41 = 0.41%, 5.15 = 5.15%) — use as-is.
-                    # trailingAnnualDividendYield is a decimal fraction
-                    # (e.g. 0.00408 = 0.41%) — multiply by 100.
-                    def pct_from_fraction(val):
-                        if val is None:
-                            return 0.0
-                        try:
-                            v = float(val)
-                            return max(0.0, v * 100.0)
-                        except (ValueError, TypeError):
-                            return 0.0
-
-                    raw = info.get("dividendYield")
-                    if raw is not None:
-                        try:
-                            div_yield_pct = max(0.0, float(raw))
-                        except (ValueError, TypeError):
-                            div_yield_pct = 0.0
-                    else:
+                raw = info.get("dividendYield")
+                if raw is not None:
+                    try:
+                        div_yield_pct = max(0.0, float(raw))
+                    except (ValueError, TypeError):
                         div_yield_pct = 0.0
+                else:
+                    div_yield_pct = 0.0
 
-                    if div_yield_pct == 0:
-                        div_yield_pct = pct_from_fraction(info.get("trailingAnnualDividendYield"))
+                if div_yield_pct == 0:
+                    div_yield_pct = pct_from_fraction(info.get("trailingAnnualDividendYield"))
 
-                    results[ticker] = div_yield_pct
-                    server_cache[ticker] = div_yield_pct
+                return div_yield_pct
 
-                except Exception as e:
-                    logger.warning(f"Failed to fetch dividend for {ticker}: {e}")
-                    results[ticker] = 0.0
-                    server_cache[ticker] = 0.0
+            dividend_results, failures = parallel_fetch(to_fetch, _fetch_dividend, max_workers=8)
+            for ticker, dividend_yield in dividend_results.items():
+                results[ticker] = dividend_yield
+                server_cache[ticker] = dividend_yield
+            for ticker, exc in failures.items():
+                logger.warning(f"Failed to fetch dividend for {ticker}: {exc}")
+                results[ticker] = 0.0
+                server_cache[ticker] = 0.0
 
         except Exception as e:
             logger.error(f"Error fetching dividends: {e}")

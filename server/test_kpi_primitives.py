@@ -1,10 +1,10 @@
 """
-Unit tests for KPI primitives in backcast_service.
+Unit tests for KPI primitives in performance_service.
 
 Verifies:
 1. compute_beta / compute_annualized_vol / compute_sharpe / compute_sortino
    produce correct values on known inputs.
-2. compute_backcast_metrics and compute_rolling_metrics (final window)
+2. compute_performance_metrics and compute_rolling_metrics (final window)
    return identical beta and vol values — no divergence between endpoints.
 3. Edge cases: zero variance, constant returns, short series.
 """
@@ -17,12 +17,12 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
-from services.backcast_service import (
+from services.performance_service import (
     compute_beta,
     compute_annualized_vol,
     compute_sharpe,
     compute_sortino,
-    compute_backcast_metrics,
+    compute_performance_metrics,
     compute_rolling_metrics,
 )
 
@@ -128,12 +128,12 @@ class TestComputeSortino:
 
 
 # ---------------------------------------------------------------------------
-# Cross-endpoint consistency: backcast vs rolling (final window)
+# Cross-endpoint consistency: performance vs rolling (final window)
 # ---------------------------------------------------------------------------
 
 class TestEndpointConsistency:
     """
-    compute_backcast_metrics and the final record of compute_rolling_metrics
+    compute_performance_metrics and the final record of compute_rolling_metrics
     must return the same beta and vol values (within floating-point tolerance).
     They operate on the same return series so results must be identical.
     """
@@ -144,45 +144,45 @@ class TestEndpointConsistency:
         ptf = _make_series(1.1 * bmk.values + rng.normal(0, 0.002, n))
         return ptf, bmk
 
-    def test_beta_matches_between_backcast_and_rolling(self):
+    def test_beta_matches_between_performance_and_rolling(self):
         ptf, bmk = self._build_returns()
-        backcast = compute_backcast_metrics(ptf, bmk)
+        performance = compute_performance_metrics(ptf, bmk)
         rolling  = compute_rolling_metrics(ptf, bmk, windows=[252])
 
-        backcast_beta = backcast["metrics"]["beta"]
+        performance_beta = performance["metrics"]["beta"]
 
         # Final record of the 252-day rolling window covers the full series
         last_record = rolling["windows"][252][-1]
         rolling_beta = last_record["portfolio"]["beta"]
 
-        assert abs(backcast_beta - rolling_beta) < 0.02, (
-            f"Beta mismatch: backcast={backcast_beta}, rolling={rolling_beta}"
+        assert abs(performance_beta - rolling_beta) < 0.02, (
+            f"Beta mismatch: performance={performance_beta}, rolling={rolling_beta}"
         )
 
-    def test_vol_matches_between_backcast_and_rolling(self):
+    def test_vol_matches_between_performance_and_rolling(self):
         ptf, bmk = self._build_returns()
-        backcast = compute_backcast_metrics(ptf, bmk)
+        performance = compute_performance_metrics(ptf, bmk)
         rolling  = compute_rolling_metrics(ptf, bmk, windows=[252])
 
-        backcast_vol = backcast["metrics"]["volatility"]
+        performance_vol = performance["metrics"]["volatility"]
         last_record  = rolling["windows"][252][-1]
         rolling_vol  = last_record["portfolio"]["vol"]
 
-        assert abs(backcast_vol - rolling_vol) < 0.5, (
-            f"Vol mismatch: backcast={backcast_vol}%, rolling={rolling_vol}%"
+        assert abs(performance_vol - rolling_vol) < 0.5, (
+            f"Vol mismatch: performance={performance_vol}%, rolling={rolling_vol}%"
         )
 
     def test_benchmark_vol_matches(self):
         ptf, bmk = self._build_returns()
-        backcast = compute_backcast_metrics(ptf, bmk)
+        performance = compute_performance_metrics(ptf, bmk)
         rolling  = compute_rolling_metrics(ptf, bmk, windows=[252])
 
-        backcast_bmk_vol = backcast["metrics"]["benchmarkVolatility"]
+        performance_bmk_vol = performance["metrics"]["benchmarkVolatility"]
         last_record      = rolling["windows"][252][-1]
         rolling_bmk_vol  = last_record["benchmark"]["vol"]
 
-        assert abs(backcast_bmk_vol - rolling_bmk_vol) < 0.5, (
-            f"Benchmark vol mismatch: backcast={backcast_bmk_vol}%, rolling={rolling_bmk_vol}%"
+        assert abs(performance_bmk_vol - rolling_bmk_vol) < 0.5, (
+            f"Benchmark vol mismatch: performance={performance_bmk_vol}%, rolling={rolling_bmk_vol}%"
         )
 
 
