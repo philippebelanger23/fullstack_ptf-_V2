@@ -3,7 +3,7 @@ import { TrendingUp, Award, Activity, ShieldAlert, BarChart3, Target } from 'luc
 import { MetricCard } from '../../components/ui/MetricCard';
 import { formatPercent } from '../../utils/formatters';
 
-export type Period = 'YTD' | 'Q1' | '3M' | '6M' | '1Y' | '2025';
+export type Period = 'YTD' | 'Q1' | 'Q2' | 'Q3' | 'Q4' | '3M' | '6M' | '1Y' | '2025';
 
 export interface PeriodMetrics {
     totalReturn: number;

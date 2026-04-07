@@ -2,6 +2,53 @@ import type { PerformanceSeriesPoint, PortfolioWorkspaceAttribution } from '../t
 import type { Period, PeriodMetrics } from '../views/performance/PerformanceKPIs';
 import { getDateRangeForPeriod } from '../utils/dateUtils';
 
+// Builds the Relative tab chart from canonical monthly returns — matches attribution compounding exactly.
+export const buildCanonicalRelativeChartData = (
+    attribution: PortfolioWorkspaceAttribution | null | undefined,
+    benchmark: string,
+    selectedPeriod: Period,
+): { date: string; 'Excess Return': number }[] => {
+    if (!attribution?.monthlyPeriods?.length || !attribution.portfolioMonthlyReturns) return [];
+
+    const benchmarkMonthlyRates = attribution.benchmarkMonthlyReturns?.[benchmark];
+    if (!benchmarkMonthlyRates?.length) return [];
+
+    const { start, end } = getDateRangeForPeriod(selectedPeriod);
+    const startStr = start.toISOString().split('T')[0];
+    const endStr = end ? end.toISOString().split('T')[0] : '9999-12-31';
+
+    // Filter to months whose end date falls within the selected period
+    const filteredPeriods = attribution.monthlyPeriods
+        .map((period, idx) => ({ period, idx }))
+        .filter(({ period }) => period.end >= startStr && period.end <= endStr);
+
+    if (filteredPeriods.length === 0) return [];
+
+    // Start anchor
+    const points: { date: string; 'Excess Return': number }[] = [
+        { date: startStr, 'Excess Return': 0 },
+    ];
+
+    let cumulativePtf = 1;
+    let cumulativeBmk = 1;
+
+    for (const { period, idx } of filteredPeriods) {
+        const key = `${period.start}|${period.end}`;
+        const ptfMonthlyReturn = attribution.portfolioMonthlyReturns[key];
+        const bmkMonthlyReturn = benchmarkMonthlyRates[idx];
+
+        if (typeof ptfMonthlyReturn !== 'number' || typeof bmkMonthlyReturn !== 'number') continue;
+
+        cumulativePtf *= 1 + ptfMonthlyReturn;
+        cumulativeBmk *= 1 + bmkMonthlyReturn;
+
+        const excessReturn = (cumulativePtf / cumulativeBmk - 1) * 100;
+        points.push({ date: period.end, 'Excess Return': excessReturn });
+    }
+
+    return points;
+};
+
 export type PerformanceChartView = 'absolute' | 'relative' | 'drawdowns';
 
 export type PerformanceChartPoint =

@@ -40,11 +40,21 @@ const fmtDate = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day
 
 const PERIOD_LABELS: Record<Period, string> = {
     'YTD': 'Year to Date',
+    'Q1': 'Q1',
+    'Q2': 'Q2',
+    'Q3': 'Q3',
+    'Q4': 'Q4',
     '3M': '3 Months',
     '6M': '6 Months',
     '1Y': '1 Year',
     '2025': 'Full Year 2025',
 };
+
+const REPORT_PERIOD_GROUPS: readonly { key: string; periods: Period[] }[] = [
+    { key: 'year', periods: ['2025'] },
+    { key: 'rolling', periods: ['YTD', '3M', '6M', '1Y'] },
+    { key: 'quarters', periods: ['Q1', 'Q2', 'Q3', 'Q4'] },
+];
 
 const getPeriodTitle = (period: Period): string => {
     const { start, end } = getDateRangeForPeriod(period);
@@ -321,6 +331,8 @@ export const ReportView: React.FC<ReportViewProps> = ({ data, customSectors, ass
         return times.length > 0 ? times.sort()[0] : null;
     }, [attributionData, workspaceRisk]);
 
+    const topCorrelationMatrix = workspaceRisk?.correlationMatrix ?? { tickers: [], matrix: [] };
+
 
     // ── Portfolio geographic exposure ──────────────────────────────────────────
     const geoExposure = useMemo(() => {
@@ -398,7 +410,6 @@ export const ReportView: React.FC<ReportViewProps> = ({ data, customSectors, ass
 
     if (!performanceVariant || !workspaceRisk) return null;
 
-    const riskData = workspaceRisk;
     const m = performanceVariant.metrics;
     const genDate = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
 
@@ -410,22 +421,14 @@ export const ReportView: React.FC<ReportViewProps> = ({ data, customSectors, ass
                     <div className="flex flex-col h-full">
                         <div className="flex items-center justify-between mb-3 flex-shrink-0">
                             <h3 className="text-[16px] font-bold font-mono text-wallstreet-text uppercase tracking-wider">Performance</h3>
-                            <div className="flex items-center gap-1">
-                                {(['absolute', 'relative', 'drawdowns'] as ChartView[]).map(v => (
-                                    <button key={v} onClick={() => setChartView(v)}
-                                        className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all duration-200 ${chartView === v ? 'bg-wallstreet-accent text-white shadow-sm' : 'text-wallstreet-500 hover:text-wallstreet-text hover:bg-wallstreet-900'}`}>
+                        <div className="flex items-center gap-1">
+                            {(['absolute', 'relative', 'drawdowns'] as ChartView[]).map(v => (
+                                <button key={v} onClick={() => setChartView(v)}
+                                    className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all duration-200 ${chartView === v ? 'bg-wallstreet-accent text-white shadow-sm' : 'text-wallstreet-500 hover:text-wallstreet-text hover:bg-wallstreet-900'}`}>
                                         {v.charAt(0).toUpperCase() + v.slice(1)}
-                                    </button>
-                                ))}
-                            </div>
-                            <div className="flex bg-wallstreet-900 p-0.5 rounded-lg">
-                                {(['2025', 'YTD', '3M', '6M', '1Y'] as Period[]).map(p => (
-                                    <button key={p} onClick={() => setSelectedPeriod(p)}
-                                        className={`px-2.5 py-1 text-[11px] font-bold rounded-md transition-all duration-200 ${selectedPeriod === p ? 'bg-wallstreet-accent text-white shadow-sm' : 'text-wallstreet-500 hover:text-wallstreet-text hover:bg-wallstreet-700'}`}>
-                                        {p}
-                                    </button>
-                                ))}
-                            </div>
+                                </button>
+                            ))}
+                        </div>
                         </div>
                         {/* Explicit flex column so noWrapper flex-1 resolves in expanded modal */}
                         <div className="flex-1 min-h-0 flex flex-col">
@@ -498,7 +501,7 @@ export const ReportView: React.FC<ReportViewProps> = ({ data, customSectors, ass
                         <div className="flex-1 flex items-center justify-center min-h-0 relative">
                             {/* Scale up the strictly-sized pixel component to fill the square modal frame */}
                             <div className="scale-[1.1] md:scale-[1.25] lg:scale-[1.4] xl:scale-[1.5] origin-center transition-transform">
-                                <CorrelationHeatmap correlationMatrix={riskData.correlationMatrix ?? { tickers: [], matrix: [] }} loading={false} noWrapper />
+                                <CorrelationHeatmap correlationMatrix={topCorrelationMatrix} loading={false} noWrapper />
                             </div>
                         </div>
                     </div>
@@ -512,8 +515,8 @@ export const ReportView: React.FC<ReportViewProps> = ({ data, customSectors, ass
         <div className="report-page p-6 max-w-[100vw] h-screen flex flex-col overflow-hidden">
 
             {/* ── Header ──────────────────────────────────────────────────── */}
-            <div className="flex justify-between items-center mb-5">
-                <div>
+            <div className="grid gap-4 mb-5 lg:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] lg:items-center">
+                <div className="min-w-0">
                     <h1 className="text-2xl font-bold font-mono text-wallstreet-text tracking-tighter">
                         PORTFOLIO <span className="text-wallstreet-accent">REPORT</span>
                     </h1>
@@ -521,7 +524,30 @@ export const ReportView: React.FC<ReportViewProps> = ({ data, customSectors, ass
                         {genDate} &middot; Benchmark: 75/25 Composite (75% ACWI (CAD) + 25% XIC.TO)
                     </p>
                 </div>
-                <div className="print-hide flex items-center gap-3">
+                <div className="print-hide flex justify-center">
+                    <div className="inline-flex flex-wrap items-center justify-center gap-1.5 rounded-2xl border border-wallstreet-700 bg-wallstreet-800 px-3 py-2 shadow-sm">
+                        {REPORT_PERIOD_GROUPS.map((group, groupIndex) => (
+                            <React.Fragment key={group.key}>
+                                {groupIndex > 0 && <span className="px-1 text-xs font-bold text-wallstreet-500">/</span>}
+                                <div className="flex items-center gap-1">
+                                    {group.periods.map((period) => (
+                                        <button
+                                            key={period}
+                                            onClick={() => setSelectedPeriod(period)}
+                                            className={`px-2.5 py-1.5 text-[11px] font-bold rounded-lg transition-all duration-200 ${selectedPeriod === period
+                                                ? 'bg-wallstreet-accent text-white shadow-sm'
+                                                : 'text-wallstreet-500 hover:text-wallstreet-text hover:bg-wallstreet-900'
+                                                }`}
+                                        >
+                                            {period}
+                                        </button>
+                                    ))}
+                                </div>
+                            </React.Fragment>
+                        ))}
+                    </div>
+                </div>
+                <div className="print-hide flex items-center justify-end gap-3">
                     <button
                         onClick={() => window.print()}
                         className="flex items-center gap-2 px-4 py-2 bg-wallstreet-accent text-white rounded-lg text-sm font-bold hover:opacity-90 transition-opacity"
@@ -555,20 +581,6 @@ export const ReportView: React.FC<ReportViewProps> = ({ data, customSectors, ass
                                         }`}
                                 >
                                     {v.charAt(0).toUpperCase() + v.slice(1)}
-                                </button>
-                            ))}
-                        </div>
-                        <div className="flex bg-wallstreet-900 p-0.5 rounded-lg">
-                            {(['2025', 'YTD', '3M', '6M', '1Y'] as Period[]).map(p => (
-                                <button
-                                    key={p}
-                                    onClick={() => setSelectedPeriod(p)}
-                                    className={`px-2.5 py-1 text-[11px] font-bold rounded-md transition-all duration-200 ${selectedPeriod === p
-                                        ? 'bg-wallstreet-accent text-white shadow-sm'
-                                        : 'text-wallstreet-500 hover:text-wallstreet-text hover:bg-wallstreet-700'
-                                        }`}
-                                >
-                                    {p}
                                 </button>
                             ))}
                         </div>
@@ -625,8 +637,9 @@ export const ReportView: React.FC<ReportViewProps> = ({ data, customSectors, ass
                             <table className="w-full text-sm font-mono table-fixed">
                                 <thead className="sticky top-0 bg-wallstreet-800 z-10">
                                     <tr className="text-wallstreet-500 uppercase text-xs tracking-wide border-b border-wallstreet-700">
-                                        <th className="text-left pb-2.5 w-[34%]">Name</th>
-                                        <th className="text-left pb-2.5 w-[30%]">Sector</th>
+                                        <th className="text-right pb-2.5 pr-4 w-[7%]">#</th>
+                                        <th className="text-left pb-2.5 pl-3 w-[33%]">Name</th>
+                                        <th className="text-left pb-2.5 pl-3 w-[24%]">Sector</th>
                                         <th className="text-right pb-2.5 pr-8 w-[18%]">Weight</th>
                                         <th className="text-right pb-2.5 pr-8 w-[18%]">Cumul.</th>
                                     </tr>
@@ -637,8 +650,9 @@ export const ReportView: React.FC<ReportViewProps> = ({ data, customSectors, ass
                                             key={item.ticker}
                                             className={`group/holding-row transition-colors ${i % 2 === 0 ? '' : 'bg-wallstreet-900/40'}`}
                                         >
-                                            <td className="py-1 bg-transparent transition-colors group-hover/holding-row:bg-slate-100 dark:group-hover/holding-row:bg-slate-700/40 font-medium text-wallstreet-text truncate" title={item.displayName}>{item.displayName}</td>
-                                            <td className="py-1 bg-transparent transition-colors group-hover/holding-row:bg-slate-100 dark:group-hover/holding-row:bg-slate-700/40"><SectorBadge sector={getHoldingSectorDisplay(item.sector)} className="!text-xs" /></td>
+                                            <td className="py-1 pr-4 bg-transparent transition-colors group-hover/holding-row:bg-slate-100 dark:group-hover/holding-row:bg-slate-700/40 text-right text-wallstreet-500 font-bold">{i + 1}</td>
+                                            <td className="py-1 pl-3 bg-transparent transition-colors group-hover/holding-row:bg-slate-100 dark:group-hover/holding-row:bg-slate-700/40 font-medium text-wallstreet-text truncate" title={item.displayName}>{item.displayName}</td>
+                                            <td className="py-1 pl-3 bg-transparent transition-colors group-hover/holding-row:bg-slate-100 dark:group-hover/holding-row:bg-slate-700/40"><SectorBadge sector={getHoldingSectorDisplay(item.sector)} className="!text-xs" /></td>
                                             <td className="py-1 bg-transparent transition-colors group-hover/holding-row:bg-slate-100 dark:group-hover/holding-row:bg-slate-700/40 text-right pr-8 text-wallstreet-text">{formatPct(item.weight)}</td>
                                             <td className="py-1 bg-transparent transition-colors group-hover/holding-row:bg-slate-100 dark:group-hover/holding-row:bg-slate-700/40 text-right pr-8 text-wallstreet-500 font-bold">{formatPct(item.cumulative)}</td>
                                         </tr>
@@ -686,7 +700,7 @@ export const ReportView: React.FC<ReportViewProps> = ({ data, customSectors, ass
                     </div>
                     <div style={{ position: 'absolute', top: '53%', left: '50%', transform: 'translate(-50%, -50%) scale(0.78)' }}>
                         <CorrelationHeatmap
-                            correlationMatrix={riskData.correlationMatrix ?? { tickers: [], matrix: [] }}
+                            correlationMatrix={topCorrelationMatrix}
                             loading={false}
                             noWrapper
                         />

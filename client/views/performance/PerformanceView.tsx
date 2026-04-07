@@ -6,6 +6,7 @@ import type { Period, PeriodMetrics } from './PerformanceKPIs';
 import { PerformanceCharts, type ChartView } from './PerformanceCharts';
 import {
     buildCanonicalPerformanceSeries,
+    buildCanonicalRelativeChartData,
     buildChartDataFromSeries,
     computePeriodMetricsFromSeries,
     filterSeriesByPeriod,
@@ -39,12 +40,17 @@ export const PerformanceView: React.FC<{
         if (firstAvailable) setBenchmark(firstAvailable);
     }, [availableBenchmarks, benchmark, defaultBenchmark]);
 
+    const relativeChartData = useMemo(() => {
+        return buildCanonicalRelativeChartData(attributionData, benchmark, selectedPeriod);
+    }, [attributionData, benchmark, selectedPeriod]);
+
     const chartData = useMemo(() => {
+        if (chartView === 'relative') return relativeChartData;
         return buildChartDataFromSeries(
             filterSeriesByPeriod(canonicalSeries, selectedPeriod),
             chartView,
         );
-    }, [canonicalSeries, chartView, selectedPeriod]);
+    }, [canonicalSeries, chartView, selectedPeriod, relativeChartData]);
 
     const filteredSeries = useMemo(() => {
         return filterSeriesByPeriod(canonicalSeries, selectedPeriod);

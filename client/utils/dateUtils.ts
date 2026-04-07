@@ -10,13 +10,34 @@ import { Period } from '../views/performance/PerformanceKPIs';
 export const getDateRangeForPeriod = (period: Period): { start: Date; end?: Date } => {
     const now = new Date();
     now.setHours(0, 0, 0, 0);
+    const year = now.getFullYear();
+
+    const quarterRange = (quarter: 1 | 2 | 3 | 4): { start: Date; end: Date } => {
+        switch (quarter) {
+            case 1:
+                return { start: new Date(year, 0, 1), end: new Date(year, 2, 31) };
+            case 2:
+                return { start: new Date(year, 3, 1), end: new Date(year, 5, 30) };
+            case 3:
+                return { start: new Date(year, 6, 1), end: new Date(year, 8, 30) };
+            case 4:
+                return { start: new Date(year, 9, 1), end: new Date(year, 11, 31) };
+        }
+    };
+
     switch (period) {
         case '2025':
             return { start: new Date(2024, 11, 31), end: new Date(2025, 11, 31) };
         case 'YTD':
-            return { start: new Date(now.getFullYear() - 1, 11, 31) };
+            return { start: new Date(year - 1, 11, 31) };
         case 'Q1':
-            return { start: new Date(now.getFullYear() - 1, 11, 31), end: new Date(now.getFullYear(), 2, 31) };
+            return quarterRange(1);
+        case 'Q2':
+            return quarterRange(2);
+        case 'Q3':
+            return quarterRange(3);
+        case 'Q4':
+            return quarterRange(4);
         case '3M':
             return { start: new Date(new Date().setMonth(now.getMonth() - 3)) };
         case '6M':

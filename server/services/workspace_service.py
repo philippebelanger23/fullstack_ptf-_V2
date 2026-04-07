@@ -502,24 +502,6 @@ def _compute_series_return(points: Any, start_date: pd.Timestamp, end_date: pd.T
     return ((end_value / start_value) - 1.0) * 100.0
 
 
-def _build_portfolio_span_return(
-    holding_facts: pd.DataFrame,
-    span: tuple[pd.Timestamp, pd.Timestamp],
-) -> float:
-    span_facts = holding_facts[
-        (holding_facts["StartDate"] >= span[0])
-        & (holding_facts["EndDate"] <= span[1])
-    ].copy()
-    if span_facts.empty:
-        return 0.0
-
-    period_returns = [
-        float(period_facts["Contrib"].sum()) / 100.0
-        for _, period_facts in span_facts.groupby("PeriodIndex", sort=True)
-    ]
-    return float(geometric_chain(period_returns)) * 100.0 if period_returns else 0.0
-
-
 def _group_periods_by_end_month(periods: list[tuple[pd.Timestamp, pd.Timestamp]]) -> dict[tuple[int, int], list[tuple[int, tuple[pd.Timestamp, pd.Timestamp]]]]:
     month_groups: dict[tuple[int, int], list[tuple[int, tuple[pd.Timestamp, pd.Timestamp]]]] = {}
     for period_idx, period in enumerate(periods):
@@ -695,33 +677,6 @@ def _build_holding_facts(
     return facts
 
 
-def _build_period_dataframe(
-    holding_facts: pd.DataFrame,
-    periods: list[tuple[pd.Timestamp, pd.Timestamp]],
-) -> pd.DataFrame:
-    rows = []
-    for ticker, ticker_facts in holding_facts.groupby("Ticker", sort=True):
-        ordered_facts = ticker_facts.sort_values("PeriodIndex")
-        row: dict[str, Any] = {"Ticker": ticker}
-        weight_returns: list[tuple[float, float]] = []
-
-        for _, fact in ordered_facts.iterrows():
-            period_idx = int(fact["PeriodIndex"])
-            row[f"Weight_{period_idx}"] = float(fact["Weight"])
-            row[f"Return_{period_idx}"] = float(fact["Return"])
-            row[f"Contrib_{period_idx}"] = float(fact["Contrib"])
-            weight_returns.append((float(fact["Weight"]), float(fact["Return"])))
-
-        row["YTD_Return"] = 0.0 if ticker == CASH_TICKER else geometric_chain(fact["Return"] for _, fact in ordered_facts.iterrows())
-        row["YTD_Contrib"] = 0.0 if ticker == CASH_TICKER else forward_compounded_contribution(weight_returns)
-        rows.append(row)
-
-    period_df = pd.DataFrame(rows)
-    if not period_df.empty and "YTD_Contrib" in period_df.columns:
-        period_df = period_df.sort_values("YTD_Contrib", ascending=False).reset_index(drop=True)
-    return period_df
-
-
 def _select_facts_in_span(
     ticker_facts: pd.DataFrame,
     span: tuple[pd.Timestamp, pd.Timestamp],
@@ -731,41 +686,6 @@ def _select_facts_in_span(
         (ticker_facts["StartDate"] >= span_start)
         & (ticker_facts["EndDate"] <= span_end)
     ].copy()
-
-
-def _build_monthly_dataframe(
-    holding_facts: pd.DataFrame,
-    monthly_periods: list[tuple[pd.Timestamp, pd.Timestamp]],
-) -> pd.DataFrame:
-    rows = []
-    for ticker, ticker_facts in holding_facts.groupby("Ticker", sort=True):
-        ordered_facts = ticker_facts.sort_values("PeriodIndex")
-        row: dict[str, Any] = {"Ticker": ticker}
-
-        for period_idx, monthly_period in enumerate(monthly_periods):
-            span_facts = _select_facts_in_span(ordered_facts, monthly_period)
-            if span_facts.empty or ticker == CASH_TICKER:
-                span_return = 0.0
-                span_contrib = 0.0
-            else:
-                span_return = geometric_chain(span_facts["Return"].tolist())
-                span_contrib = forward_compounded_contribution(list(zip(span_facts["Weight"].tolist(), span_facts["Return"].tolist())))
-
-            row[f"Return_{period_idx}"] = float(span_return)
-            row[f"Contrib_{period_idx}"] = float(span_contrib)
-
-        if ticker == CASH_TICKER:
-            row["YTD_Return"] = 0.0
-            row["YTD_Contrib"] = 0.0
-        else:
-            row["YTD_Return"] = geometric_chain(row.get(f"Return_{idx}", 0.0) for idx in range(len(monthly_periods)))
-            row["YTD_Contrib"] = forward_compounded_contribution(list(zip(ordered_facts["Weight"].tolist(), ordered_facts["Return"].tolist())))
-        rows.append(row)
-
-    monthly_df = pd.DataFrame(rows)
-    if not monthly_df.empty and "YTD_Contrib" in monthly_df.columns:
-        monthly_df = monthly_df.sort_values("YTD_Contrib", ascending=False).reset_index(drop=True)
-    return monthly_df
 
 
 def _compute_benchmark_span_return(
@@ -800,47 +720,6 @@ def _build_benchmark_lists(
         period_lists[name] = [_compute_benchmark_span_return(ticker, start, end, cache) for start, end in periods]
         monthly_lists[name] = [_compute_benchmark_span_return(ticker, start, end, cache) for start, end in monthly_periods]
     return period_lists, monthly_lists
-
-
-def _serialize_period_sheet(period_df: pd.DataFrame, periods: list[tuple[pd.Timestamp, pd.Timestamp]]) -> list[dict[str, Any]]:
-    rows = []
-    for _, row in period_df.iterrows():
-        rows.append(
-            {
-                "ticker": row["Ticker"],
-                "periods": [
-                    {
-                        "weight": float(row.get(f"Weight_{idx}", 0.0)),
-                        "returnPct": float(row.get(f"Return_{idx}", 0.0)),
-                        "contribution": float(row.get(f"Contrib_{idx}", 0.0)),
-                    }
-                    for idx in range(len(periods))
-                ],
-                "ytdReturn": float(row.get("YTD_Return", 0.0)),
-                "ytdContrib": float(row.get("YTD_Contrib", 0.0)),
-            }
-        )
-    return rows
-
-
-def _serialize_monthly_sheet(monthly_df: pd.DataFrame, monthly_periods: list[tuple[pd.Timestamp, pd.Timestamp]]) -> list[dict[str, Any]]:
-    rows = []
-    for _, row in monthly_df.iterrows():
-        rows.append(
-            {
-                "ticker": row["Ticker"],
-                "months": [
-                    {
-                        "returnPct": float(row.get(f"Return_{idx}", 0.0)),
-                        "contribution": float(row.get(f"Contrib_{idx}", 0.0)),
-                    }
-                    for idx in range(len(monthly_periods))
-                ],
-                "ytdReturn": float(row.get("YTD_Return", 0.0)),
-                "ytdContrib": float(row.get("YTD_Contrib", 0.0)),
-            }
-        )
-    return rows
 
 
 def _serialize_holdings_items(
@@ -899,38 +778,60 @@ def _serialize_holdings_items(
     return period_items, holding_items, latest_items, latest_date
 
 
-def _build_span_summary_table(
-    holding_facts: pd.DataFrame,
+# ---------------------------------------------------------------------------
+# Canonical attribution builders — use periodAttribution (daily-chained yfinance)
+# instead of holding_facts (period-boundary price lookups).
+# All functions gracefully return [] or {} when period_attribution is empty.
+# ---------------------------------------------------------------------------
+
+def _canonical_span_summary_table(
+    period_attribution: list[dict[str, Any]],
     span: tuple[pd.Timestamp, pd.Timestamp],
 ) -> list[dict[str, Any]]:
-    rows = []
-    for ticker, ticker_facts in holding_facts.groupby("Ticker", sort=True):
-        span_facts = _select_facts_in_span(ticker_facts.sort_values("PeriodIndex"), span)
-        if span_facts.empty or ticker == CASH_TICKER:
-            weight = float(span_facts["Weight"].iloc[-1]) if not span_facts.empty else 0.0
-            span_return = 0.0
-            span_contrib = 0.0
-        else:
-            weight = float(span_facts["Weight"].iloc[-1])
-            span_return = geometric_chain(span_facts["Return"].tolist())
-            span_contrib = forward_compounded_contribution(list(zip(span_facts["Weight"].tolist(), span_facts["Return"].tolist())))
+    """Build a per-ticker summary for a date span from canonical periodAttribution.
 
-        rows.append(
-            {
-                "ticker": ticker,
-                "weight": weight,
-                "returnPct": float(span_return),
-                "contribution": float(span_contrib),
-            }
-        )
+    span = (start_ts, end_ts); a periodAttribution entry is included when its
+    date (period END) satisfies span_start_str < entry["date"] <= span_end_str.
+    The start boundary is exclusive because span[0] is itself a period-end date
+    (e.g. Dec 31 closes a prior period) — it must not be counted in the next span.
+    """
+    from collections import defaultdict
+    span_start_str = _serialize_timestamp(span[0])
+    span_end_str = _serialize_timestamp(span[1])
 
-    return sorted(rows, key=lambda row: row["contribution"], reverse=True)
+    ticker_entries: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for entry in period_attribution:
+        if entry.get("isCash"):
+            continue
+        d = entry.get("date", "")
+        if span_start_str < d <= span_end_str:
+            ticker_entries[entry["ticker"]].append(entry)
+
+    rows: list[dict[str, Any]] = []
+    for ticker, entries in ticker_entries.items():
+        sorted_entries = sorted(entries, key=lambda e: e["date"])
+        pairs = [(float(e["weight"]), float(e["returnPct"])) for e in sorted_entries]
+        span_contrib = forward_compounded_contribution(pairs)       # %-form
+        span_return = float(geometric_chain(e["returnPct"] for e in sorted_entries))  # decimal
+        latest_weight = float(sorted_entries[-1]["weight"])         # %-form
+        rows.append({
+            "ticker": ticker,
+            "weight": latest_weight,
+            "returnPct": span_return,
+            "contribution": span_contrib,
+        })
+
+    return sorted(rows, key=lambda r: r["contribution"], reverse=True)
 
 
-def _build_top_contributor_layouts(
-    holding_facts: pd.DataFrame,
+def _build_canonical_top_contributors(
+    period_attribution: list[dict[str, Any]],
     periods: list[tuple[pd.Timestamp, pd.Timestamp]],
 ) -> list[dict[str, Any]]:
+    """Build top contributor layouts from canonical periodAttribution."""
+    if not period_attribution:
+        return []
+
     month_groups = _group_periods_by_end_month(periods)
     month_keys = _trim_month_keys_to_reporting_window(sorted(month_groups.keys()))
     quarter_groups = _group_months_by_quarter(month_keys)
@@ -940,36 +841,206 @@ def _build_top_contributor_layouts(
         month_periods = month_groups.get(month_key, [])
         if not month_periods:
             continue
-        ordered_month_periods = [period for _, period in sorted(month_periods, key=lambda item: item[1][0])]
-        month_span = (ordered_month_periods[0][0], ordered_month_periods[-1][1])
+        ordered = [period for _, period in sorted(month_periods, key=lambda item: item[1][0])]
+        month_span = (ordered[0][0], ordered[-1][1])
         label = pd.Timestamp(year=month_key[0], month=month_key[1], day=1).strftime("%B %Y")
         monthly_tables_by_key[month_key] = {
             "label": label,
-            "rows": _build_span_summary_table(holding_facts, month_span),
+            "rows": _canonical_span_summary_table(period_attribution, month_span),
         }
 
-    layouts = []
+    layouts: list[dict[str, Any]] = []
     for quarter_months in quarter_groups:
         monthly_tables = [
-            monthly_tables_by_key[month_key]
-            for month_key in quarter_months
-            if month_key in monthly_tables_by_key
+            monthly_tables_by_key[mk]
+            for mk in quarter_months
+            if mk in monthly_tables_by_key
         ]
         quarter_table = None
         if monthly_tables:
-            first_month_key = quarter_months[0]
-            last_month_key = quarter_months[-1]
-            first_periods = [period for _, period in month_groups[first_month_key]]
-            last_periods = [period for _, period in month_groups[last_month_key]]
+            first_mk = quarter_months[0]
+            last_mk = quarter_months[-1]
+            first_periods = [p for _, p in month_groups[first_mk]]
+            last_periods = [p for _, p in month_groups[last_mk]]
             quarter_span = (first_periods[0][0], last_periods[-1][1])
-            quarter_number = ((first_month_key[1] - 1) // 3) + 1
+            q_num = ((first_mk[1] - 1) // 3) + 1
             quarter_table = {
-                "label": f"Q{quarter_number}",
-                "rows": _build_span_summary_table(holding_facts, quarter_span),
+                "label": f"Q{q_num}",
+                "rows": _canonical_span_summary_table(period_attribution, quarter_span),
             }
         layouts.append({"monthlyTables": monthly_tables, "quarterTable": quarter_table})
 
     return layouts
+
+
+def _build_canonical_period_sheet(
+    period_attribution: list[dict[str, Any]],
+    periods: list[tuple[pd.Timestamp, pd.Timestamp]],
+) -> list[dict[str, Any]]:
+    """Build period sheet from canonical periodAttribution.
+
+    For each ticker, look up its periodAttribution entry by matching the period
+    end date (entry["date"] == _serialize_timestamp(period[1])).
+    """
+    from collections import defaultdict
+    if not period_attribution:
+        return []
+
+    # Build lookup: (ticker, end_date_str) -> entry
+    lookup: dict[tuple[str, str], dict[str, Any]] = {}
+    for entry in period_attribution:
+        if not entry.get("isCash"):
+            lookup[(entry["ticker"], entry["date"])] = entry
+
+    all_tickers = sorted({k[0] for k in lookup})
+
+    rows: list[dict[str, Any]] = []
+    for ticker in all_tickers:
+        period_data: list[dict[str, Any]] = []
+        weight_return_pairs: list[tuple[float, float]] = []
+        for period_start, period_end in periods:
+            end_str = _serialize_timestamp(period_end)
+            entry = lookup.get((ticker, end_str))
+            if entry:
+                w = float(entry["weight"])
+                r = float(entry["returnPct"])
+                c = float(entry["contribution"])
+                weight_return_pairs.append((w, r))
+            else:
+                w, r, c = 0.0, 0.0, 0.0
+            period_data.append({"weight": w, "returnPct": r, "contribution": c})
+
+        ytd_return = float(geometric_chain(p["returnPct"] for p in period_data))
+        ytd_contrib = forward_compounded_contribution(weight_return_pairs) if weight_return_pairs else 0.0
+        rows.append({
+            "ticker": ticker,
+            "periods": period_data,
+            "ytdReturn": ytd_return,
+            "ytdContrib": ytd_contrib,
+        })
+
+    rows.sort(key=lambda r: r["ytdContrib"], reverse=True)
+    return rows
+
+
+def _build_canonical_monthly_sheet(
+    period_attribution: list[dict[str, Any]],
+    monthly_periods: list[tuple[pd.Timestamp, pd.Timestamp]],
+) -> list[dict[str, Any]]:
+    """Build monthly sheet from canonical periodAttribution.
+
+    Groups periodAttribution entries by (ticker, monthly window) and computes
+    forward-compounded contribution and geometric return per month.
+    """
+    from collections import defaultdict
+    if not period_attribution:
+        return []
+
+    # Bucket each entry into its monthly window
+    ticker_monthly: dict[str, list[list[dict[str, Any]]]] = defaultdict(
+        lambda: [[] for _ in monthly_periods]
+    )
+    all_entries_by_ticker: dict[str, list[dict[str, Any]]] = defaultdict(list)
+
+    for entry in period_attribution:
+        if entry.get("isCash"):
+            continue
+        ticker = entry["ticker"]
+        entry_date = entry.get("date", "")
+        all_entries_by_ticker[ticker].append(entry)
+        for midx, (mp_start, mp_end) in enumerate(monthly_periods):
+            mp_start_str = _serialize_timestamp(mp_start)
+            mp_end_str = _serialize_timestamp(mp_end)
+            if mp_start_str <= entry_date <= mp_end_str:
+                ticker_monthly[ticker][midx].append(entry)
+                break
+
+    all_tickers = sorted(ticker_monthly.keys())
+    rows: list[dict[str, Any]] = []
+
+    for ticker in all_tickers:
+        month_data: list[dict[str, Any]] = []
+        for midx in range(len(monthly_periods)):
+            month_entries = sorted(ticker_monthly[ticker][midx], key=lambda e: e["date"])
+            if not month_entries:
+                month_data.append({"returnPct": 0.0, "contribution": 0.0})
+            else:
+                pairs = [(float(e["weight"]), float(e["returnPct"])) for e in month_entries]
+                month_contrib = forward_compounded_contribution(pairs)
+                month_return = float(geometric_chain(e["returnPct"] for e in month_entries))
+                month_data.append({"returnPct": month_return, "contribution": month_contrib})
+
+        ytd_return = float(geometric_chain(m["returnPct"] for m in month_data))
+        all_ticker_periods = sorted(all_entries_by_ticker[ticker], key=lambda e: e["date"])
+        ytd_contrib = forward_compounded_contribution(
+            [(float(e["weight"]), float(e["returnPct"])) for e in all_ticker_periods]
+        )
+        rows.append({
+            "ticker": ticker,
+            "months": month_data,
+            "ytdReturn": ytd_return,
+            "ytdContrib": ytd_contrib,
+        })
+
+    rows.sort(key=lambda r: r["ytdContrib"], reverse=True)
+    return rows
+
+
+def _build_canonical_portfolio_period_returns(
+    performance_series: list[dict[str, Any]],
+    periods: list[tuple[pd.Timestamp, pd.Timestamp]],
+) -> dict[str, float]:
+    """Portfolio return per sub-period from yfinance NAV series (decimal form).
+
+    Uses the prior-close as the baseline for each period so no returns are missed.
+    """
+    result: dict[str, float] = {}
+    for period_start, period_end in periods:
+        key = f"{_serialize_timestamp(period_start)}|{_serialize_timestamp(period_end)}"
+        start_str = _serialize_timestamp(period_start)
+        end_str = _serialize_timestamp(period_end)
+
+        pre = [p for p in performance_series if p["date"] < start_str]
+        in_p = [p for p in performance_series if start_str <= p["date"] <= end_str]
+
+        if in_p:
+            baseline = pre[-1] if pre else in_p[0]
+            start_val = baseline["portfolio"]
+            end_val = in_p[-1]["portfolio"]
+            result[key] = (end_val / start_val - 1.0) if start_val else 0.0
+        else:
+            result[key] = 0.0
+
+    return result
+
+
+def _build_canonical_portfolio_monthly_returns(
+    performance_series: list[dict[str, Any]],
+    monthly_periods: list[tuple[pd.Timestamp, pd.Timestamp]],
+) -> tuple[dict[str, float], float]:
+    """Portfolio return per monthly period and YTD, from yfinance NAV series.
+
+    Returns (monthly_returns_dict, ytd_return) both in decimal form.
+    """
+    result: dict[str, float] = {}
+    for mp_start, mp_end in monthly_periods:
+        key = f"{_serialize_timestamp(mp_start)}|{_serialize_timestamp(mp_end)}"
+        start_str = _serialize_timestamp(mp_start)
+        end_str = _serialize_timestamp(mp_end)
+
+        pre = [p for p in performance_series if p["date"] < start_str]
+        in_p = [p for p in performance_series if start_str <= p["date"] <= end_str]
+
+        if in_p:
+            baseline = pre[-1] if pre else in_p[0]
+            start_val = baseline["portfolio"]
+            end_val = in_p[-1]["portfolio"]
+            result[key] = (end_val / start_val - 1.0) if start_val else 0.0
+        else:
+            result[key] = 0.0
+
+    ytd_return = float(geometric_chain(result.values())) if result else 0.0
+    return result, ytd_return
 
 
 def _build_span_ticker_summary_rows(
@@ -1141,19 +1212,31 @@ def _build_canonical_waterfall_for_range(
             "isMutualFund": bool(flags.get("isMutualFund")),
         })
 
-    # Canonical portfolio return derived from the performance series for this date range
+    # Canonical portfolio return derived from the performance series for this date range.
+    # The baseline must be the last NAV point BEFORE the range (prior-period close), not the
+    # first trading day inside the range — otherwise the first day's return is missed.
     portfolio_return: float
     if selected_month_keys and performance_series:
         first_year, first_month = min(selected_month_keys)
         last_year, last_month = max(selected_month_keys)
         last_day = calendar.monthrange(last_year, last_month)[1]
-        range_start = f"{first_year}-{first_month:02d}-01"
+        range_start_str = f"{first_year}-{first_month:02d}-01"
         range_end = f"{last_year}-{last_month:02d}-{last_day:02d}"
-        filtered_series = [p for p in performance_series if range_start <= p["date"] <= range_end]
-        if len(filtered_series) >= 2:
-            start_val = filtered_series[0]["portfolio"]
-            end_val = filtered_series[-1]["portfolio"]
+        pre_range = [p for p in performance_series if p["date"] < range_start_str]
+        in_range = [p for p in performance_series if range_start_str <= p["date"] <= range_end]
+        if in_range:
+            start_point = pre_range[-1] if pre_range else in_range[0]
+            start_val = start_point["portfolio"]
+            end_val = in_range[-1]["portfolio"]
             portfolio_return = (end_val / start_val - 1.0) * 100.0 if start_val else 0.0
+            print(
+                f"\n[NAV AUDIT] range={range_start_str}→{range_end} | "
+                f"baseline_date={start_point['date']} baseline_nav={start_val:.6f} | "
+                f"end_date={in_range[-1]['date']} end_nav={end_val:.6f} | "
+                f"portfolio_return={portfolio_return:.4f}% | "
+                f"pre_range_points={len(pre_range)} in_range_points={len(in_range)}",
+                flush=True,
+            )
         else:
             portfolio_return = sum(r["contribution"] for r in summary_rows)
     else:
@@ -1504,7 +1587,7 @@ def _build_attribution_overview_layouts(
                 sector_map,
                 company_name_map,
             )
-            portfolio_return = _build_portfolio_span_return(holding_facts, span)
+            portfolio_return = 0.0  # placeholder; overwritten by _patch_overview_waterfall_with_canonical
             year_layouts[range_name] = {
                 "waterfall": _build_waterfall_layout(summary_rows, portfolio_return),
                 "sectorAttribution": {
@@ -1722,6 +1805,12 @@ def _build_performance_section(
         }
     missing = [ticker for ticker in sorted(set(missing_tickers + extra_missing)) if not is_cash_ticker(ticker)]
 
+    if "USDCAD=X" not in returns_df.columns:
+        logger.warning(
+            "_build_performance_section: USDCAD=X missing from returns_df — "
+            "USD-listed tickers will NOT be FX-adjusted; CAD returns may be overstated."
+        )
+
     variants: dict[str, Any] = {}
     for benchmark_name in benchmark_names:
         benchmark_returns = build_benchmark_returns(returns_df, benchmark=benchmark_name)
@@ -1746,6 +1835,7 @@ def _build_performance_section(
 
 def _build_risk_section(
     latest_items: list[dict[str, Any]],
+    historical_items: list[dict[str, Any]],
     nav_tickers: set[str],
     nav_dict: dict[str, dict[pd.Timestamp, float]],
     prefetched_returns_df: pd.DataFrame | None = None,
@@ -1931,31 +2021,50 @@ def _build_risk_section(
 
     correlation_matrix = None
     try:
-        sorted_positions = sorted(positions, key=lambda row: -row["pctOfTotalRisk"])[:15]
-        corr_tickers = [position["ticker"] for position in sorted_positions]
-        raw_corr_cols = {}
+        current_positive_weights = {
+            str(item.get("ticker", "")).strip().upper(): float(item.get("weight", 0.0))
+            for item in latest_items
+            if str(item.get("ticker", "")).strip() and not is_cash_ticker(str(item.get("ticker", "")).strip())
+        }
+        current_positive_weights = {
+            ticker: weight
+            for ticker, weight in current_positive_weights.items()
+            if weight > 0
+        }
+        if not current_positive_weights:
+            current_positive_weights = {
+                ticker.upper(): float(weight)
+                for ticker, weight in weights_by_ticker.items()
+                if not is_cash_ticker(ticker)
+            }
+
+        sorted_holdings = sorted(current_positive_weights.items(), key=lambda item: -float(item[1]))[:15]
+        corr_tickers = [ticker for ticker, _ in sorted_holdings]
+        returns_by_upper = {ticker.upper(): ticker for ticker in returns_df.columns}
+        raw_corr_cols: dict[str, pd.Series] = {}
         for ticker in corr_tickers:
-            if ticker not in returns_df.columns:
+            returns_col = returns_by_upper.get(ticker.upper())
+            if returns_col is None:
                 continue
             is_mf = ticker in (mutual_fund_tickers | nav_tickers)
-            if needs_fx_adjustment(ticker, is_mutual_fund=is_mf) and "USDCAD=X" in returns_df.columns:
+            if needs_fx_adjustment(returns_col, is_mutual_fund=is_mf) and "USDCAD=X" in returns_df.columns:
                 fx_ret = returns_df["USDCAD=X"]
-                raw_corr_cols[ticker] = (1 + returns_df[ticker]) * (1 + fx_ret) - 1
+                raw_corr_cols[ticker] = (1 + returns_df[returns_col]) * (1 + fx_ret) - 1
             else:
-                raw_corr_cols[ticker] = returns_df[ticker]
+                raw_corr_cols[ticker] = returns_df[returns_col]
 
-        corr_returns = pd.DataFrame(raw_corr_cols).iloc[1:]
-        ewma_cov_panel = corr_returns.ewm(halflife=63, min_periods=21).cov()
-        last_ts = ewma_cov_panel.index.get_level_values(0)[-1]
-        cov_now = ewma_cov_panel.loc[last_ts].values.astype(float)
-        final_tickers = list(ewma_cov_panel.loc[last_ts].index)
-        std_now = np.sqrt(np.maximum(np.diag(cov_now), 0.0))
-        outer_std = np.outer(std_now, std_now)
-        with np.errstate(divide="ignore", invalid="ignore"):
-            corr_array = np.where(outer_std > 0, cov_now / outer_std, 0.0)
-        corr_array = np.nan_to_num(np.clip(corr_array, -1.0, 1.0), nan=0.0)
-        np.fill_diagonal(corr_array, 1.0)
-        correlation_matrix = {"tickers": final_tickers, "matrix": np.round(corr_array, 3).tolist()}
+        # Keep the matrix aligned to the same top-15 holding order even when some
+        # series are sparse. Missing series are left as zeros so the display
+        # remains stable and the top holdings are still represented.
+        corr_returns = pd.DataFrame(raw_corr_cols, index=returns_df.index).iloc[1:]
+        corr_matrix_df = corr_returns.corr(min_periods=5).reindex(index=corr_tickers, columns=corr_tickers)
+        corr_matrix_df = corr_matrix_df.fillna(0.0)
+        corr_values = corr_matrix_df.to_numpy(dtype=float, copy=True)
+        np.fill_diagonal(corr_values, 1.0)
+        correlation_matrix = {
+            "tickers": corr_tickers,
+            "matrix": np.round(corr_values, 3).tolist(),
+        }
     except Exception as exc:  # pragma: no cover
         logger.warning("Could not compute correlation matrix: %s", exc)
 
@@ -1996,6 +2105,9 @@ def build_portfolio_workspace(items: list[Any]) -> dict[str, Any]:
         with _timed_step("load_cache"):
             cache = load_cache()
 
+        # Non-MF tickers: fetched from yfinance/local CSV.
+        # MF/NAV tickers: excluded from yfinance fetch but must still be passed to
+        # fetch_returns_df so their NAV series gets merged into the shared returns_df.
         market_lookup_tickers = sorted(
             {
                 ticker
@@ -2019,12 +2131,6 @@ def build_portfolio_workspace(items: list[Any]) -> dict[str, Any]:
                 input_state["mutual_fund_tickers"],
                 cache,
             )
-
-        with _timed_step("build_period_dataframe"):
-            period_df = _build_period_dataframe(holding_facts, periods)
-
-        with _timed_step("build_monthly_dataframe", monthly_periods=len(monthly_periods)):
-            monthly_df = _build_monthly_dataframe(holding_facts, monthly_periods)
 
         with _timed_step("build_benchmark_lists", periods=len(periods), monthly_periods=len(monthly_periods)):
             benchmark_returns, benchmark_monthly_returns = _build_benchmark_lists(periods, monthly_periods, cache)
@@ -2055,24 +2161,21 @@ def build_portfolio_workspace(items: list[Any]) -> dict[str, Any]:
                 company_name_map,
             )
 
-        with _timed_step("build_portfolio_return_maps"):
-            portfolio_period_returns = {
-                f"{_serialize_timestamp(period[0])}|{_serialize_timestamp(period[1])}": (
-                    float(period_df[f"Contrib_{idx}"].sum()) / 100.0
-                    if f"Contrib_{idx}" in period_df.columns else 0.0
-                )
-                for idx, period in enumerate(periods)
+        all_portfolio_tickers_for_prefetch = sorted(
+            {
+                item["ticker"]
+                for item in period_items
+                if item["ticker"] != CASH_TICKER
             }
-            portfolio_monthly_returns = {}
-            for monthly_period in monthly_periods:
-                monthly_key = f"{_serialize_timestamp(monthly_period[0])}|{_serialize_timestamp(monthly_period[1])}"
-                relevant = [
-                    portfolio_period_returns[f"{_serialize_timestamp(period[0])}|{_serialize_timestamp(period[1])}"]
-                    for period in periods
-                    if period[0] >= monthly_period[0] and period[1] <= monthly_period[1]
-                ]
-                portfolio_monthly_returns[monthly_key] = float(geometric_chain(relevant)) if relevant else 0.0
-            portfolio_ytd_return = float(geometric_chain(portfolio_monthly_returns.values())) if portfolio_monthly_returns else 0.0
+            | set(BENCHMARK_TICKERS.values())
+        )
+
+        # portfolio_period_returns / portfolio_monthly_returns / portfolio_ytd_return are
+        # now built from the canonical yfinance NAV series AFTER performance is computed.
+        # Placeholders here; values are assigned in the canonical block below.
+        portfolio_period_returns: dict[str, float] = {}
+        portfolio_monthly_returns: dict[str, float] = {}
+        portfolio_ytd_return: float = 0.0
 
         with _timed_step("build_attribution_overview_layouts"):
             overview_layouts = _build_attribution_overview_layouts(
@@ -2085,14 +2188,14 @@ def build_portfolio_workspace(items: list[Any]) -> dict[str, Any]:
 
         # Pre-fetch returns_df once and share between performance and risk sections
         # to avoid downloading the same ticker set twice from yfinance.
-        with _timed_step("prefetch_shared_returns_df", tickers=len(market_lookup_tickers)):
+        with _timed_step("prefetch_shared_returns_df", tickers=len(all_portfolio_tickers_for_prefetch)):
             _shared_returns_df = None
             try:
                 one_year_ago = pd.Timestamp.now().normalize() - pd.DateOffset(years=1, weeks=1)
                 pfetch_start = min(expanded_dates[0], one_year_ago) if expanded_dates else one_year_ago
                 pfetch_end = (expanded_dates[-1] + pd.Timedelta(days=1)) if expanded_dates else None
                 _shared_returns_df, _, _ = fetch_returns_df(
-                    list(market_lookup_tickers),
+                    all_portfolio_tickers_for_prefetch,
                     mutual_fund_tickers=input_state["mutual_fund_tickers"],
                     nav_dict=nav_dict,
                     start_date=pfetch_start,
@@ -2113,12 +2216,25 @@ def build_portfolio_workspace(items: list[Any]) -> dict[str, Any]:
 
         # Patch the attribution waterfall to use the same canonical yfinance data as the
         # Relative Performance tab, so the Waterfall Total matches the Performance view.
+        _canonical_period_attribution = performance.get("variants", {}).get("75/25", {}).get("periodAttribution", [])
+        _canonical_performance_series = performance.get("variants", {}).get("75/25", {}).get("series", [])
+
+
         _patch_overview_waterfall_with_canonical(
             overview_layouts,
-            performance.get("variants", {}).get("75/25", {}).get("periodAttribution", []),
-            performance.get("variants", {}).get("75/25", {}).get("series", []),
+            _canonical_period_attribution,
+            _canonical_performance_series,
             input_state["ticker_flags"],
         )
+
+        # Build all portfolio-level return maps from canonical yfinance NAV series.
+        with _timed_step("build_portfolio_return_maps"):
+            portfolio_period_returns = _build_canonical_portfolio_period_returns(
+                _canonical_performance_series, periods
+            )
+            portfolio_monthly_returns, portfolio_ytd_return = _build_canonical_portfolio_monthly_returns(
+                _canonical_performance_series, monthly_periods
+            )
 
         daily_performance_series = {
             name: list(variant.get("series", []))
@@ -2139,7 +2255,7 @@ def build_portfolio_workspace(items: list[Any]) -> dict[str, Any]:
         )
 
         with _timed_step("build_risk_section", holdings=len(latest_items)):
-            risk = _build_risk_section(latest_items, set(nav_dict.keys()), nav_dict, prefetched_returns_df=_shared_returns_df)
+            risk = _build_risk_section(latest_items, period_items, set(nav_dict.keys()), nav_dict, prefetched_returns_df=_shared_returns_df)
 
         with _timed_step("build_nav_audit"):
             nav_audit = _build_nav_audit()
@@ -2176,13 +2292,13 @@ def build_portfolio_workspace(items: list[Any]) -> dict[str, Any]:
         "attribution": {
             "items": holdings_items,
             "periodItems": period_items,
-            "periodSheet": _serialize_period_sheet(period_df, periods),
-            "monthlySheet": _serialize_monthly_sheet(monthly_df, monthly_periods),
+            "periodSheet": _build_canonical_period_sheet(_canonical_period_attribution, periods),
+            "monthlySheet": _build_canonical_monthly_sheet(_canonical_period_attribution, monthly_periods),
             "periods": [{"start": _serialize_timestamp(start), "end": _serialize_timestamp(end)} for start, end in periods],
             "monthlyPeriods": [{"start": _serialize_timestamp(start), "end": _serialize_timestamp(end)} for start, end in monthly_periods],
             "benchmarkReturns": benchmark_returns,
             "benchmarkMonthlyReturns": benchmark_monthly_returns,
-            "topContributors": _build_top_contributor_layouts(holding_facts, periods),
+            "topContributors": _build_canonical_top_contributors(_canonical_period_attribution, periods),
             "overviewLayouts": overview_layouts,
             "portfolioPeriodReturns": portfolio_period_returns,
             "portfolioMonthlyReturns": portfolio_monthly_returns,

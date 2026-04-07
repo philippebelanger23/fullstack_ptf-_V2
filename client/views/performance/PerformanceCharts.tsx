@@ -5,6 +5,12 @@ import type { PerformanceChartView } from '../../selectors/performanceSelectors'
 
 export type ChartView = PerformanceChartView;
 
+const PERIOD_GROUPS: readonly { key: string; periods: Period[] }[] = [
+    { key: 'year', periods: ['2025'] },
+    { key: 'rolling', periods: ['YTD', '3M', '6M', '1Y'] },
+    { key: 'quarters', periods: ['Q1', 'Q2', 'Q3', 'Q4'] },
+];
+
 const BENCHMARKS = [
     { key: '75/25', label: '75/25', title: '75% ACWI (CAD) + 25% XIC.TO', color: '#10b981' },
     { key: 'ACWI',  label: 'ACWI',  title: 'ACWI CAD-converted — 100% ACWI (USD→CAD)', color: '#2563eb' },
@@ -81,21 +87,28 @@ export const PerformanceCharts: React.FC<PerformanceChartsProps> = ({
                             ))}
                         </>)}
                 </div>
-                <div className="flex bg-wallstreet-900 p-1 rounded-xl">
-                        {(['2025', 'YTD', 'Q1', '3M', '6M', '1Y'] as Period[]).map((period) => (
-                            <React.Fragment key={period}>
-                                <button
-                                    onClick={() => setSelectedPeriod(period)}
-                                    className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all duration-200 ${selectedPeriod === period
-                                        ? 'bg-wallstreet-accent text-white shadow-sm'
-                                        : 'text-wallstreet-500 hover:text-wallstreet-text hover:bg-wallstreet-700'
-                                        }`}
-                                >
-                                    {period}
-                                </button>
-                                {period === '2025' && <div className="mx-1 h-4 w-px bg-wallstreet-600" />}
+                <div className="print-hide flex justify-center">
+                    <div className="inline-flex flex-wrap items-center justify-center gap-1.5 rounded-2xl border border-wallstreet-700 bg-wallstreet-800 px-3 py-2 shadow-sm">
+                        {PERIOD_GROUPS.map((group, groupIndex) => (
+                            <React.Fragment key={group.key}>
+                                {groupIndex > 0 && <span className="px-1 text-xs font-bold text-wallstreet-500">/</span>}
+                                <div className="flex items-center gap-1">
+                                    {group.periods.map((period) => (
+                                        <button
+                                            key={period}
+                                            onClick={() => setSelectedPeriod(period)}
+                                            className={`px-2.5 py-1.5 text-[11px] font-bold rounded-lg transition-all duration-200 ${selectedPeriod === period
+                                                ? 'bg-wallstreet-accent text-white shadow-sm'
+                                                : 'text-wallstreet-500 hover:text-wallstreet-text hover:bg-wallstreet-900'
+                                                }`}
+                                        >
+                                            {period}
+                                        </button>
+                                    ))}
+                                </div>
                             </React.Fragment>
                         ))}
+                    </div>
                 </div>
             </div>
 

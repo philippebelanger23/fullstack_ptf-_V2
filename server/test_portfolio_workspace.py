@@ -169,7 +169,19 @@ def test_build_portfolio_workspace_emits_canonical_monthly_return_maps(monkeypat
     monkeypatch.setattr(
         workspace_service,
         "_build_performance_section",
-        lambda *args, **kwargs: {"defaultBenchmark": "75/25", "variants": {}},
+        lambda *args, **kwargs: {
+            "defaultBenchmark": "75/25",
+            "variants": {
+                "75/25": {
+                    "series": [
+                        {"date": "2025-12-31", "portfolio": 100.0, "benchmark": 100.0},
+                        {"date": "2026-01-31", "portfolio": 110.0, "benchmark": 100.0},
+                    ],
+                    "periodAttribution": [],
+                    "fetchedAt": "2026-01-31T00:00:00Z",
+                }
+            },
+        },
     )
     monkeypatch.setattr(
         workspace_service,
@@ -290,8 +302,53 @@ def test_build_risk_section_aligns_portfolio_and_benchmark_series(monkeypatch):
         {"ticker": "AAA", "weight": 100.0, "date": "2026-04-03", "isCash": False, "isMutualFund": False, "isEtf": False},
     ]
 
-    risk = workspace_service._build_risk_section(latest_items, set(), {})
+    historical_items = [
+        {"ticker": "AAA", "weight": 100.0, "date": "2026-03-31", "isCash": False},
+        {"ticker": "AAA", "weight": 100.0, "date": "2026-04-03", "isCash": False},
+    ]
+
+    risk = workspace_service._build_risk_section(latest_items, historical_items, set(), {})
 
     assert captured["portfolio_len"] == 3
     assert captured["benchmark_len"] == 3
     assert risk["portfolioBeta"] == 1.23
+    assert risk["correlationMatrix"]["tickers"] == ["AAA"]
+    assert risk["correlationMatrix"]["matrix"] == [[1.0]]
+
+
+def test_build_risk_section_orders_correlation_by_latest_weights(monkeypatch):
+    index = pd.to_datetime(["2026-03-31", "2026-04-01", "2026-04-02", "2026-04-03"])
+    returns_df = pd.DataFrame(
+        {
+            "LOW": [0.0, 0.01, 0.02, -0.01],
+            "HIGH": [0.0, 0.02, 0.01, -0.02],
+            "ACWI": [0.0, 0.005, 0.004, -0.002],
+            "XIC.TO": [0.0, 0.003, 0.002, -0.001],
+            "USDCAD=X": [0.0, 0.001, 0.001, 0.0],
+        },
+        index=index,
+    )
+
+    monkeypatch.setattr(workspace_service, "fetch_returns_df", lambda *args, **kwargs: (returns_df, returns_df, []))
+    monkeypatch.setattr(
+        workspace_service,
+        "build_benchmark_returns",
+        lambda returns_df, benchmark="75/25": pd.Series([0.0, 0.004, 0.003, -0.001], index=returns_df.index),
+    )
+    monkeypatch.setattr(workspace_service, "compute_annualized_vol", lambda values: float(len(values)))
+    monkeypatch.setattr(workspace_service, "compute_beta", lambda ptf_rets, bmk_rets: 1.0)
+    monkeypatch.setattr(workspace_service, "resolve_storage_path", lambda path: type("P", (), {"exists": lambda self: False})())
+
+    latest_items = [
+        {"ticker": "LOW", "weight": 1.0, "date": "2026-04-03", "isCash": False, "isMutualFund": False, "isEtf": False},
+        {"ticker": "HIGH", "weight": 5.0, "date": "2026-04-03", "isCash": False, "isMutualFund": False, "isEtf": False},
+    ]
+    historical_items = [
+        {"ticker": "HIGH", "weight": 1.0, "date": "2026-04-01", "isCash": False},
+        {"ticker": "LOW", "weight": 9.0, "date": "2026-04-02", "isCash": False},
+    ]
+
+    risk = workspace_service._build_risk_section(latest_items, historical_items, set(), {})
+
+    assert risk["correlationMatrix"]["tickers"] == ["HIGH", "LOW"]
+    assert len(risk["correlationMatrix"]["matrix"]) == 2

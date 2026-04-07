@@ -35,7 +35,6 @@ export const RiskContributionView: React.FC<{ workspaceRisk?: RiskContributionRe
 
     const riskBarData = useMemo(() => data ? buildRiskBarData(data.positions) : [], [data]);
     const scatterData = useMemo(() => data ? buildScatterData(data.positions) : [], [data]);
-
     if (loading) {
         return (
             <div className="max-w-[100vw] mx-auto p-4 md:p-6 overflow-x-hidden min-h-screen flex flex-col items-center justify-center select-none">

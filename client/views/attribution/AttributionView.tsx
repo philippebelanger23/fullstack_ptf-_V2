@@ -11,8 +11,6 @@ import { AttributionTable } from './AttributionTable';
 import { WaterfallChart, SectorAttributionCharts } from './AttributionCharts';
 import {
     buildCanonicalContributorPages,
-    buildCanonicalMonthlyMatrixTable,
-    buildCanonicalPeriodMatrixTable,
     buildCanonicalPortfolioMonthlyPerformance,
     type CanonicalAttributionMatrixLayout,
     type CanonicalContributorPageLayout,
@@ -252,7 +250,7 @@ const CanonicalContributorPagesSection: React.FC<{
             </div>
         );
     }
-
+ 
     return (
         <div className="space-y-6 print-area">
             {pages.map((page, pageIndex) => (
@@ -263,19 +261,22 @@ const CanonicalContributorPagesSection: React.FC<{
                         </div>
                     )}
                     {page.rows.map((cards, rowIndex) => (
-                        <div key={`${page.key}-row-${rowIndex}`} className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 items-end print-row">
-                            {cards.map((card) => card.isEmpty ? (
-                                <div key={card.key} />
-                            ) : (
-                                <AttributionTable
-                                    key={card.key}
-                                    title={card.title}
-                                    items={card.items}
-                                    isQuarter={card.isQuarter}
-                                    status={card.status}
-                                />
-                            ))}
-                        </div>
+                        <React.Fragment key={`${page.key}-row-${rowIndex}`}>
+                            {rowIndex > 0 && <div className="h-5" aria-hidden="true" />}
+                            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 items-end print-row">
+                                {cards.map((card) => card.isEmpty ? (
+                                    <div key={card.key} />
+                                ) : (
+                                    <AttributionTable
+                                        key={card.key}
+                                        title={card.title}
+                                        items={card.items}
+                                        isQuarter={card.isQuarter}
+                                        status={card.status}
+                                    />
+                                ))}
+                            </div>
+                        </React.Fragment>
                     ))}
                 </div>
             ))}
@@ -666,7 +667,6 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ selectedYear, 
     const analysisResponse = attributionData;
     const tc = useThemeColors();
     const [viewMode, setViewMode] = useState<'OVERVIEW' | 'TABLES'>('OVERVIEW');
-    const [tableMode, setTableMode] = useState<'monthly' | 'month' | 'period'>('monthly');
     const availableYears = useMemo(() => (
         getAvailableCalendarYears(
             [
@@ -843,14 +843,6 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ selectedYear, 
         buildCanonicalContributorPages(analysisResponse, selectedYear)
     ), [analysisResponse, selectedYear]);
 
-    const canonicalMonthlyMatrixLayout = useMemo(() => (
-        buildCanonicalMonthlyMatrixTable(analysisResponse, selectedYear)
-    ), [analysisResponse, selectedYear]);
-
-    const canonicalPeriodMatrixLayout = useMemo(() => (
-        buildCanonicalPeriodMatrixTable(analysisResponse, selectedYear)
-    ), [analysisResponse, selectedYear]);
-
     if (!analysisResponse) {
         return (
             <div className="flex flex-col items-center justify-center h-full p-12 text-center">
@@ -942,53 +934,12 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ selectedYear, 
                 </div>
                 )
             ) : (
-                        <div className="space-y-4">
-                        {/* Table mode toggle */}
-                        <div className="flex items-center gap-3">
-                            <span className="text-xs font-mono text-wallstreet-500 uppercase tracking-wider">View:</span>
-                            <div className="flex p-1 bg-wallstreet-200 rounded-xl">
-                                <button
-                                    onClick={() => setTableMode('monthly')}
-                                    className={`px-3 py-1.5 rounded-lg text-xs font-bold font-mono transition-all ${tableMode === 'monthly' ? 'bg-wallstreet-800 text-wallstreet-accent shadow-sm' : 'text-wallstreet-500 hover:text-wallstreet-text'}`}
-                                >
-                                    Top Contributors/Disruptors
-                                </button>
-                                <button
-                                    onClick={() => setTableMode('month')}
-                                    className={`px-3 py-1.5 rounded-lg text-xs font-bold font-mono transition-all ${tableMode === 'month' ? 'bg-wallstreet-800 text-wallstreet-accent shadow-sm' : 'text-wallstreet-500 hover:text-wallstreet-text'}`}
-                                >
-                                    By Month
-                                </button>
-                                <button
-                                    onClick={() => setTableMode('period')}
-                                    className={`px-3 py-1.5 rounded-lg text-xs font-bold font-mono transition-all ${tableMode === 'period' ? 'bg-wallstreet-800 text-wallstreet-accent shadow-sm' : 'text-wallstreet-500 hover:text-wallstreet-text'}`}
-                                >
-                                    By Period
-                                </button>
-                            </div>
-                        </div>
-                        <p className="text-[10px] font-mono text-wallstreet-500 uppercase tracking-widest">
-                            Table totals are summed from the displayed rows.
-                        </p>
-
-                        {tableMode === 'monthly' ? (
-                            <CanonicalContributorPagesSection
-                                pages={canonicalContributorPages}
-                                year={selectedYear}
-                            />
-                        ) : tableMode === 'month' ? (
-                            <CanonicalMatrixTable
-                                layout={canonicalMonthlyMatrixLayout}
-                                emptyMessage="No monthly data available. Reload the portfolio to generate monthly sheets."
-                                showContributionShare={true}
-                            />
-                        ) : (
-                            <CanonicalMatrixTable
-                                layout={canonicalPeriodMatrixLayout}
-                                emptyMessage="No period data available. Reload the portfolio to generate period sheets."
-                            />
-                        )}
-                        </div>
+                    <div className="space-y-4">
+                        <CanonicalContributorPagesSection
+                            pages={canonicalContributorPages}
+                            year={selectedYear}
+                        />
+                    </div>
                 )}
         </div>
     );
