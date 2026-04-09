@@ -4,7 +4,6 @@ import { Dropdown } from '../../components/Dropdown';
 import { AlertTriangle, Calendar, Grid, Layers, Info, Printer } from 'lucide-react';
 import { PortfolioWorkspaceAttribution } from '../../types';
 import { FreshnessBadge } from '../../components/ui/FreshnessBadge';
-import { formatBps } from '../../utils/formatters';
 import { getAvailableCalendarYears } from '../../utils/selectedYear';
 import { buildCanonicalMonthlyHistory, compoundContribution, compoundReturnPct } from './canonicalAttribution';
 import { AttributionTable } from './AttributionTable';
@@ -12,7 +11,6 @@ import { WaterfallChart, SectorAttributionCharts } from './AttributionCharts';
 import {
     buildCanonicalContributorPages,
     buildCanonicalPortfolioMonthlyPerformance,
-    type CanonicalAttributionMatrixLayout,
     type CanonicalContributorPageLayout,
 } from '../../selectors/attributionSelectors';
 
@@ -222,21 +220,6 @@ const FuturePeriodMessage = () => (
     </div>
 );
 
-const formatMatrixReturn = (value: number | null) => {
-    if (value === null || value === undefined) return '-';
-    return value < 0 ? `(${Math.abs(value).toFixed(2)}%)` : `${value.toFixed(2)}%`;
-};
-
-const formatMatrixContribution = (value: number | null) => {
-    if (value === null || value === undefined) return '-';
-    return formatBps(value);
-};
-
-const formatContributionShare = (value: number | null) => {
-    if (value === null || value === undefined) return '-';
-    return value < 0 ? `(${Math.abs(value).toFixed(2)}%)` : `${value.toFixed(2)}%`;
-};
-
 const CanonicalContributorPagesSection: React.FC<{
     pages: CanonicalContributorPageLayout[];
     year: number;
@@ -280,83 +263,6 @@ const CanonicalContributorPagesSection: React.FC<{
                     ))}
                 </div>
             ))}
-        </div>
-    );
-};
-
-const CanonicalMatrixTable: React.FC<{
-    layout: CanonicalAttributionMatrixLayout;
-    emptyMessage: string;
-    showContributionShare?: boolean;
-}> = ({ layout, emptyMessage, showContributionShare = false }) => {
-    if (layout.columns.length === 0 || layout.rows.length === 0) {
-        return (
-            <div className="flex items-center justify-center p-12">
-                <div className="bg-wallstreet-800 p-6 rounded-xl border border-wallstreet-700 text-center">
-                    <p className="text-wallstreet-500 text-sm font-mono">{emptyMessage}</p>
-                </div>
-            </div>
-        );
-    }
-
-    return (
-        <div className="overflow-x-auto rounded-xl border border-wallstreet-700">
-            <table className="w-full text-xs font-mono border-collapse">
-                <thead>
-                    <tr className="bg-wallstreet-800 border-b border-wallstreet-700">
-                        <th className="text-left px-4 py-3 text-wallstreet-500 font-bold sticky left-0 bg-wallstreet-800 min-w-[90px]">Ticker</th>
-                        {layout.columns.map((column) => (
-                            <th key={column.key} colSpan={3} className="text-center px-2 py-3 text-wallstreet-500 font-bold border-l border-wallstreet-700 whitespace-nowrap">
-                                {column.label}
-                            </th>
-                        ))}
-                        <th colSpan={showContributionShare ? 3 : 2} className="text-center px-2 py-3 text-wallstreet-accent font-bold border-l border-wallstreet-700">YTD</th>
-                    </tr>
-                    <tr className="bg-wallstreet-900 border-b border-wallstreet-700">
-                        <th className="sticky left-0 bg-wallstreet-900 px-4 py-2 text-wallstreet-500"></th>
-                        {layout.columns.map((column) => (
-                            <React.Fragment key={`${column.key}-subhead`}>
-                                <th className="px-2 py-2 text-right text-wallstreet-500 border-l border-wallstreet-700">Wt%</th>
-                                <th className="px-2 py-2 text-right text-wallstreet-500">Ret%</th>
-                                <th className="px-2 py-2 text-right text-wallstreet-500">Contrib</th>
-                            </React.Fragment>
-                        ))}
-                        <th className="px-2 py-2 text-right text-wallstreet-500 border-l border-wallstreet-700">Ret%</th>
-                        <th className="px-2 py-2 text-right text-wallstreet-accent font-bold">Contrib</th>
-                        {showContributionShare && (
-                            <th className="px-2 py-2 text-right text-wallstreet-accent font-bold">% of Contribution</th>
-                        )}
-                    </tr>
-                </thead>
-                <tbody>
-                    {layout.rows.map((row, rowIndex) => (
-                        <tr key={row.ticker} className={`border-b border-wallstreet-800 hover:bg-wallstreet-700/40 transition-colors ${rowIndex % 2 === 0 ? '' : 'bg-wallstreet-800/30'}`}>
-                            <td className="sticky left-0 px-4 py-2.5 font-bold text-wallstreet-text bg-wallstreet-900">{row.ticker}</td>
-                            {row.cells.map((cell, cellIndex) => {
-                                const hasData = cell.returnPct !== null && cell.contribution !== null;
-                                return (
-                                    <React.Fragment key={`${row.ticker}-cell-${cellIndex}`}>
-                                        <td className="px-2 py-2.5 text-right text-wallstreet-500 border-l border-wallstreet-800">{hasData ? `${(cell.weight ?? 0).toFixed(1)}%` : '-'}</td>
-                                        <td className={`px-2 py-2.5 text-right ${!hasData ? 'text-wallstreet-500' : (cell.returnPct ?? 0) >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                                            {formatMatrixReturn(cell.returnPct)}
-                                        </td>
-                                        <td className={`px-2 py-2.5 text-right font-semibold ${!hasData ? 'text-wallstreet-500' : (cell.contribution ?? 0) >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                                            {formatMatrixContribution(cell.contribution)}
-                                        </td>
-                                    </React.Fragment>
-                                );
-                            })}
-                            <td className={`px-2 py-2.5 text-right border-l border-wallstreet-700 ${row.ytdReturn >= 0 ? 'text-green-400' : 'text-red-400'}`}>{formatMatrixReturn(row.ytdReturn)}</td>
-                            <td className={`px-2 py-2.5 text-right font-bold ${row.ytdContribution >= 0 ? 'text-green-400' : 'text-red-400'}`}>{formatMatrixContribution(row.ytdContribution)}</td>
-                            {showContributionShare && (
-                                <td className={`px-2 py-2.5 text-right font-bold border-l border-wallstreet-700 ${row.contributionShare === null ? 'text-wallstreet-500' : row.contributionShare >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                                    {formatContributionShare(row.contributionShare)}
-                                </td>
-                            )}
-                        </tr>
-                    ))}
-                </tbody>
-            </table>
         </div>
     );
 };
@@ -703,7 +609,7 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ selectedYear, 
     const [timeRange, setTimeRange] = useState<'YTD' | 'Q1' | 'Q2' | 'Q3' | 'Q4'>('YTD');
     const [regionFilter, setRegionFilter] = useState<'ALL' | 'US' | 'CA'>('ALL');
     const [benchmarkMode, setBenchmarkMode] = useState<'SECTOR' | 'SP500' | 'TSX'>('SECTOR');
-    const fetchedAt = null;
+    const fetchedAt = analysisResponse?.performanceFetchedAt ?? null;
 
     const isFuture = useMemo(() => {
         const now = new Date();
@@ -755,78 +661,13 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ selectedYear, 
         return typeof rangeTotal === 'number' ? rangeTotal : null;
     }, [selectedOverviewLayout]);
 
-    const canonicalWaterfallLayout = useMemo(() => {
-        const waterfall = selectedOverviewLayout?.waterfall;
-        if (!waterfall?.bars?.length) {
-            return {
-                bars: [],
-                domain: [0, 10] as [number, number],
-            };
+    const canonicalWaterfallLayout = useMemo(() => (
+        selectedOverviewLayout?.waterfall ?? {
+            bars: [],
+            domain: [0, 10] as [number, number],
+            portfolioReturn: 0,
         }
-
-        const canonicalTotal = portfolioTotalReturn;
-        if (canonicalTotal === null) {
-            return {
-                bars: waterfall.bars,
-                domain: waterfall.domain,
-            };
-        }
-
-        const nonTotalBars = waterfall.bars.filter((bar) => !bar.isTotal);
-        const topBars = nonTotalBars.filter((bar) => bar.name !== 'Others');
-        const topBarTotal = topBars.reduce((sum, bar) => sum + Number(bar.delta ?? 0), 0);
-        const othersDelta = canonicalTotal - topBarTotal;
-        const hasOthersBar = nonTotalBars.some((bar) => bar.name === 'Others');
-        const totalBar = waterfall.bars.find((bar) => bar.isTotal);
-
-        const bars = topBars.map((bar) => ({ ...bar }));
-        if (hasOthersBar || Math.abs(othersDelta) > 0.0001) {
-            const baseOthers = nonTotalBars.find((bar) => bar.name === 'Others');
-            bars.push(
-                baseOthers
-                    ? { ...baseOthers, value: [Math.min(topBarTotal, canonicalTotal), Math.max(topBarTotal, canonicalTotal)] as [number, number], delta: othersDelta }
-                    : {
-                        name: 'Others',
-                        value: [Math.min(topBarTotal, canonicalTotal), Math.max(topBarTotal, canonicalTotal)] as [number, number],
-                        delta: othersDelta,
-                        isTotal: false,
-                    },
-            );
-        }
-
-        bars.push(
-            totalBar
-                ? {
-                    ...totalBar,
-                    value: [0, canonicalTotal] as [number, number],
-                    delta: canonicalTotal,
-                }
-                : {
-                    name: 'Total',
-                    value: [0, canonicalTotal] as [number, number],
-                    delta: canonicalTotal,
-                    isTotal: true,
-                },
-        );
-
-        const allValues = bars.flatMap((bar) => bar.value);
-        if (allValues.length === 0) {
-            return {
-                bars,
-                domain: [0, 10] as [number, number],
-            };
-        }
-
-        const minValue = Math.min(...allValues);
-        const maxValue = Math.max(...allValues);
-        const span = maxValue - minValue;
-        const buffer = span > 0 ? span * 0.15 : 1;
-
-        return {
-            bars,
-            domain: [minValue - buffer, maxValue + buffer] as [number, number],
-        };
-    }, [portfolioTotalReturn, selectedOverviewLayout]);
+    ), [selectedOverviewLayout]);
 
     const emptySectorAttributionData = useMemo(() => ({
         data: [],

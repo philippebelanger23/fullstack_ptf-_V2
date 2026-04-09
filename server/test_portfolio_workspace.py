@@ -49,8 +49,28 @@ def test_build_portfolio_workspace_normalizes_duplicate_rows_and_latest_snapshot
     monkeypatch.setattr(workspace_service, "_build_benchmark_lists", lambda *args, **kwargs: ({}, {}))
     monkeypatch.setattr(
         workspace_service,
+        "fetch_returns_df",
+        lambda *args, **kwargs: (pd.DataFrame(index=pd.DatetimeIndex([])), pd.DataFrame(index=pd.DatetimeIndex([])), []),
+    )
+    monkeypatch.setattr(
+        workspace_service,
         "_build_performance_section",
-        lambda *args, **kwargs: {"defaultBenchmark": "75/25", "variants": {}},
+        lambda *args, **kwargs: {
+            "defaultBenchmark": "75/25",
+            "variants": {
+                "75/25": {
+                    "series": [
+                        {"date": "2026-03-31", "portfolio": 100.0, "benchmark": 100.0},
+                        {"date": "2026-04-03", "portfolio": 101.56, "benchmark": 100.5},
+                    ],
+                    "periodAttribution": [
+                        {"ticker": "AAA", "date": "2026-04-02", "weight": 12.0, "returnPct": 0.10, "contribution": 1.2},
+                        {"ticker": "AAA", "date": "2026-04-03", "weight": 8.0, "returnPct": 0.0454545455, "contribution": 0.363636364},
+                    ],
+                    "fetchedAt": "2026-04-03T00:00:00Z",
+                }
+            },
+        },
     )
     monkeypatch.setattr(
         workspace_service,
@@ -165,6 +185,11 @@ def test_build_portfolio_workspace_emits_canonical_monthly_return_maps(monkeypat
     monkeypatch.setattr(workspace_service, "load_workspace_nav_data", lambda: {})
     monkeypatch.setattr(workspace_service, "load_cache", lambda: {})
     monkeypatch.setattr(workspace_service, "save_cache", lambda cache: None)
+    monkeypatch.setattr(
+        workspace_service,
+        "fetch_returns_df",
+        lambda *args, **kwargs: (pd.DataFrame(index=pd.DatetimeIndex([])), pd.DataFrame(index=pd.DatetimeIndex([])), []),
+    )
     monkeypatch.setattr(workspace_service, "_build_benchmark_lists", lambda *args, **kwargs: ({}, {}))
     monkeypatch.setattr(
         workspace_service,
@@ -212,6 +237,61 @@ def test_build_portfolio_workspace_emits_canonical_monthly_return_maps(monkeypat
 
     assert workspace["attribution"]["portfolioMonthlyReturns"] == {monthly_key: pytest.approx(0.1)}
     assert workspace["attribution"]["portfolioYtdReturn"] == pytest.approx(0.1)
+
+
+def test_build_attribution_overview_layouts_uses_canonical_period_attribution(monkeypatch):
+    monkeypatch.setattr(workspace_service, "_load_sector_cache_map", lambda: {"AAA": "Technology"})
+    monkeypatch.setattr(
+        workspace_service,
+        "_load_index_exposure_sectors",
+        lambda: [{"sector": "Technology", "Index": 20.0, "ACWI": 20.0, "TSX": 5.0}],
+    )
+    monkeypatch.setattr(
+        workspace_service,
+        "_load_sector_history_cache",
+        lambda: {
+            "US": {
+                "Information Technology": [
+                    {"date": "2026-03-31", "value": 100.0},
+                    {"date": "2026-04-30", "value": 110.0},
+                ]
+            },
+            "CA": {},
+            "OVERALL": {
+                "SP500": [
+                    {"date": "2026-03-31", "value": 100.0},
+                    {"date": "2026-04-30", "value": 105.0},
+                ],
+                "TSX": [
+                    {"date": "2026-03-31", "value": 100.0},
+                    {"date": "2026-04-30", "value": 102.0},
+                ],
+            },
+        },
+    )
+
+    overview_layouts = workspace_service._build_attribution_overview_layouts(
+        period_attribution=[
+            {"ticker": "AAA", "date": "2026-04-15", "weight": 10.0, "returnPct": 0.20, "contribution": 2.0},
+        ],
+        performance_series=[
+            {"date": "2026-03-31", "portfolio": 100.0, "benchmark": 100.0},
+            {"date": "2026-04-30", "portfolio": 102.0, "benchmark": 101.0},
+        ],
+        periods=[(pd.Timestamp("2026-03-31"), pd.Timestamp("2026-04-30"))],
+        ticker_flags={"AAA": {"isCash": False, "isEtf": False, "isMutualFund": False}},
+        custom_sectors={},
+        company_name_map={"AAA": "Alpha"},
+    )
+
+    april_layout = overview_layouts["2026"]["Q2"]
+    tech_row = next(row for row in april_layout["sectorAttribution"]["ALL"]["SECTOR"]["data"] if row["sector"] == "Information Technology")
+
+    assert april_layout["waterfall"]["portfolioReturn"] == pytest.approx(2.0)
+    assert april_layout["waterfall"]["bars"][-1]["name"] == "Total"
+    assert tech_row["portfolioWeight"] == pytest.approx(10.0)
+    assert tech_row["portfolioReturn"] == pytest.approx(20.0)
+    assert tech_row["selectionEffect"] == pytest.approx(2.0)
 
 
 def test_prime_price_cache_respects_market_data_lookback_window(monkeypatch):

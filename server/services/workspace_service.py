@@ -793,9 +793,38 @@ def _canonical_span_summary_table(
     span = (start_ts, end_ts); a periodAttribution entry is included when its
     date (period END) satisfies span_start_str < entry["date"] <= span_end_str.
     The start boundary is exclusive because span[0] is itself a period-end date
-    (e.g. Dec 31 closes a prior period) — it must not be counted in the next span.
+    (e.g. Dec 31 closes a prior period) - it must not be counted in the next span.
+    """
+    rows = _build_canonical_span_summary_rows(period_attribution, span)
+    return [
+        {
+            "ticker": row["ticker"],
+            "weight": row["weight"],
+            "returnPct": row["returnPct"],
+            "contribution": row["contribution"],
+        }
+        for row in rows
+    ]
+
+
+def _build_canonical_span_summary_rows(
+    period_attribution: list[dict[str, Any]],
+    span: tuple[pd.Timestamp, pd.Timestamp],
+    ticker_flags: dict[str, dict[str, bool]] | None = None,
+    sector_map: dict[str, str] | None = None,
+    company_name_map: dict[str, str] | None = None,
+) -> list[dict[str, Any]]:
+    """Build span summary rows from canonical periodAttribution.
+
+    The returned rows match the shape expected by the overview waterfall and
+    sector attribution builders.
     """
     from collections import defaultdict
+
+    ticker_flags = ticker_flags or {}
+    sector_map = sector_map or {}
+    company_name_map = company_name_map or {}
+
     span_start_str = _serialize_timestamp(span[0])
     span_end_str = _serialize_timestamp(span[1])
 
@@ -814,11 +843,19 @@ def _canonical_span_summary_table(
         span_contrib = forward_compounded_contribution(pairs)       # %-form
         span_return = float(geometric_chain(e["returnPct"] for e in sorted_entries))  # decimal
         latest_weight = float(sorted_entries[-1]["weight"])         # %-form
+        flags = ticker_flags.get(ticker, {})
         rows.append({
             "ticker": ticker,
             "weight": latest_weight,
+            "latestWeight": latest_weight,
             "returnPct": span_return,
             "contribution": span_contrib,
+            "isCash": bool(flags.get("isCash")),
+            "isEtf": bool(flags.get("isEtf")),
+            "isMutualFund": bool(flags.get("isMutualFund")),
+            "sector": sector_map.get(ticker),
+            "companyName": company_name_map.get(ticker),
+            "region": "CA" if ticker.endswith(".TO") else "US",
         })
 
     return sorted(rows, key=lambda r: r["contribution"], reverse=True)
@@ -1245,60 +1282,6 @@ def _build_canonical_waterfall_for_range(
     return _build_waterfall_layout(summary_rows, portfolio_return)
 
 
-def _patch_overview_waterfall_with_canonical(
-    overview_layouts: dict[str, Any],
-    period_attribution: list[dict[str, Any]],
-    performance_series: list[dict[str, Any]],
-    ticker_flags: dict[str, dict[str, bool]],
-) -> None:
-    """Replace waterfall data in overview_layouts with canonical performance data (mutates in place).
-
-    Ensures the Contribution Waterfall Total bar matches the Performance tab's return exactly,
-    since both now use the same yfinance auto_adjust=True price series.
-    """
-    if not period_attribution or not performance_series:
-        return
-
-    for year_str, year_layouts in overview_layouts.items():
-        try:
-            year = int(year_str)
-        except (ValueError, TypeError):
-            continue
-
-        for range_name, range_layout in year_layouts.items():
-            if not isinstance(range_layout, dict) or "waterfall" not in range_layout:
-                continue
-
-            if range_name == "YTD":
-                months_in_series = {
-                    pd.Timestamp(p["date"]).month
-                    for p in performance_series
-                    if p["date"].startswith(str(year))
-                }
-                selected_month_keys = sorted((year, m) for m in months_in_series)
-            else:
-                quarter_months = OVERVIEW_RANGE_MONTHS.get(range_name, set())
-                selected_month_keys = sorted(
-                    (year, m) for m in quarter_months
-                    if any(p["date"].startswith(f"{year}-{m:02d}") for p in performance_series)
-                )
-
-            if not selected_month_keys:
-                continue
-
-            try:
-                range_layout["waterfall"] = _build_canonical_waterfall_for_range(
-                    period_attribution=period_attribution,
-                    performance_series=performance_series,
-                    selected_month_keys=selected_month_keys,
-                    ticker_flags=ticker_flags,
-                )
-            except Exception as exc:
-                logger.warning(
-                    "canonical waterfall patch failed for %s/%s: %s", year_str, range_name, exc
-                )
-
-
 def _build_sector_attribution_layout(
     summary_rows: list[dict[str, Any]],
     span: tuple[pd.Timestamp, pd.Timestamp],
@@ -1539,13 +1522,14 @@ def _build_sector_attribution_layout(
 
 
 def _build_attribution_overview_layouts(
-    holding_facts: pd.DataFrame,
+    period_attribution: list[dict[str, Any]],
+    performance_series: list[dict[str, Any]],
     periods: list[tuple[pd.Timestamp, pd.Timestamp]],
     ticker_flags: dict[str, dict[str, bool]],
     custom_sectors: dict[str, dict[str, float]],
     company_name_map: dict[str, str],
 ) -> dict[str, Any]:
-    if holding_facts.empty or not periods:
+    if not period_attribution or not periods:
         return {}
 
     month_groups = _group_periods_by_end_month(periods)
@@ -1580,16 +1564,20 @@ def _build_attribution_overview_layouts(
                 continue
 
             span = (ordered_periods[0][0], ordered_periods[-1][1])
-            summary_rows = _build_span_ticker_summary_rows(
-                holding_facts,
+            summary_rows = _build_canonical_span_summary_rows(
+                period_attribution,
                 span,
                 ticker_flags,
                 sector_map,
                 company_name_map,
             )
-            portfolio_return = 0.0  # placeholder; overwritten by _patch_overview_waterfall_with_canonical
             year_layouts[range_name] = {
-                "waterfall": _build_waterfall_layout(summary_rows, portfolio_return),
+                "waterfall": _build_canonical_waterfall_for_range(
+                    period_attribution=period_attribution,
+                    performance_series=performance_series,
+                    selected_month_keys=selected_month_keys,
+                    ticker_flags=ticker_flags,
+                ),
                 "sectorAttribution": {
                     region: {
                         benchmark: _build_sector_attribution_layout(
@@ -2177,15 +2165,6 @@ def build_portfolio_workspace(items: list[Any]) -> dict[str, Any]:
         portfolio_monthly_returns: dict[str, float] = {}
         portfolio_ytd_return: float = 0.0
 
-        with _timed_step("build_attribution_overview_layouts"):
-            overview_layouts = _build_attribution_overview_layouts(
-                holding_facts,
-                periods,
-                input_state["ticker_flags"],
-                custom_sectors,
-                company_name_map,
-            )
-
         # Pre-fetch returns_df once and share between performance and risk sections
         # to avoid downloading the same ticker set twice from yfinance.
         with _timed_step("prefetch_shared_returns_df", tickers=len(all_portfolio_tickers_for_prefetch)):
@@ -2215,17 +2194,18 @@ def build_portfolio_workspace(items: list[Any]) -> dict[str, Any]:
             )
 
         # Patch the attribution waterfall to use the same canonical yfinance data as the
-        # Relative Performance tab, so the Waterfall Total matches the Performance view.
         _canonical_period_attribution = performance.get("variants", {}).get("75/25", {}).get("periodAttribution", [])
         _canonical_performance_series = performance.get("variants", {}).get("75/25", {}).get("series", [])
 
-
-        _patch_overview_waterfall_with_canonical(
-            overview_layouts,
-            _canonical_period_attribution,
-            _canonical_performance_series,
-            input_state["ticker_flags"],
-        )
+        with _timed_step("build_attribution_overview_layouts"):
+            overview_layouts = _build_attribution_overview_layouts(
+                _canonical_period_attribution,
+                _canonical_performance_series,
+                periods,
+                input_state["ticker_flags"],
+                custom_sectors,
+                company_name_map,
+            )
 
         # Build all portfolio-level return maps from canonical yfinance NAV series.
         with _timed_step("build_portfolio_return_maps"):

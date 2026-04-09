@@ -8,15 +8,15 @@ import { useThemeColors } from '../../hooks/useThemeColors';
 const INFO_TIPS: Record<string, { desc: string; formula: string }> = {
     selection: {
         desc: 'Did your stock picks outperform the sector benchmark?',
-        formula: 'Σ Wᴮᵢ × (Rᴾᵢ − Rᴮᵢ)',
+        formula: 'Σ [Wᴮᵢ × (Rᴾᵢ − Rᴮᵢ)]',
     },
     allocation: {
         desc: 'Did your sector tilts (overweight/underweight) add value?',
-        formula: 'Σ (Wᴾᵢ − Wᴮᵢ) × (Rᴮᵢ − Rᴮ)',
+        formula: 'Σ [(Wᴾᵢ − Wᴮᵢ) × (Rᴮᵢ − Rᴮ)]',
     },
     interaction: {
         desc: 'Joint effect of tilting into a sector where you also picked well (or poorly).',
-        formula: 'Σ (Wᴾᵢ − Wᴮᵢ) × (Rᴾᵢ − Rᴮᵢ)',
+        formula: 'Σ [(Wᴾᵢ − Wᴮᵢ) × (Rᴾᵢ − Rᴮᵢ)]',
     },
 };
 

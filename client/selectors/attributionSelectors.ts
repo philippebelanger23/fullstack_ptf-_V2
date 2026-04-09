@@ -2,7 +2,7 @@ import type { PortfolioWorkspaceAttribution } from '../types';
 import type { Period } from '../views/performance/PerformanceKPIs';
 import type { TableItem } from '../views/attribution/attributionUtils';
 import { getDateRangeForPeriod } from '../utils/dateUtils';
-import { buildCanonicalMonthlyHistory, compoundContribution, compoundReturnPct } from '../views/attribution/canonicalAttribution';
+import { compoundContribution, compoundReturnPct } from '../views/attribution/canonicalAttribution';
 
 export type AttributionOverviewRange = 'YTD' | 'Q1' | 'Q2' | 'Q3' | 'Q4';
 
@@ -88,30 +88,6 @@ export interface CanonicalContributorPageLayout {
     rows: CanonicalContributorCardLayout[][];
 }
 
-export interface CanonicalAttributionMatrixColumn {
-    key: string;
-    label: string;
-}
-
-export interface CanonicalAttributionMatrixCell {
-    weight: number | null;
-    returnPct: number | null;
-    contribution: number | null;
-}
-
-export interface CanonicalAttributionMatrixRow {
-    ticker: string;
-    cells: CanonicalAttributionMatrixCell[];
-    ytdReturn: number;
-    ytdContribution: number;
-    contributionShare: number | null;
-}
-
-export interface CanonicalAttributionMatrixLayout {
-    columns: CanonicalAttributionMatrixColumn[];
-    rows: CanonicalAttributionMatrixRow[];
-}
-
 export const buildCanonicalContributorPages = (
     attribution: PortfolioWorkspaceAttribution | null | undefined,
     selectedYear: number,
@@ -182,128 +158,6 @@ export const buildCanonicalContributorPages = (
         key: `contributors-page-${pageIndex}`,
         rows,
     }));
-};
-
-export const buildCanonicalMonthlyMatrixTable = (
-    attribution: PortfolioWorkspaceAttribution | null | undefined,
-    selectedYear: number,
-): CanonicalAttributionMatrixLayout => {
-    if (!attribution?.monthlySheet?.length || !attribution.monthlyPeriods?.length) {
-        return { columns: [], rows: [] };
-    }
-
-    const monthlyHistory = buildCanonicalMonthlyHistory(attribution);
-    const selectedColumns = attribution.monthlyPeriods
-        .map((period, index) => ({ period, index }))
-        .filter(({ period }) => new Date(`${period.end}T00:00:00`).getFullYear() === selectedYear)
-        .map(({ period, index }) => ({
-            index,
-            key: period.end,
-            label: new Date(`${period.end}T00:00:00`).toLocaleDateString('en-US', { month: 'long' }).toUpperCase(),
-        }));
-
-    const rows = attribution.monthlySheet
-        .map((sheetRow) => {
-            if (isCashTicker(sheetRow.ticker)) return null;
-
-            const history = monthlyHistory.byTicker.get(sheetRow.ticker) ?? [];
-            const cells = selectedColumns.map(({ index }) => {
-                const month = sheetRow.months[index];
-                const point = history[index];
-                if (!month) {
-                    return { weight: null, returnPct: null, contribution: null };
-                }
-                return {
-                    weight: point?.weight ?? 0,
-                    returnPct: month.returnPct * 100,
-                    contribution: month.contribution,
-                };
-            });
-
-            const validMonths = selectedColumns
-                .map(({ index }) => sheetRow.months[index])
-                .filter((month): month is typeof sheetRow.months[number] => Boolean(month));
-
-            if (validMonths.length === 0) return null;
-
-            return {
-                ticker: sheetRow.ticker,
-                cells,
-                ytdReturn: compoundReturnPct(validMonths.map((month) => ({ returnPct: month.returnPct }))),
-                ytdContribution: compoundContribution(validMonths.map((month) => ({
-                    returnPct: month.returnPct,
-                    contribution: month.contribution,
-                }))),
-            };
-        })
-        .filter((row): row is { ticker: string; cells: CanonicalAttributionMatrixCell[]; ytdReturn: number; ytdContribution: number } => Boolean(row));
-
-    const totalContribution = rows.reduce((sum, row) => sum + row.ytdContribution, 0);
-    const contributionDenominator = Math.abs(totalContribution) > 1e-9 ? totalContribution : null;
-
-    return {
-        columns: selectedColumns.map(({ key, label }) => ({ key, label })),
-        rows: rows.map((row) => ({
-            ...row,
-            contributionShare: contributionDenominator === null ? null : (row.ytdContribution / contributionDenominator) * 100,
-        })),
-    };
-};
-
-export const buildCanonicalPeriodMatrixTable = (
-    attribution: PortfolioWorkspaceAttribution | null | undefined,
-    selectedYear: number,
-): CanonicalAttributionMatrixLayout => {
-    if (!attribution?.periodSheet?.length || !attribution.periods?.length) {
-        return { columns: [], rows: [] };
-    }
-
-    const selectedColumns = attribution.periods
-        .map((period, index) => ({ period, index }))
-        .filter(({ period }) => new Date(`${period.end}T00:00:00`).getFullYear() === selectedYear)
-        .map(({ period, index }) => {
-            const start = new Date(`${period.start}T00:00:00`);
-            const end = new Date(`${period.end}T00:00:00`);
-            const label = `${start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${end.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
-            return { index, key: `${period.start}|${period.end}`, label };
-        });
-
-    return {
-        columns: selectedColumns.map(({ key, label }) => ({ key, label })),
-        rows: attribution.periodSheet
-            .map((sheetRow) => {
-                if (isCashTicker(sheetRow.ticker)) return null;
-
-                const cells = selectedColumns.map(({ index }) => {
-                    const period = sheetRow.periods[index];
-                    if (!period) {
-                        return { weight: null, returnPct: null, contribution: null };
-                    }
-                    return {
-                        weight: period.weight,
-                        returnPct: period.returnPct * 100,
-                        contribution: period.contribution,
-                    };
-                });
-
-                const validPeriods = selectedColumns
-                    .map(({ index }) => sheetRow.periods[index])
-                    .filter((period): period is typeof sheetRow.periods[number] => Boolean(period));
-                if (validPeriods.length === 0) return null;
-
-                return {
-                    ticker: sheetRow.ticker,
-                    cells,
-                    ytdReturn: compoundReturnPct(validPeriods.map((period) => ({ returnPct: period.returnPct }))),
-                    ytdContribution: compoundContribution(validPeriods.map((period) => ({
-                        returnPct: period.returnPct,
-                        contribution: period.contribution,
-                    }))),
-                    contributionShare: null,
-                };
-            })
-            .filter((row): row is CanonicalAttributionMatrixRow => Boolean(row)),
-    };
 };
 
 export const buildOnePagerAttributionItems = (
