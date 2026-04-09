@@ -1773,7 +1773,7 @@ def _build_performance_section(
             "USD-listed tickers will NOT be FX-adjusted; CAD returns may be overstated."
         )
 
-    window_as_of = pd.Timestamp.now().normalize()
+    window_as_of = portfolio_returns.index.max().normalize() if not portfolio_returns.empty else pd.Timestamp.now().normalize()
     window_ranges = build_performance_window_ranges(window_as_of)
     variants: dict[str, Any] = {}
     for benchmark_name in benchmark_names:

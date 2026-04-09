@@ -1,15 +1,10 @@
 import React from 'react';
-import type { PerformanceMetrics, PerformancePeriod } from '../../types';
+import type { PerformanceMetrics, PerformancePeriod, PerformanceWindowRange } from '../../types';
 import { UnifiedPerformancePanel } from './UnifiedPerformancePanel';
 import type { PerformanceChartView } from '../../selectors/performanceSelectors';
+import { PERFORMANCE_PERIOD_GROUPS, getPerformancePeriodButtonLabel } from '../../utils/performancePeriods';
 
 export type ChartView = PerformanceChartView;
-
-const PERIOD_GROUPS: readonly { key: string; periods: PerformancePeriod[] }[] = [
-    { key: 'year', periods: ['FULL_YEAR'] },
-    { key: 'rolling', periods: ['YTD', '3M', '6M', '1Y'] },
-    { key: 'quarters', periods: ['Q1', 'Q2', 'Q3', 'Q4'] },
-];
 
 const BENCHMARKS = [
     { key: '75/25', label: '75/25', title: '75% ACWI (CAD) + 25% XIC.TO', color: '#10b981' },
@@ -28,6 +23,7 @@ interface PerformanceChartsProps {
     loading: boolean;
     benchmark: string;
     setBenchmark: (v: string) => void;
+    windowRanges?: Partial<Record<PerformancePeriod, PerformanceWindowRange>> | null;
     hideBenchmarkSelector?: boolean;
     hideKPIs?: boolean;
     noWrapper?: boolean;
@@ -43,15 +39,11 @@ export const PerformanceCharts: React.FC<PerformanceChartsProps> = ({
     loading,
     benchmark,
     setBenchmark,
+    windowRanges,
     hideBenchmarkSelector = false,
     hideKPIs = false,
     noWrapper = false,
 }) => {
-    const periodLabel = (period: PerformancePeriod) => {
-        if (period !== 'FULL_YEAR') return period;
-        return String(new Date().getFullYear() - 1);
-    };
-
     const inner = (
         <>
             {/* Toolbar */}
@@ -94,7 +86,7 @@ export const PerformanceCharts: React.FC<PerformanceChartsProps> = ({
                 </div>
                 <div className="print-hide flex justify-center">
                     <div className="inline-flex flex-wrap items-center justify-center gap-1.5 rounded-2xl border border-wallstreet-700 bg-wallstreet-800 px-3 py-2 shadow-sm">
-                        {PERIOD_GROUPS.map((group, groupIndex) => (
+                        {PERFORMANCE_PERIOD_GROUPS.map((group, groupIndex) => (
                             <React.Fragment key={group.key}>
                                 {groupIndex > 0 && <span className="px-1 text-xs font-bold text-wallstreet-500">/</span>}
                                 <div className="flex items-center gap-1">
@@ -107,7 +99,7 @@ export const PerformanceCharts: React.FC<PerformanceChartsProps> = ({
                                                 : 'text-wallstreet-500 hover:text-wallstreet-text hover:bg-wallstreet-900'
                                                 }`}
                                         >
-                                            {periodLabel(period)}
+                                            {getPerformancePeriodButtonLabel(period, windowRanges?.[period])}
                                         </button>
                                     ))}
                                 </div>

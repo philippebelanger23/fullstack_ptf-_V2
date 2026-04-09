@@ -14,7 +14,7 @@ import pandas as pd
 import yfinance as yf
 
 from cache_manager import load_cache, save_cache
-from market_data import extract_download_price_frame, get_ticker_performance
+from market_data import extract_download_price_frame, get_ticker_performance, load_local_close_frame
 from services.path_utils import resolve_storage_path
 from services.yfinance_setup import configure_yfinance_cache
 
@@ -26,6 +26,7 @@ BENCHMARK_SERIES_KEY = "75/25"
 WORKSPACE_CACHE_TTL = dt.timedelta(hours=1)
 EXPOSURE_STALENESS_THRESHOLD = dt.timedelta(days=7)
 HISTORY_CACHE_TTL = dt.timedelta(hours=1)
+HISTORY_REQUIRED_KEYS = ("ACWI", "XIC.TO", BENCHMARK_SERIES_KEY)
 
 COUNTRY_CURRENCY_MAP: dict[str, str] = {
     "United States": "USD",
@@ -187,6 +188,12 @@ def _history_as_of(series_map: dict[str, list[dict[str, Any]]]) -> str | None:
     return max(dates) if dates else None
 
 
+def _history_payload_is_complete(series_map: dict[str, list[dict[str, Any]]] | None) -> bool:
+    if not isinstance(series_map, dict):
+        return False
+    return all(isinstance(series_map.get(key), list) and len(series_map.get(key) or []) > 0 for key in HISTORY_REQUIRED_KEYS)
+
+
 def _exposure_is_stale(data_path: Path) -> bool:
     raw = _read_json(data_path)
     if not raw:
@@ -274,43 +281,45 @@ def _load_composition_slice(existing_workspace: dict[str, Any] | None, *, force_
 def _fetch_fresh_history_payload() -> dict[str, Any]:
     tickers = ["ACWI", "XIC.TO", "USDCAD=X"]
     data = yf.download(tickers, period="5y", interval="1d", progress=False, auto_adjust=True)
-    if data.empty:
-        return {"ACWI": [], "XIC.TO": [], BENCHMARK_SERIES_KEY: []}
+    downloaded_closes = extract_download_price_frame(data, tickers) if not data.empty else pd.DataFrame()
+    if not downloaded_closes.empty:
+        downloaded_closes = downloaded_closes.copy()
+        downloaded_closes.index = pd.to_datetime(downloaded_closes.index).normalize()
 
-    closes = extract_download_price_frame(data, tickers)
-    expected_cols = ["ACWI", "XIC.TO", "USDCAD=X"]
-    existing_cols = [column for column in expected_cols if column in closes.columns]
-    if not existing_cols:
-        return {"ACWI": [], "XIC.TO": [], BENCHMARK_SERIES_KEY: []}
+    local_closes = load_local_close_frame(tickers)
+    closes = downloaded_closes.combine_first(local_closes) if not downloaded_closes.empty else local_closes.copy()
+    if closes.empty:
+        raise RuntimeError("benchmark history fetch returned no usable close data")
 
-    closes = closes[existing_cols].ffill().bfill()
-    dates = closes.index.strftime("%Y-%m-%d").tolist()
+    closes = closes.sort_index()
+    expected_cols = [column for column in tickers if column in closes.columns]
+    if not expected_cols:
+        raise RuntimeError("benchmark history fetch returned no required close columns")
+
+    closes = closes[expected_cols].ffill().dropna(subset=expected_cols, how="all")
 
     if "ACWI" in closes.columns and "USDCAD=X" in closes.columns:
-        acwi_cad_series = closes["ACWI"] * closes["USDCAD=X"]
+        acwi_cad_series = (closes["ACWI"] * closes["USDCAD=X"]).dropna()
     else:
         acwi_cad_series = pd.Series(dtype=float)
 
-    xic_series = closes["XIC.TO"] if "XIC.TO" in closes.columns else pd.Series(dtype=float)
+    xic_series = closes["XIC.TO"].dropna() if "XIC.TO" in closes.columns else pd.Series(dtype=float)
 
-    if not acwi_cad_series.empty and not xic_series.empty:
-        composite_ret = (acwi_cad_series.pct_change().fillna(0) * 0.75) + (xic_series.pct_change().fillna(0) * 0.25)
+    composite_input = pd.concat([acwi_cad_series.rename("ACWI"), xic_series.rename("XIC.TO")], axis=1).dropna()
+    if not composite_input.empty:
+        composite_ret = (composite_input["ACWI"].pct_change().fillna(0) * 0.75) + (composite_input["XIC.TO"].pct_change().fillna(0) * 0.25)
         composite_series = (1 + composite_ret).cumprod() * 100
     else:
         composite_series = pd.Series(dtype=float)
 
-    payload = {"ACWI": [], "XIC.TO": [], BENCHMARK_SERIES_KEY: []}
-    acwi_list = acwi_cad_series.tolist() if not acwi_cad_series.empty else []
-    xic_list = xic_series.tolist() if not xic_series.empty else []
-    composite_list = composite_series.tolist() if not composite_series.empty else []
-
-    for index, date_str in enumerate(dates):
-        if index < len(acwi_list) and pd.notna(acwi_list[index]):
-            payload["ACWI"].append({"date": date_str, "value": float(acwi_list[index])})
-        if index < len(xic_list) and pd.notna(xic_list[index]):
-            payload["XIC.TO"].append({"date": date_str, "value": float(xic_list[index])})
-        if index < len(composite_list) and pd.notna(composite_list[index]):
-            payload[BENCHMARK_SERIES_KEY].append({"date": date_str, "value": float(composite_list[index])})
+    payload = {
+        "ACWI": [{"date": idx.strftime("%Y-%m-%d"), "value": float(value)} for idx, value in acwi_cad_series.items() if pd.notna(value)],
+        "XIC.TO": [{"date": idx.strftime("%Y-%m-%d"), "value": float(value)} for idx, value in xic_series.items() if pd.notna(value)],
+        BENCHMARK_SERIES_KEY: [{"date": idx.strftime("%Y-%m-%d"), "value": float(value)} for idx, value in composite_series.items() if pd.notna(value)],
+    }
+    if not _history_payload_is_complete(payload):
+        missing = [key for key in HISTORY_REQUIRED_KEYS if not payload.get(key)]
+        raise RuntimeError(f"benchmark history incomplete for: {', '.join(missing)}")
 
     return payload
 
@@ -326,7 +335,7 @@ def _load_history_slice(existing_workspace: dict[str, Any] | None, *, force_refr
     if age is not None:
         cache_is_fresh = age < HISTORY_CACHE_TTL
 
-    if not force_refresh and cache_payload[BENCHMARK_SERIES_KEY] and cache_is_fresh:
+    if not force_refresh and _history_payload_is_complete(cache_payload) and cache_is_fresh:
         return {"series": cache_payload}, "fresh", None, _history_as_of(cache_payload)
 
     refresh_error: str | None = None
@@ -339,10 +348,10 @@ def _load_history_slice(existing_workspace: dict[str, Any] | None, *, force_refr
         refresh_error = str(exc)
         logger.error("benchmark history refresh failed: %s", exc)
 
-    if cache_payload[BENCHMARK_SERIES_KEY]:
+    if _history_payload_is_complete(cache_payload):
         return {"series": cache_payload}, "stale", refresh_error, _history_as_of(cache_payload)
 
-    if existing_slice:
+    if _history_payload_is_complete(existing_slice):
         normalized_existing = _normalize_history_payload(existing_slice)
         return {"series": normalized_existing}, "stale", refresh_error or "history source unavailable", existing_meta.get("historyAsOf")
 

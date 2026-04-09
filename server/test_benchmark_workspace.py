@@ -265,6 +265,7 @@ def test_fetch_fresh_history_payload_uses_adjusted_close_for_xic(monkeypatch):
         return frame
 
     monkeypatch.setattr(benchmark_workspace_service.yf, "download", _fake_download)
+    monkeypatch.setattr(benchmark_workspace_service, "load_local_close_frame", lambda tickers: pd.DataFrame())
 
     payload = benchmark_workspace_service._fetch_fresh_history_payload()
 
@@ -279,3 +280,65 @@ def test_fetch_fresh_history_payload_uses_adjusted_close_for_xic(monkeypatch):
         {"date": "2026-04-07", "value": pytest.approx(53.02)},
         {"date": "2026-04-08", "value": pytest.approx(53.68)},
     ]
+
+
+def test_fetch_fresh_history_payload_falls_back_to_local_closes_when_download_is_partial(monkeypatch):
+    index = pd.to_datetime(["2026-04-07", "2026-04-08"])
+    download_frame = pd.DataFrame(
+        [[53.02], [53.68]],
+        index=index,
+        columns=pd.MultiIndex.from_tuples([("Close", "XIC.TO")]),
+    )
+    local_closes = pd.DataFrame(
+        {
+            "ACWI": [100.0, 101.0],
+            "XIC.TO": [53.02, 53.68],
+            "USDCAD=X": [1.25, 1.26],
+        },
+        index=index,
+    )
+
+    monkeypatch.setattr(benchmark_workspace_service.yf, "download", lambda *args, **kwargs: download_frame)
+    monkeypatch.setattr(benchmark_workspace_service, "load_local_close_frame", lambda tickers: local_closes)
+
+    payload = benchmark_workspace_service._fetch_fresh_history_payload()
+
+    assert payload["ACWI"] == [
+        {"date": "2026-04-07", "value": pytest.approx(125.0)},
+        {"date": "2026-04-08", "value": pytest.approx(127.26)},
+    ]
+    assert payload["XIC.TO"] == [
+        {"date": "2026-04-07", "value": pytest.approx(53.02)},
+        {"date": "2026-04-08", "value": pytest.approx(53.68)},
+    ]
+    assert payload["75/25"][0]["value"] == pytest.approx(100.0)
+    assert payload["75/25"][1]["value"] > payload["75/25"][0]["value"]
+
+
+def test_load_history_slice_rejects_incomplete_cache_as_fresh(monkeypatch):
+    incomplete_cache = {
+        "ACWI": [],
+        "XIC.TO": [{"date": "2026-04-07", "value": 110.0}],
+        "75/25": [],
+    }
+    fresh_payload = {
+        "ACWI": [{"date": "2026-04-07", "value": 150.0}],
+        "XIC.TO": [{"date": "2026-04-07", "value": 110.0}],
+        "75/25": [{"date": "2026-04-07", "value": 140.0}],
+    }
+
+    monkeypatch.setattr(
+        benchmark_workspace_service,
+        "_read_json",
+        lambda path: incomplete_cache if path == benchmark_workspace_service._history_cache_path() else None,
+    )
+    monkeypatch.setattr(benchmark_workspace_service, "_cache_age", lambda path: dt.timedelta(minutes=5))
+    monkeypatch.setattr(benchmark_workspace_service, "_fetch_fresh_history_payload", lambda: fresh_payload)
+    monkeypatch.setattr(benchmark_workspace_service, "_write_json", lambda path, payload: None)
+
+    history, status, error, history_as_of = benchmark_workspace_service._load_history_slice(None, force_refresh=False)
+
+    assert status == "fresh"
+    assert error is None
+    assert history_as_of == "2026-04-07"
+    assert history["series"] == fresh_payload

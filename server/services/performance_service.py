@@ -640,6 +640,37 @@ def build_performance_window_ranges(
     return ranges
 
 
+def _slice_returns_for_window(
+    portfolio_returns: pd.Series,
+    benchmark_returns: pd.Series,
+    start_date: pd.Timestamp,
+    end_date: pd.Timestamp | None,
+) -> tuple[pd.Series, pd.Series]:
+    mask = portfolio_returns.index >= start_date
+    if end_date is not None:
+        mask &= portfolio_returns.index <= end_date
+
+    filtered_portfolio = portfolio_returns.loc[mask]
+    if filtered_portfolio.empty:
+        return filtered_portfolio, benchmark_returns.reindex(filtered_portfolio.index).fillna(0.0)
+
+    filtered_benchmark = benchmark_returns.reindex(filtered_portfolio.index).fillna(0.0)
+    anchored_portfolio = filtered_portfolio.copy()
+    anchored_benchmark = filtered_benchmark.copy()
+
+    # The boundary date is the anchor close, not a return that belongs in the window.
+    if start_date in anchored_portfolio.index:
+        anchored_portfolio.loc[start_date] = 0.0
+        anchored_benchmark.loc[start_date] = 0.0
+    elif (portfolio_returns.index < start_date).any():
+        anchor_portfolio = pd.Series([0.0], index=pd.DatetimeIndex([start_date]))
+        anchor_benchmark = pd.Series([0.0], index=pd.DatetimeIndex([start_date]))
+        anchored_portfolio = pd.concat([anchor_portfolio, anchored_portfolio])
+        anchored_benchmark = pd.concat([anchor_benchmark, anchored_benchmark])
+
+    return anchored_portfolio, anchored_benchmark
+
+
 def compute_performance_window_metrics(
     portfolio_returns: pd.Series,
     benchmark_returns: pd.Series,
@@ -653,16 +684,16 @@ def compute_performance_window_metrics(
 
     for period in PERFORMANCE_WINDOW_KEYS:
         start_date, end_date = _resolve_window_range(period, as_of_date)
-        mask = portfolio_returns.index >= start_date
-        if end_date is not None:
-            mask &= portfolio_returns.index <= end_date
-
-        filtered_portfolio = portfolio_returns.loc[mask]
+        filtered_portfolio, filtered_benchmark = _slice_returns_for_window(
+            portfolio_returns,
+            benchmark_returns,
+            start_date,
+            end_date,
+        )
         if len(filtered_portfolio) < 5:
             windows[period] = None
             continue
 
-        filtered_benchmark = benchmark_returns.reindex(filtered_portfolio.index).fillna(0.0)
         windows[period] = compute_performance_metrics(filtered_portfolio, filtered_benchmark)["metrics"]
 
     return windows

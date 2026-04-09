@@ -1,6 +1,6 @@
-import type { PerformancePeriod, PortfolioWorkspaceAttribution } from '../types';
+import type { PerformanceWindowRange, PortfolioWorkspaceAttribution } from '../types';
 import type { TableItem } from '../views/attribution/attributionUtils';
-import { getDateRangeForPeriod } from '../utils/dateUtils';
+import { resolvePerformanceWindowBounds } from '../utils/performancePeriods';
 import { compoundContribution, compoundReturnPct } from '../views/attribution/canonicalAttribution';
 
 const monthLabel = (value: Date) => value.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
@@ -113,17 +113,18 @@ export const buildCanonicalContributorPages = (
 
 export const buildOnePagerAttributionItems = (
     attribution: PortfolioWorkspaceAttribution | null | undefined,
-    selectedPeriod: PerformancePeriod,
+    windowRange: PerformanceWindowRange | null | undefined,
+    asOfDate?: string | null,
 ): TableItem[] => {
     if (!attribution?.periodSheet?.length || !attribution?.periods?.length) return [];
 
-    const { start, end } = getDateRangeForPeriod(selectedPeriod);
-    const periodEnd = end ?? new Date();
+    const bounds = resolvePerformanceWindowBounds(windowRange, asOfDate);
+    if (!bounds) return [];
+
     const selectedIndexes = attribution.periods
         .map((period, index) => ({ period, index }))
         .filter(({ period }) => {
-            const itemDate = new Date(`${period.end}T00:00:00`);
-            return itemDate >= start && itemDate <= periodEnd;
+            return period.end >= bounds.start && period.end <= bounds.end;
         })
         .map(({ index }) => index);
 

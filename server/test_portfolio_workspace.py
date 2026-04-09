@@ -223,6 +223,44 @@ def test_compute_performance_window_metrics_uses_named_windows(monkeypatch):
     assert windows["FULL_YEAR"] is None
 
 
+def test_compute_performance_window_metrics_anchors_exact_boundary_close(monkeypatch):
+    index = pd.to_datetime([
+        "2025-12-30",
+        "2025-12-31",
+        "2026-01-02",
+        "2026-01-05",
+        "2026-01-06",
+        "2026-01-07",
+    ])
+    portfolio_returns = pd.Series([0.002, 0.03, 0.01, -0.005, 0.004, 0.006], index=index)
+    benchmark_returns = pd.Series([0.001, 0.02, 0.008, -0.004, 0.003, 0.005], index=index)
+
+    captured: list[tuple[pd.Series, pd.Series]] = []
+
+    def fake_compute_performance_metrics(portfolio_slice, benchmark_slice):
+        captured.append((portfolio_slice.copy(), benchmark_slice.copy()))
+        return {"metrics": {"totalReturn": 1.0}}
+
+    monkeypatch.setattr(performance_service, "compute_performance_metrics", fake_compute_performance_metrics)
+
+    performance_service.compute_performance_window_metrics(
+        portfolio_returns,
+        benchmark_returns,
+        as_of=pd.Timestamp("2026-01-07"),
+    )
+
+    ytd_portfolio, ytd_benchmark = next(
+        (portfolio_slice, benchmark_slice)
+        for portfolio_slice, benchmark_slice in captured
+        if len(portfolio_slice) == 5 and portfolio_slice.index[0] == pd.Timestamp("2025-12-31")
+    )
+
+    assert ytd_portfolio.index[0] == pd.Timestamp("2025-12-31")
+    assert ytd_portfolio.iloc[0] == 0.0
+    assert ytd_benchmark.iloc[0] == 0.0
+    assert ytd_portfolio.iloc[1:].tolist() == [0.01, -0.005, 0.004, 0.006]
+
+
 def test_build_portfolio_workspace_emits_canonical_monthly_return_maps(monkeypatch):
     monkeypatch.setattr(workspace_service, "normalize_portfolio_periods", lambda weights, dates: (weights, dates))
     monkeypatch.setattr(workspace_service, "load_workspace_nav_data", lambda: {})
@@ -285,6 +323,63 @@ def test_build_portfolio_workspace_emits_canonical_monthly_return_maps(monkeypat
     assert workspace["performance"]["portfolio"]["monthlyReturns"] == {monthly_key: pytest.approx(0.1)}
     assert workspace["performance"]["portfolio"]["ytdReturn"] == pytest.approx(0.1)
     assert "portfolioMonthlyReturns" not in workspace["attribution"]
+
+
+def test_build_performance_section_anchors_windows_to_latest_available_data(monkeypatch):
+    index = pd.to_datetime(["2026-03-31", "2026-04-01", "2026-04-02"])
+    returns_df = pd.DataFrame(
+        {
+            "AAA": [0.0, 0.01, 0.02],
+            "ACWI": [0.0, 0.01, 0.01],
+            "XIC.TO": [0.0, 0.005, 0.005],
+            "XUS.TO": [0.0, 0.008, 0.009],
+            "USDCAD=X": [0.0, 0.001, 0.001],
+        },
+        index=index,
+    )
+
+    captured = {}
+
+    monkeypatch.setattr(workspace_service, "fetch_returns_df", lambda *args, **kwargs: (returns_df, returns_df, []))
+    monkeypatch.setattr(
+        workspace_service,
+        "build_period_weighted_portfolio_returns",
+        lambda returns_df, period_weights: (pd.Series([0.0, 0.01, 0.02], index=returns_df.index), []),
+    )
+    monkeypatch.setattr(
+        workspace_service,
+        "build_benchmark_returns",
+        lambda returns_df, benchmark="75/25": pd.Series([0.0, 0.005, 0.006], index=returns_df.index),
+    )
+    monkeypatch.setattr(
+        workspace_service,
+        "compute_performance_metrics",
+        lambda portfolio_returns, benchmark_returns: {
+            "metrics": {"totalReturn": 1.0},
+            "series": [{"date": "2026-04-02", "portfolio": 101.0, "benchmark": 100.6}],
+            "topDrawdowns": [],
+        },
+    )
+
+    def fake_compute_performance_window_metrics(*args, **kwargs):
+        captured["as_of"] = kwargs.get("as_of")
+        return {"YTD": {"totalReturn": 1.0}}
+
+    monkeypatch.setattr(workspace_service, "compute_performance_window_metrics", fake_compute_performance_window_metrics)
+    monkeypatch.setattr(
+        performance_service,
+        "compute_period_attribution",
+        lambda returns_df, period_weights, nav_tickers=None: [],
+    )
+
+    holdings_items = [
+        {"ticker": "AAA", "weight": 10.0, "date": "2026-03-31", "isCash": False},
+        {"ticker": "AAA", "weight": 10.0, "date": "2026-04-02", "isCash": False},
+    ]
+
+    workspace_service._build_performance_section(holdings_items, set(), {})
+
+    assert captured["as_of"] == pd.Timestamp("2026-04-02")
 
 
 def test_build_attribution_overview_layouts_uses_canonical_period_attribution(monkeypatch):

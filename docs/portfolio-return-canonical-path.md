@@ -1,6 +1,6 @@
 # Portfolio Return Canonical Path
 
-Updated: 2026-04-08
+Updated: 2026-04-09
 
 ## Goal
 
@@ -19,6 +19,12 @@ Current performance shape:
 - `workspace.performance.variants[benchmark].series`
 - `workspace.performance.variants[benchmark].metrics`
 - `workspace.performance.variants[benchmark].fetchedAt`
+
+Canonical window semantics:
+
+- KPI windows are anchored to the boundary close, not by counting the boundary-day return inside the period
+- KPI windows are anchored to the latest available canonical performance date, not wall-clock time
+- report labels and one-pager period slices now read the same server-owned `windowRanges`
 
 `workspace.attribution` no longer carries copied performance fields such as:
 
@@ -62,7 +68,6 @@ The attribution tab still owns attribution math and layouts. It only reaches int
 
 The main ownership cleanup is complete.
 
-The next optional cleanup is smaller:
+One optional cleanup remains:
 
-- the server now owns named window boundaries through `workspace.performance.variants[benchmark].windowRanges`
-- the client still slices chart series locally for rendering, but it now uses server-owned window boundaries rather than client-owned date rules
+- if we want to reduce client presentation logic further, we can pre-emit chart-ready window labels from the server, but ownership and boundary math are already canonical today

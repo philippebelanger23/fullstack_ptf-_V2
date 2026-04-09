@@ -36,6 +36,15 @@ def _price_history_filename(ticker: str) -> str:
     )
 
 
+def _legacy_price_history_filename(ticker: str) -> str:
+    return (
+        ticker.upper().strip()
+        .replace(".", "_")
+        .replace("-", "_")
+        .replace("^", "")
+    )
+
+
 def build_history_close_cache_key(ticker: str, date) -> str:
     normalized_date = pd.to_datetime(date).normalize()
     normalized_ticker = str(ticker).upper().strip()
@@ -88,7 +97,9 @@ def extract_history_price_series(history_frame: pd.DataFrame | pd.Series) -> pd.
 
 @lru_cache(maxsize=256)
 def load_local_price_history(ticker: str) -> pd.Series:
-    path = resolve_storage_path(f"data/price_history/{_price_history_filename(ticker)}.csv")
+    primary_path = resolve_storage_path(f"data/price_history/{_price_history_filename(ticker)}.csv")
+    legacy_path = resolve_storage_path(f"data/price_history/{_legacy_price_history_filename(ticker)}.csv")
+    path = primary_path if primary_path.exists() else legacy_path
     if not path.exists():
         return pd.Series(dtype=float)
 

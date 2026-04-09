@@ -136,6 +136,7 @@ export const PerformanceView: React.FC<{
                     loading={loading}
                     benchmark={benchmark}
                     setBenchmark={setBenchmark}
+                    windowRanges={selectedVariant?.windowRanges}
                 />
             </div>
         </div>

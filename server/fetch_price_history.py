@@ -9,7 +9,7 @@ import pandas as pd
 import yfinance as yf
 
 from constants import BENCHMARK_TICKERS, BENCHMARK_BLEND_TICKERS, SECTOR_REFERENCE_TICKERS
-from market_data import extract_history_price_series
+from market_data import _price_history_filename, extract_history_price_series
 from services.path_utils import resolve_storage_path
 from services.yfinance_parallel import parallel_fetch
 from services.yfinance_setup import configure_yfinance_cache
@@ -133,7 +133,7 @@ def fetch_and_save_price_data(output_dir: Path | None = None) -> list[tuple[str,
             "Adj_Close": close_prices.values,
         })
 
-        safe_filename = ticker.replace(".", "_").replace("-", "_")
+        safe_filename = _price_history_filename(ticker)
         csv_path = output_dir / f"{safe_filename}.csv"
         df.to_csv(csv_path, index=False)
 

@@ -15,7 +15,11 @@ import {
     loadSectorWeights, loadAssetGeo
 } from '../services/api';
 import { formatPct } from '../utils/formatters';
-import { getDateRangeForPeriod } from '../utils/dateUtils';
+import {
+    PERFORMANCE_PERIOD_GROUPS,
+    getPerformancePeriodButtonLabel,
+    getPerformancePeriodTitle,
+} from '../utils/performancePeriods';
 import { buildOnePagerAttributionItems } from '../selectors/attributionSelectors';
 import {
     buildPerformanceSeries,
@@ -43,38 +47,11 @@ interface ReportViewProps {
     benchmarkError?: string | null;
 }
 
-const fmtDate = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-
-const PERIOD_LABELS: Record<PerformancePeriod, string> = {
-    'YTD': 'Year to Date',
-    'Q1': 'Q1',
-    'Q2': 'Q2',
-    'Q3': 'Q3',
-    'Q4': 'Q4',
-    '3M': '3 Months',
-    '6M': '6 Months',
-    '1Y': '1 Year',
-    'FULL_YEAR': 'Full Year',
-};
-
-const REPORT_PERIOD_GROUPS: readonly { key: string; periods: PerformancePeriod[] }[] = [
-    { key: 'year', periods: ['FULL_YEAR'] },
-    { key: 'rolling', periods: ['YTD', '3M', '6M', '1Y'] },
-    { key: 'quarters', periods: ['Q1', 'Q2', 'Q3', 'Q4'] },
-];
-
 const REPORT_BENCHMARK_LABELS: Record<string, string> = {
     '75/25': '75/25 Composite (75% ACWI (CAD) + 25% XIC.TO)',
     ACWI: 'ACWI (CAD-converted)',
     TSX: 'S&P/TSX Composite (XIC.TO)',
     SP500: 'S&P 500 CAD (XUS.TO)',
-};
-
-const getPeriodTitle = (period: PerformancePeriod): string => {
-    const { start, end } = getDateRangeForPeriod(period);
-    const endDate = end ?? new Date();
-    const label = period === 'FULL_YEAR' ? `Full Year ${endDate.getFullYear()}` : PERIOD_LABELS[period];
-    return `${label} (${fmtDate(start)} - ${fmtDate(endDate)})`;
 };
 
 // ── KPI cell ──────────────────────────────────────────────────────────────────
@@ -172,9 +149,6 @@ export const ReportView: React.FC<ReportViewProps> = ({
         benchmark: 'pending', sectors: 'pending',
     });
     const [expandedPanel, setExpandedPanel] = useState<string | null>(null);
-    const periodButtonLabel = (period: PerformancePeriod) => (
-        period === 'FULL_YEAR' ? String(new Date().getFullYear() - 1) : period
-    );
     const benchmarkSectors = useMemo(() => benchmarkWorkspace?.composition.sectors ?? [], [benchmarkWorkspace]);
     const benchmarkGeography = useMemo(() => benchmarkWorkspace?.composition.geography ?? [], [benchmarkWorkspace]);
     // Close expanded panel on ESC
@@ -289,6 +263,7 @@ export const ReportView: React.FC<ReportViewProps> = ({
     const canonicalPerformanceSeries = useMemo(() => (
         buildPerformanceSeries(comparisonVariant)
     ), [comparisonVariant]);
+    const performanceAsOfDate = canonicalPerformanceSeries[canonicalPerformanceSeries.length - 1]?.date ?? null;
 
     const selectedWindowRange = useMemo(() => (
         buildPerformanceWindowRange(comparisonVariant, selectedPeriod)
@@ -302,8 +277,8 @@ export const ReportView: React.FC<ReportViewProps> = ({
     }, [canonicalPerformanceSeries, chartView, selectedWindowRange]);
 
     const periodAttribution = useMemo(() => (
-        buildOnePagerAttributionItems(attributionData, selectedPeriod)
-    ), [attributionData, selectedPeriod]);
+        buildOnePagerAttributionItems(attributionData, selectedWindowRange, performanceAsOfDate)
+    ), [attributionData, performanceAsOfDate, selectedWindowRange]);
 
     const getHoldingDisplayName = (item: PortfolioItem) => (
         item.isMutualFund ? item.ticker : (item.companyName?.trim() || item.ticker)
@@ -536,7 +511,11 @@ export const ReportView: React.FC<ReportViewProps> = ({
             case 'attribution':
                 return (
                     <div style={{ zoom: 2 }}>
-                        <AttributionTable title={getPeriodTitle(selectedPeriod)} items={periodAttribution} contributionFormat="pct" />
+                        <AttributionTable
+                            title={getPerformancePeriodTitle(selectedPeriod, selectedWindowRange, performanceAsOfDate)}
+                            items={periodAttribution}
+                            contributionFormat="pct"
+                        />
                     </div>
                 );
             case 'correlation':
@@ -571,7 +550,7 @@ export const ReportView: React.FC<ReportViewProps> = ({
                 </div>
                 <div className="print-hide flex justify-center">
                     <div className="inline-flex flex-wrap items-center justify-center gap-1.5 rounded-2xl border border-wallstreet-700 bg-wallstreet-800 px-3 py-2 shadow-sm">
-                        {REPORT_PERIOD_GROUPS.map((group, groupIndex) => (
+                        {PERFORMANCE_PERIOD_GROUPS.map((group, groupIndex) => (
                             <React.Fragment key={group.key}>
                                 {groupIndex > 0 && <span className="px-1 text-xs font-bold text-wallstreet-500">/</span>}
                                 <div className="flex items-center gap-1">
@@ -584,7 +563,7 @@ export const ReportView: React.FC<ReportViewProps> = ({
                                                 : 'text-wallstreet-500 hover:text-wallstreet-text hover:bg-wallstreet-900'
                                                 }`}
                                         >
-                                            {periodButtonLabel(period)}
+                                            {getPerformancePeriodButtonLabel(period, comparisonVariant?.windowRanges?.[period])}
                                         </button>
                                     ))}
                                 </div>
@@ -725,7 +704,7 @@ export const ReportView: React.FC<ReportViewProps> = ({
                 {/* ── ROW 2, COL 3: Attribution Table ─────────────────────── */}
                 <PanelWrapper style={{ gridColumn: '3 / 4' }} className="min-h-0 overflow-hidden relative">
                     <AttributionTable
-                        title={getPeriodTitle(selectedPeriod)}
+                        title={getPerformancePeriodTitle(selectedPeriod, selectedWindowRange, performanceAsOfDate)}
                         items={periodAttribution}
                         contributionFormat="pct"
                     />
