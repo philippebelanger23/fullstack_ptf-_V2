@@ -80,7 +80,7 @@ Files:
 - [client/views/UploadView.tsx](../client/views/UploadView.tsx)
 - [client/components/manual-entry/ManualEntryModal.tsx](../client/components/manual-entry/ManualEntryModal.tsx)
 - [client/components/manual-entry/useManualEntryState.ts](../client/components/manual-entry/useManualEntryState.ts)
-- [client/views/performance/PerformanceKPIs.tsx](../client/views/performance/PerformanceKPIs.tsx)
+- [client/types.ts](../client/types.ts)
 - [client/views/performance/PerformanceCharts.tsx](../client/views/performance/PerformanceCharts.tsx)
 - [client/views/ReportView.tsx](../client/views/ReportView.tsx)
 - [client/utils/dateUtils.ts](../client/utils/dateUtils.ts)
@@ -88,10 +88,10 @@ Files:
 
 Current state:
 
-- App-level year state is typed as `2025 | 2026`.
-- Upload and manual-entry flows branch as `if selectedYear === 2025 else 2026`.
-- Performance and one-pager full-year logic still uses a literal `'2025'` reporting period.
-- Some selectors are year-generic, but they sit on top of a client model that is not.
+- App-level year state is dynamic.
+- Upload and manual-entry flows use year-window helpers instead of `2025` / `2026` branches.
+- Performance and one-pager full-year logic now use a generic `FULL_YEAR` reporting mode.
+- The remaining year-model cleanup is product-level, not hardcoded-calendar cleanup.
 
 Audit verdict:
 
@@ -234,8 +234,8 @@ Goal:
 
 Tasks:
 
-- Replace `2025 | 2026` unions with dynamic year values derived from the workspace timeline.
-- Replace literal `'2025'` performance/report period modes with a year-generic full-year selector.
+- Completed: `2025 | 2026` unions on the main app path were replaced with dynamic year handling.
+- Completed: literal `'2025'` performance/report period modes were replaced with a year-generic full-year selector.
 - Remove upload/manual-entry year-range forks and calculate date windows from selected year values directly.
 - Make debug tooling emit workspace year coverage so future year regressions are visible immediately.
 
@@ -260,7 +260,7 @@ Status: Pending
 ### 2026-04-04
 
 - Year-specific audit completed.
-- Conclusion: canonical server timeline construction appears year-agnostic, but the client still contains multiple hardcoded `2025` and `2025 | 2026` branches.
+- Conclusion: canonical server timeline construction is year-agnostic, and the main client year model is now off hardcoded `2025` / `2026` branches.
 - `server/debug_dump_canonical_ticker.py` was upgraded to emit:
   - the ticker canonical CSV dump
   - a sidecar year-audit JSON summarizing workspace year coverage and known year-hardcoding findings

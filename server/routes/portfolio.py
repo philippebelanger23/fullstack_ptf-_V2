@@ -10,6 +10,7 @@ from fastapi import APIRouter, HTTPException
 from data_loader import load_historic_nav_csvs, load_manual_navs_json, merge_nav_sources
 from cache_manager import clear_cache, get_cache_info
 from services.path_utils import resolve_storage_path
+from services.yfinance_parallel import parallel_fetch
 from services.workspace_service import build_portfolio_workspace
 from services.yfinance_setup import configure_yfinance_cache
 from models import ManualAnalysisRequest
@@ -122,15 +123,16 @@ def get_company_name_map(tickers: list[str], mutual_fund_tickers: set[str], cash
     cache_written = False
     if missing:
         try:
-            tickers_obj = yf.Tickers(" ".join(missing))
-            for ticker in missing:
-                try:
-                    info = tickers_obj.tickers[ticker].info
-                    display_name = resolve_company_name_from_info(info)
-                    if display_name:
-                        server_cache[ticker] = display_name
-                except Exception as e:
-                    logger.warning(f"Failed to fetch company name for {ticker}: {e}")
+            def _fetch_company_name(ticker: str) -> str | None:
+                info = yf.Ticker(ticker).info
+                return resolve_company_name_from_info(info)
+
+            name_results, failures = parallel_fetch(missing, _fetch_company_name, max_workers=8)
+            for ticker, display_name in name_results.items():
+                if display_name:
+                    server_cache[ticker] = display_name
+            for ticker, exc in failures.items():
+                logger.warning(f"Failed to fetch company name for {ticker}: {exc}")
 
             try:
                 cache_file.parent.mkdir(parents=True, exist_ok=True)

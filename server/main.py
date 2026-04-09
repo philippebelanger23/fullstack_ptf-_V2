@@ -11,7 +11,6 @@ from routes.portfolio import router as portfolio_router
 from routes.market import router as market_router
 from routes.index import router as index_router
 from routes.config import router as config_router
-from routes.risk import router as risk_router
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -54,7 +53,6 @@ app.include_router(portfolio_router)
 app.include_router(market_router)
 app.include_router(index_router)
 app.include_router(config_router)
-app.include_router(risk_router)
 
 
 if __name__ == "__main__":

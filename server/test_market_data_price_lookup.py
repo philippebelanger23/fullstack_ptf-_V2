@@ -101,6 +101,30 @@ def test_load_local_price_history_prefers_adjusted_close_when_both_columns_exist
         shutil.rmtree(tmp_root, ignore_errors=True)
 
 
+def test_load_local_price_history_supports_legacy_equals_filename(monkeypatch):
+    market_data.load_local_price_history.cache_clear()
+
+    tmp_root = Path(__file__).parent / "_tmp_legacy_price_history_case"
+    csv_dir = tmp_root / "data" / "price_history"
+    try:
+        csv_dir.mkdir(parents=True, exist_ok=True)
+        csv_path = csv_dir / "USDCAD=X.csv"
+        csv_path.write_text(
+            "Date,Adj_Close\n"
+            "2026-03-30,1.431\n"
+            "2026-03-31,1.428\n",
+            encoding="utf-8",
+        )
+
+        monkeypatch.setattr(market_data, "resolve_storage_path", lambda relative_path: tmp_root / relative_path)
+
+        series = market_data.load_local_price_history("USDCAD=X")
+
+        assert list(series.values) == [1.431, 1.428]
+    finally:
+        shutil.rmtree(tmp_root, ignore_errors=True)
+
+
 def test_merge_nav_sources_preserves_manual_dates_and_prefers_csv_on_conflict():
     manual_navs = {
         "DYN245": {

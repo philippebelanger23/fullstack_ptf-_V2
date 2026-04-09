@@ -1,10 +1,10 @@
 """
-Backcast calculation logic shared between /portfolio-backcast and /risk-contribution.
+Shared performance and risk calculation primitives used by the canonical workspace.
 
 Provides helpers for:
 - Aggregating portfolio weights from PortfolioItem lists
 - Fetching price data and building FX-adjusted returns DataFrames
-- Computing all risk / performance metrics for the backcast response
+- Computing all risk / performance metrics for the canonical performance response
 
 KPI primitives (compute_beta, compute_annualized_vol, compute_sharpe, compute_sortino)
 are the canonical single source of truth — all endpoints must call these instead of
@@ -31,6 +31,8 @@ from services.yfinance_setup import configure_yfinance_cache
 logger = logging.getLogger(__name__)
 
 configure_yfinance_cache()
+
+PERFORMANCE_WINDOW_KEYS = ("FULL_YEAR", "YTD", "Q1", "Q2", "Q3", "Q4", "3M", "6M", "1Y")
 
 
 def _normalize_close_download(downloaded: pd.DataFrame | pd.Series, tickers: list[str]) -> pd.DataFrame:
@@ -91,14 +93,14 @@ def compute_sortino(daily_rets: np.ndarray) -> float:
 CASH_TICKER_NAMES: set[str] = {"CASH", "*CASH*"}
 
 
-def load_backcast_nav_data() -> dict[str, dict[pd.Timestamp, float]]:
-    """Load NAV data for backcast/risk endpoints."""
+def load_performance_nav_data() -> dict[str, dict[pd.Timestamp, float]]:
+    """Load NAV data for canonical performance and risk calculations."""
     manual_navs = load_manual_navs_json("data/manual_navs.json")
     csv_navs = {}
     try:
         csv_navs = load_historic_nav_csvs("data/historic_navs")
     except Exception as e:
-        logger.warning(f"Could not load historic NAVs for backcast: {e}")
+        logger.warning(f"Could not load historic NAVs for canonical performance: {e}")
 
     return merge_nav_sources(manual_navs, csv_navs)
 
@@ -159,8 +161,8 @@ def aggregate_period_weights(
     Returns a **sorted** list of (date_str, weights_by_ticker, mutual_fund_tickers)
     tuples — one entry per rebalance date found in *items*.
 
-    Used by /portfolio-backcast so the daily return series reflects actual
-    rebalancing decisions instead of static max-weights.
+    Used by the canonical workspace performance builder so the daily return
+    series reflects actual rebalancing decisions instead of static max-weights.
     """
     from collections import defaultdict
 
@@ -210,7 +212,7 @@ def build_period_weighted_portfolio_returns(
     The weights in each entry apply from the *previous* period's end date (exclusive)
     up to and including this period's end date.
 
-    For the first period: covers all dates up to its end date (including backcast lookback).
+    For the first period: covers all dates up to its end date (including the pre-period lookback).
     For the last period: covers all dates after the previous period's end date.
     """
     portfolio_returns = pd.Series(0.0, index=returns_df.index)
@@ -277,7 +279,7 @@ def compute_period_attribution(
       contribution — %-form  (= weight * returnPct, e.g. 0.5)
 
     Using the daily-chain approach guarantees that the sum of period
-    portfolio returns compounds to exactly the same total as the backcast
+    portfolio returns compounds to exactly the same total as the canonical performance series
     cumulative series.
     """
     n = len(period_weights)
@@ -359,7 +361,7 @@ def fetch_returns_df(
     - raw_returns_df: pct_change with NaN preserved — for pairwise correlation
     Mutual fund tickers are excluded from the yfinance fetch (their data comes from CSV).
     """
-    nav_dict = nav_dict or load_backcast_nav_data()
+    nav_dict = nav_dict or load_performance_nav_data()
     nav_tickers = set(nav_dict.keys())
     mf = (mutual_fund_tickers or set()) | nav_tickers
     yf_tickers = [t for t in portfolio_tickers if t not in mf]
@@ -374,7 +376,7 @@ def fetch_returns_df(
             local_closes = local_closes.loc[local_closes.index < normalized_end]
     missing_fetch_list = [ticker for ticker in fetch_list if ticker not in local_closes.columns]
     logger.info(
-        "backcast.fetch_returns_df start: portfolio_tickers=%s, yfinance_tickers=%s, local_tickers=%s, nav_tickers=%s, period=%s, start=%s, end=%s",
+        "performance.fetch_returns_df start: portfolio_tickers=%s, yfinance_tickers=%s, local_tickers=%s, nav_tickers=%s, period=%s, start=%s, end=%s",
         len(portfolio_tickers),
         len(missing_fetch_list),
         len(local_closes.columns),
@@ -402,10 +404,10 @@ def fetch_returns_df(
             data = yf.download(missing_fetch_list, **download_kwargs)
             downloaded_closes = _normalize_close_download(data, missing_fetch_list)
         except Exception as exc:
-            logger.warning("backcast.fetch_returns_df download failed: %s", exc)
+            logger.warning("performance.fetch_returns_df download failed: %s", exc)
             downloaded_closes = pd.DataFrame()
         logger.info(
-            "backcast.fetch_returns_df download end: duration=%.3fs, rows=%s",
+            "performance.fetch_returns_df download end: duration=%.3fs, rows=%s",
             perf_counter() - started_at,
             len(downloaded_closes.index),
         )
@@ -506,13 +508,13 @@ def build_benchmark_returns(
 # Composite metric functions
 # =============================================================================
 
-def compute_backcast_metrics(
+def compute_performance_metrics(
     portfolio_returns: pd.Series,
     benchmark_returns: pd.Series,
 ) -> dict:
     """
     Given aligned portfolio and benchmark daily return Series, compute all
-    risk / performance metrics returned by the /portfolio-backcast endpoint.
+    risk / performance metrics returned by the canonical workspace.
     """
     portfolio_cumulative = (1 + portfolio_returns).cumprod() * 100
     benchmark_cumulative = (1 + benchmark_returns).cumprod() * 100
@@ -599,6 +601,102 @@ def compute_backcast_metrics(
     return {"metrics": metrics, "series": performance_series, "topDrawdowns": top_drawdowns}
 
 
+def _resolve_window_range(period: str, as_of: pd.Timestamp) -> tuple[pd.Timestamp, pd.Timestamp | None]:
+    as_of = pd.Timestamp(as_of).normalize()
+    year = as_of.year
+
+    quarter_ranges = {
+        "Q1": (pd.Timestamp(year=year, month=1, day=1), pd.Timestamp(year=year, month=3, day=31)),
+        "Q2": (pd.Timestamp(year=year, month=4, day=1), pd.Timestamp(year=year, month=6, day=30)),
+        "Q3": (pd.Timestamp(year=year, month=7, day=1), pd.Timestamp(year=year, month=9, day=30)),
+        "Q4": (pd.Timestamp(year=year, month=10, day=1), pd.Timestamp(year=year, month=12, day=31)),
+    }
+    if period in quarter_ranges:
+        return quarter_ranges[period]
+    if period == "FULL_YEAR":
+        return pd.Timestamp(year=year - 2, month=12, day=31), pd.Timestamp(year=year - 1, month=12, day=31)
+    if period == "YTD":
+        return pd.Timestamp(year=year - 1, month=12, day=31), None
+    if period == "3M":
+        return as_of - pd.DateOffset(months=3), None
+    if period == "6M":
+        return as_of - pd.DateOffset(months=6), None
+    if period == "1Y":
+        return as_of - pd.DateOffset(years=1), None
+    return as_of - pd.DateOffset(years=1), None
+
+
+def build_performance_window_ranges(
+    as_of: pd.Timestamp | None = None,
+) -> dict[str, dict[str, str | None]]:
+    as_of_date = pd.Timestamp(as_of).normalize() if as_of is not None else pd.Timestamp.now().normalize()
+    ranges: dict[str, dict[str, str | None]] = {}
+    for period in PERFORMANCE_WINDOW_KEYS:
+        start_date, end_date = _resolve_window_range(period, as_of_date)
+        ranges[period] = {
+            "start": start_date.strftime("%Y-%m-%d"),
+            "end": end_date.strftime("%Y-%m-%d") if end_date is not None else None,
+        }
+    return ranges
+
+
+def _slice_returns_for_window(
+    portfolio_returns: pd.Series,
+    benchmark_returns: pd.Series,
+    start_date: pd.Timestamp,
+    end_date: pd.Timestamp | None,
+) -> tuple[pd.Series, pd.Series]:
+    mask = portfolio_returns.index >= start_date
+    if end_date is not None:
+        mask &= portfolio_returns.index <= end_date
+
+    filtered_portfolio = portfolio_returns.loc[mask]
+    if filtered_portfolio.empty:
+        return filtered_portfolio, benchmark_returns.reindex(filtered_portfolio.index).fillna(0.0)
+
+    filtered_benchmark = benchmark_returns.reindex(filtered_portfolio.index).fillna(0.0)
+    anchored_portfolio = filtered_portfolio.copy()
+    anchored_benchmark = filtered_benchmark.copy()
+
+    # The boundary date is the anchor close, not a return that belongs in the window.
+    if start_date in anchored_portfolio.index:
+        anchored_portfolio.loc[start_date] = 0.0
+        anchored_benchmark.loc[start_date] = 0.0
+    elif (portfolio_returns.index < start_date).any():
+        anchor_portfolio = pd.Series([0.0], index=pd.DatetimeIndex([start_date]))
+        anchor_benchmark = pd.Series([0.0], index=pd.DatetimeIndex([start_date]))
+        anchored_portfolio = pd.concat([anchor_portfolio, anchored_portfolio])
+        anchored_benchmark = pd.concat([anchor_benchmark, anchored_benchmark])
+
+    return anchored_portfolio, anchored_benchmark
+
+
+def compute_performance_window_metrics(
+    portfolio_returns: pd.Series,
+    benchmark_returns: pd.Series,
+    as_of: pd.Timestamp | None = None,
+) -> dict[str, dict | None]:
+    if portfolio_returns.empty or benchmark_returns.empty:
+        return {period: None for period in PERFORMANCE_WINDOW_KEYS}
+
+    as_of_date = pd.Timestamp(as_of).normalize() if as_of is not None else pd.Timestamp.now().normalize()
+    windows: dict[str, dict | None] = {}
+
+    for period in PERFORMANCE_WINDOW_KEYS:
+        start_date, end_date = _resolve_window_range(period, as_of_date)
+        filtered_portfolio, filtered_benchmark = _slice_returns_for_window(
+            portfolio_returns,
+            benchmark_returns,
+            start_date,
+            end_date,
+        )
+        if len(filtered_portfolio) < 5:
+            windows[period] = None
+            continue
+
+        windows[period] = compute_performance_metrics(filtered_portfolio, filtered_benchmark)["metrics"]
+
+    return windows
 def compute_rolling_metrics(
     portfolio_returns: pd.Series,
     benchmark_returns: pd.Series,

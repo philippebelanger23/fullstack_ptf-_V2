@@ -8,7 +8,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-import services.backcast_service as backcast_service
+import services.performance_service as performance_service
 import services.workspace_service as workspace_service
 from services.period_normalizer import normalize_portfolio_periods as normalize_periods_impl
 
@@ -46,11 +46,35 @@ def test_build_portfolio_workspace_normalizes_duplicate_rows_and_latest_snapshot
     monkeypatch.setattr(workspace_service, "load_cache", lambda: {})
     monkeypatch.setattr(workspace_service, "save_cache", lambda cache: None)
     monkeypatch.setattr(workspace_service, "_prime_price_cache_for_dates", lambda *args, **kwargs: None)
-    monkeypatch.setattr(workspace_service, "_build_benchmark_lists", lambda *args, **kwargs: ({}, {}))
+    monkeypatch.setattr(
+        workspace_service,
+        "fetch_returns_df",
+        lambda *args, **kwargs: (pd.DataFrame(index=pd.DatetimeIndex([])), pd.DataFrame(index=pd.DatetimeIndex([])), []),
+    )
     monkeypatch.setattr(
         workspace_service,
         "_build_performance_section",
-        lambda *args, **kwargs: {"defaultBenchmark": "75/25", "variants": {}, "rollingMetrics": {}},
+        lambda *args, **kwargs: {
+            "defaultBenchmark": "75/25",
+            "portfolio": {
+                "periodReturns": {},
+                "monthlyReturns": {},
+                "ytdReturn": 0.0,
+            },
+            "variants": {
+                "75/25": {
+                    "series": [
+                        {"date": "2026-03-31", "portfolio": 100.0, "benchmark": 100.0},
+                        {"date": "2026-04-03", "portfolio": 101.56, "benchmark": 100.5},
+                    ],
+                    "periodAttribution": [
+                        {"ticker": "AAA", "date": "2026-04-02", "weight": 12.0, "returnPct": 0.10, "contribution": 1.2},
+                        {"ticker": "AAA", "date": "2026-04-03", "weight": 8.0, "returnPct": 0.0454545455, "contribution": 0.363636364},
+                    ],
+                    "fetchedAt": "2026-04-03T00:00:00Z",
+                }
+            },
+        },
     )
     monkeypatch.setattr(
         workspace_service,
@@ -134,7 +158,7 @@ def test_build_performance_section_emits_all_benchmark_variants(monkeypatch):
     )
     monkeypatch.setattr(
         workspace_service,
-        "compute_backcast_metrics",
+        "compute_performance_metrics",
         lambda portfolio_returns, benchmark_returns: {
             "metrics": {"totalReturn": 1.0},
             "series": [{"date": "2026-04-02", "portfolio": 101.0, "benchmark": 100.6}],
@@ -143,11 +167,11 @@ def test_build_performance_section_emits_all_benchmark_variants(monkeypatch):
     )
     monkeypatch.setattr(
         workspace_service,
-        "compute_rolling_metrics",
-        lambda portfolio_returns, benchmark_returns: {"windows": {21: [], 63: [], 126: []}},
+        "compute_performance_window_metrics",
+        lambda *args, **kwargs: {"YTD": {"totalReturn": 1.0}},
     )
     monkeypatch.setattr(
-        backcast_service,
+        performance_service,
         "compute_period_attribution",
         lambda returns_df, period_weights, nav_tickers=None: [{"ticker": "AAA", "date": "2026-04-02", "weight": 10.0, "returnPct": 0.03, "contribution": 0.3}],
     )
@@ -162,8 +186,79 @@ def test_build_performance_section_emits_all_benchmark_variants(monkeypatch):
     assert performance["defaultBenchmark"] == "75/25"
     assert set(performance["variants"].keys()) == {"75/25", "TSX", "SP500", "ACWI"}
     assert performance["variants"]["75/25"]["periodAttribution"][0]["ticker"] == "AAA"
+    assert performance["variants"]["75/25"]["windows"]["YTD"]["totalReturn"] == 1.0
+    assert performance["variants"]["75/25"]["windowRanges"]["YTD"]["start"] is not None
     assert "periodAttribution" not in performance["variants"]["TSX"]
-    assert set(performance["rollingMetrics"].keys()) == {"75/25", "TSX", "SP500", "ACWI"}
+
+
+def test_compute_performance_window_metrics_uses_named_windows(monkeypatch):
+    index = pd.to_datetime([
+        "2026-01-05",
+        "2026-01-20",
+        "2026-02-10",
+        "2026-03-01",
+        "2026-03-31",
+        "2026-04-01",
+        "2026-04-02",
+        "2026-04-03",
+    ])
+    portfolio_returns = pd.Series([0.0, 0.01, -0.005, 0.02, 0.01, 0.0, 0.003, 0.004], index=index)
+    benchmark_returns = pd.Series([0.0, 0.008, -0.004, 0.015, 0.008, 0.0, 0.002, 0.003], index=index)
+
+    monkeypatch.setattr(
+        performance_service,
+        "compute_performance_metrics",
+        lambda portfolio_slice, benchmark_slice: {"metrics": {"totalReturn": len(portfolio_slice)}},
+    )
+
+    windows = performance_service.compute_performance_window_metrics(
+        portfolio_returns,
+        benchmark_returns,
+        as_of=pd.Timestamp("2026-04-03"),
+    )
+
+    assert windows["YTD"] == {"totalReturn": 8}
+    assert windows["Q1"] == {"totalReturn": 5}
+    assert windows["Q2"] is None
+    assert windows["FULL_YEAR"] is None
+
+
+def test_compute_performance_window_metrics_anchors_exact_boundary_close(monkeypatch):
+    index = pd.to_datetime([
+        "2025-12-30",
+        "2025-12-31",
+        "2026-01-02",
+        "2026-01-05",
+        "2026-01-06",
+        "2026-01-07",
+    ])
+    portfolio_returns = pd.Series([0.002, 0.03, 0.01, -0.005, 0.004, 0.006], index=index)
+    benchmark_returns = pd.Series([0.001, 0.02, 0.008, -0.004, 0.003, 0.005], index=index)
+
+    captured: list[tuple[pd.Series, pd.Series]] = []
+
+    def fake_compute_performance_metrics(portfolio_slice, benchmark_slice):
+        captured.append((portfolio_slice.copy(), benchmark_slice.copy()))
+        return {"metrics": {"totalReturn": 1.0}}
+
+    monkeypatch.setattr(performance_service, "compute_performance_metrics", fake_compute_performance_metrics)
+
+    performance_service.compute_performance_window_metrics(
+        portfolio_returns,
+        benchmark_returns,
+        as_of=pd.Timestamp("2026-01-07"),
+    )
+
+    ytd_portfolio, ytd_benchmark = next(
+        (portfolio_slice, benchmark_slice)
+        for portfolio_slice, benchmark_slice in captured
+        if len(portfolio_slice) == 5 and portfolio_slice.index[0] == pd.Timestamp("2025-12-31")
+    )
+
+    assert ytd_portfolio.index[0] == pd.Timestamp("2025-12-31")
+    assert ytd_portfolio.iloc[0] == 0.0
+    assert ytd_benchmark.iloc[0] == 0.0
+    assert ytd_portfolio.iloc[1:].tolist() == [0.01, -0.005, 0.004, 0.006]
 
 
 def test_build_portfolio_workspace_emits_canonical_monthly_return_maps(monkeypatch):
@@ -171,11 +266,32 @@ def test_build_portfolio_workspace_emits_canonical_monthly_return_maps(monkeypat
     monkeypatch.setattr(workspace_service, "load_workspace_nav_data", lambda: {})
     monkeypatch.setattr(workspace_service, "load_cache", lambda: {})
     monkeypatch.setattr(workspace_service, "save_cache", lambda cache: None)
-    monkeypatch.setattr(workspace_service, "_build_benchmark_lists", lambda *args, **kwargs: ({}, {}))
+    monkeypatch.setattr(
+        workspace_service,
+        "fetch_returns_df",
+        lambda *args, **kwargs: (pd.DataFrame(index=pd.DatetimeIndex([])), pd.DataFrame(index=pd.DatetimeIndex([])), []),
+    )
     monkeypatch.setattr(
         workspace_service,
         "_build_performance_section",
-        lambda *args, **kwargs: {"defaultBenchmark": "75/25", "variants": {}, "rollingMetrics": {}},
+        lambda *args, **kwargs: {
+            "defaultBenchmark": "75/25",
+            "portfolio": {
+                "periodReturns": {},
+                "monthlyReturns": {},
+                "ytdReturn": 0.0,
+            },
+            "variants": {
+                "75/25": {
+                    "series": [
+                        {"date": "2025-12-31", "portfolio": 100.0, "benchmark": 100.0},
+                        {"date": "2026-01-31", "portfolio": 110.0, "benchmark": 100.0},
+                    ],
+                    "periodAttribution": [],
+                    "fetchedAt": "2026-01-31T00:00:00Z",
+                }
+            },
+        },
     )
     monkeypatch.setattr(
         workspace_service,
@@ -204,8 +320,121 @@ def test_build_portfolio_workspace_emits_canonical_monthly_return_maps(monkeypat
     monthly_period = workspace["attribution"]["monthlyPeriods"][0]
     monthly_key = f"{monthly_period['start']}|{monthly_period['end']}"
 
-    assert workspace["attribution"]["portfolioMonthlyReturns"] == {monthly_key: pytest.approx(0.1)}
-    assert workspace["attribution"]["portfolioYtdReturn"] == pytest.approx(0.1)
+    assert workspace["performance"]["portfolio"]["monthlyReturns"] == {monthly_key: pytest.approx(0.1)}
+    assert workspace["performance"]["portfolio"]["ytdReturn"] == pytest.approx(0.1)
+    assert "portfolioMonthlyReturns" not in workspace["attribution"]
+
+
+def test_build_performance_section_anchors_windows_to_latest_available_data(monkeypatch):
+    index = pd.to_datetime(["2026-03-31", "2026-04-01", "2026-04-02"])
+    returns_df = pd.DataFrame(
+        {
+            "AAA": [0.0, 0.01, 0.02],
+            "ACWI": [0.0, 0.01, 0.01],
+            "XIC.TO": [0.0, 0.005, 0.005],
+            "XUS.TO": [0.0, 0.008, 0.009],
+            "USDCAD=X": [0.0, 0.001, 0.001],
+        },
+        index=index,
+    )
+
+    captured = {}
+
+    monkeypatch.setattr(workspace_service, "fetch_returns_df", lambda *args, **kwargs: (returns_df, returns_df, []))
+    monkeypatch.setattr(
+        workspace_service,
+        "build_period_weighted_portfolio_returns",
+        lambda returns_df, period_weights: (pd.Series([0.0, 0.01, 0.02], index=returns_df.index), []),
+    )
+    monkeypatch.setattr(
+        workspace_service,
+        "build_benchmark_returns",
+        lambda returns_df, benchmark="75/25": pd.Series([0.0, 0.005, 0.006], index=returns_df.index),
+    )
+    monkeypatch.setattr(
+        workspace_service,
+        "compute_performance_metrics",
+        lambda portfolio_returns, benchmark_returns: {
+            "metrics": {"totalReturn": 1.0},
+            "series": [{"date": "2026-04-02", "portfolio": 101.0, "benchmark": 100.6}],
+            "topDrawdowns": [],
+        },
+    )
+
+    def fake_compute_performance_window_metrics(*args, **kwargs):
+        captured["as_of"] = kwargs.get("as_of")
+        return {"YTD": {"totalReturn": 1.0}}
+
+    monkeypatch.setattr(workspace_service, "compute_performance_window_metrics", fake_compute_performance_window_metrics)
+    monkeypatch.setattr(
+        performance_service,
+        "compute_period_attribution",
+        lambda returns_df, period_weights, nav_tickers=None: [],
+    )
+
+    holdings_items = [
+        {"ticker": "AAA", "weight": 10.0, "date": "2026-03-31", "isCash": False},
+        {"ticker": "AAA", "weight": 10.0, "date": "2026-04-02", "isCash": False},
+    ]
+
+    workspace_service._build_performance_section(holdings_items, set(), {})
+
+    assert captured["as_of"] == pd.Timestamp("2026-04-02")
+
+
+def test_build_attribution_overview_layouts_uses_canonical_period_attribution(monkeypatch):
+    monkeypatch.setattr(workspace_service, "_load_sector_cache_map", lambda: {"AAA": "Technology"})
+    monkeypatch.setattr(
+        workspace_service,
+        "_load_index_exposure_sectors",
+        lambda: [{"sector": "Technology", "Index": 20.0, "ACWI": 20.0, "TSX": 5.0}],
+    )
+    monkeypatch.setattr(
+        workspace_service,
+        "_load_sector_history_cache",
+        lambda: {
+            "US": {
+                "Information Technology": [
+                    {"date": "2026-03-31", "value": 100.0},
+                    {"date": "2026-04-30", "value": 110.0},
+                ]
+            },
+            "CA": {},
+            "OVERALL": {
+                "SP500": [
+                    {"date": "2026-03-31", "value": 100.0},
+                    {"date": "2026-04-30", "value": 105.0},
+                ],
+                "TSX": [
+                    {"date": "2026-03-31", "value": 100.0},
+                    {"date": "2026-04-30", "value": 102.0},
+                ],
+            },
+        },
+    )
+
+    overview_layouts = workspace_service._build_attribution_overview_layouts(
+        period_attribution=[
+            {"ticker": "AAA", "date": "2026-04-15", "weight": 10.0, "returnPct": 0.20, "contribution": 2.0},
+        ],
+        performance_series=[
+            {"date": "2026-03-31", "portfolio": 100.0, "benchmark": 100.0},
+            {"date": "2026-04-30", "portfolio": 102.0, "benchmark": 101.0},
+        ],
+        periods=[(pd.Timestamp("2026-03-31"), pd.Timestamp("2026-04-30"))],
+        ticker_flags={"AAA": {"isCash": False, "isEtf": False, "isMutualFund": False}},
+        custom_sectors={},
+        company_name_map={"AAA": "Alpha"},
+    )
+
+    april_layout = overview_layouts["2026"]["Q2"]
+    tech_row = next(row for row in april_layout["sectorAttribution"]["ALL"]["SECTOR"]["data"] if row["sector"] == "Information Technology")
+
+    assert april_layout["waterfall"]["portfolioReturn"] == pytest.approx(2.0)
+    assert april_layout["waterfall"]["bars"][-1]["name"] == "Total"
+    assert tech_row["portfolioWeight"] == pytest.approx(10.0)
+    assert tech_row["portfolioReturn"] == pytest.approx(20.0)
+    assert tech_row["selectionEffect"] == pytest.approx(2.0)
 
 
 def test_prime_price_cache_respects_market_data_lookback_window(monkeypatch):
@@ -239,10 +468,16 @@ def test_waterfall_layout_uses_top_ten_by_weight():
 
     waterfall = workspace_service._build_waterfall_layout(summary_rows, portfolio_return=1.23)
 
-    names = [bar["name"] for bar in waterfall["bars"]]
+    bars = waterfall["bars"]
+    names = [bar["name"] for bar in bars]
     assert names[:3] == ["HIGHWT", "MIDWT", "T1"]
     assert "BIGCONTRIB" not in names[:10]
     assert names[-2:] == ["Others", "Total"]
+
+    total_bar = bars[-1]
+    others_bar = next(bar for bar in bars if bar["name"] == "Others")
+    top_sum = sum(bar["delta"] for bar in bars if not bar["isTotal"] and bar["name"] != "Others")
+    assert abs((top_sum + others_bar["delta"]) - total_bar["delta"]) < 1e-9
 
 
 def test_waterfall_layout_excludes_non_current_holdings():
@@ -254,7 +489,7 @@ def test_waterfall_layout_excludes_non_current_holdings():
     waterfall = workspace_service._build_waterfall_layout(summary_rows, portfolio_return=0.75)
 
     names = [bar["name"] for bar in waterfall["bars"]]
-    assert names == ["CURRENT", "Total"]
+    assert names == ["CURRENT", "Others", "Total"]
 
 
 def test_build_risk_section_aligns_portfolio_and_benchmark_series(monkeypatch):
@@ -290,8 +525,53 @@ def test_build_risk_section_aligns_portfolio_and_benchmark_series(monkeypatch):
         {"ticker": "AAA", "weight": 100.0, "date": "2026-04-03", "isCash": False, "isMutualFund": False, "isEtf": False},
     ]
 
-    risk = workspace_service._build_risk_section(latest_items, set(), {})
+    historical_items = [
+        {"ticker": "AAA", "weight": 100.0, "date": "2026-03-31", "isCash": False},
+        {"ticker": "AAA", "weight": 100.0, "date": "2026-04-03", "isCash": False},
+    ]
+
+    risk = workspace_service._build_risk_section(latest_items, historical_items, set(), {})
 
     assert captured["portfolio_len"] == 3
     assert captured["benchmark_len"] == 3
     assert risk["portfolioBeta"] == 1.23
+    assert risk["correlationMatrix"]["tickers"] == ["AAA"]
+    assert risk["correlationMatrix"]["matrix"] == [[1.0]]
+
+
+def test_build_risk_section_orders_correlation_by_latest_weights(monkeypatch):
+    index = pd.to_datetime(["2026-03-31", "2026-04-01", "2026-04-02", "2026-04-03"])
+    returns_df = pd.DataFrame(
+        {
+            "LOW": [0.0, 0.01, 0.02, -0.01],
+            "HIGH": [0.0, 0.02, 0.01, -0.02],
+            "ACWI": [0.0, 0.005, 0.004, -0.002],
+            "XIC.TO": [0.0, 0.003, 0.002, -0.001],
+            "USDCAD=X": [0.0, 0.001, 0.001, 0.0],
+        },
+        index=index,
+    )
+
+    monkeypatch.setattr(workspace_service, "fetch_returns_df", lambda *args, **kwargs: (returns_df, returns_df, []))
+    monkeypatch.setattr(
+        workspace_service,
+        "build_benchmark_returns",
+        lambda returns_df, benchmark="75/25": pd.Series([0.0, 0.004, 0.003, -0.001], index=returns_df.index),
+    )
+    monkeypatch.setattr(workspace_service, "compute_annualized_vol", lambda values: float(len(values)))
+    monkeypatch.setattr(workspace_service, "compute_beta", lambda ptf_rets, bmk_rets: 1.0)
+    monkeypatch.setattr(workspace_service, "resolve_storage_path", lambda path: type("P", (), {"exists": lambda self: False})())
+
+    latest_items = [
+        {"ticker": "LOW", "weight": 1.0, "date": "2026-04-03", "isCash": False, "isMutualFund": False, "isEtf": False},
+        {"ticker": "HIGH", "weight": 5.0, "date": "2026-04-03", "isCash": False, "isMutualFund": False, "isEtf": False},
+    ]
+    historical_items = [
+        {"ticker": "HIGH", "weight": 1.0, "date": "2026-04-01", "isCash": False},
+        {"ticker": "LOW", "weight": 9.0, "date": "2026-04-02", "isCash": False},
+    ]
+
+    risk = workspace_service._build_risk_section(latest_items, historical_items, set(), {})
+
+    assert risk["correlationMatrix"]["tickers"] == ["HIGH", "LOW"]
+    assert len(risk["correlationMatrix"]["matrix"]) == 2

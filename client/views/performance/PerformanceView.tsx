@@ -1,66 +1,62 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { AlertCircle } from 'lucide-react';
-import type { BackcastResponse } from '../../types';
+import type { PerformancePeriod, PerformanceWorkspaceSection } from '../../types';
 import { FreshnessBadge } from '../../components/ui/FreshnessBadge';
-import type { Period, PeriodMetrics } from './PerformanceKPIs';
 import { PerformanceCharts, type ChartView } from './PerformanceCharts';
 import {
+    buildPerformanceSeries,
+    buildPerformanceWindowRange,
     buildChartDataFromSeries,
-    computePeriodMetricsFromSeries,
-    filterSeriesByPeriod,
+    filterSeriesByWindowRange,
 } from '../../selectors/performanceSelectors';
 
 export const PerformanceView: React.FC<{
     isActive?: boolean;
-    variants?: Record<string, BackcastResponse>;
     defaultBenchmark?: string;
-}> = ({ isActive, variants, defaultBenchmark = '75/25' }) => {
-    const [selectedPeriod, setSelectedPeriod] = useState<Period>('YTD');
+    performanceSection?: PerformanceWorkspaceSection | null;
+}> = ({ isActive, defaultBenchmark = '75/25', performanceSection }) => {
+    const [selectedPeriod, setSelectedPeriod] = useState<PerformancePeriod>('YTD');
     const [chartView, setChartView] = useState<ChartView>('absolute');
-    const [isFullscreen, setIsFullscreen] = useState(false);
     const [benchmark, setBenchmark] = useState<string>(defaultBenchmark);
 
-    const variantMap = variants ?? {};
-    const data = variantMap[benchmark] ?? null;
-    const loading = isActive !== false && !data && Object.keys(variantMap).length === 0;
-    const error = data?.error ?? (!loading && !data ? 'No performance workspace data available.' : null);
+    const availableBenchmarks = useMemo(
+        () => Object.keys(performanceSection?.variants ?? {}),
+        [performanceSection],
+    );
+    const selectedVariant = performanceSection?.variants?.[benchmark] ?? null;
+    const canonicalSeries = useMemo(
+        () => buildPerformanceSeries(selectedVariant),
+        [selectedVariant],
+    );
+    const loading = isActive !== false && !performanceSection;
+    const error = selectedVariant?.error
+        ?? (!loading && canonicalSeries.length === 0 ? 'No canonical performance series available.' : null);
 
     useEffect(() => {
-        const handleEsc = (e: KeyboardEvent) => {
-            if (e.key === 'Escape') setIsFullscreen(false);
-        };
-        if (isFullscreen) {
-            document.addEventListener('keydown', handleEsc);
-            return () => document.removeEventListener('keydown', handleEsc);
-        }
-    }, [isFullscreen]);
-
-    useEffect(() => {
-        if (variantMap[benchmark]) return;
-        if (variantMap[defaultBenchmark]) {
+        if (availableBenchmarks.includes(benchmark)) return;
+        if (availableBenchmarks.includes(defaultBenchmark)) {
             setBenchmark(defaultBenchmark);
             return;
         }
-        const firstAvailable = Object.keys(variantMap)[0];
+        const firstAvailable = availableBenchmarks[0];
         if (firstAvailable) setBenchmark(firstAvailable);
-    }, [benchmark, defaultBenchmark, variantMap]);
+    }, [availableBenchmarks, benchmark, defaultBenchmark]);
 
-    const chartData = useMemo(() => {
-        return buildChartDataFromSeries(
-            filterSeriesByPeriod(data?.series, selectedPeriod),
-            chartView,
-        );
-    }, [chartView, data?.series, selectedPeriod]);
+    const selectedWindowRange = useMemo(() => (
+        buildPerformanceWindowRange(selectedVariant, selectedPeriod)
+    ), [selectedPeriod, selectedVariant]);
 
     const filteredSeries = useMemo(() => {
-        return filterSeriesByPeriod(data?.series, selectedPeriod);
-    }, [data?.series, selectedPeriod]);
+        return filterSeriesByWindowRange(canonicalSeries, selectedWindowRange);
+    }, [canonicalSeries, selectedWindowRange]);
 
-    const periodMetrics = useMemo((): PeriodMetrics | null => {
-        return computePeriodMetricsFromSeries(filteredSeries);
-    }, [filteredSeries]);
+    const chartData = useMemo(() => {
+        return buildChartDataFromSeries(filteredSeries, chartView);
+    }, [chartView, filteredSeries]);
 
-    if (loading && !data) {
+    const periodMetrics = selectedVariant?.windows?.[selectedPeriod] ?? null;
+
+    if (loading) {
         return (
             <div className="max-w-[100vw] mx-auto p-4 md:p-6 overflow-x-hidden min-h-screen flex flex-col items-center justify-center select-none">
                 <style>{`
@@ -123,26 +119,24 @@ export const PerformanceView: React.FC<{
                 <div>
                     <div className="flex items-center gap-3">
                         <h1 className="text-3xl font-bold text-wallstreet-text tracking-tight">Performance Deep Dive</h1>
-                        <FreshnessBadge fetchedAt={data?.fetchedAt ?? null} />
+                        <FreshnessBadge fetchedAt={selectedVariant?.fetchedAt ?? null} />
                     </div>
-                    <p className="text-wallstreet-500 mt-1">Portfolio backcast based on canonical workspace performance data.</p>
+                    <p className="text-wallstreet-500 mt-1">Canonical workspace performance series and relative return metrics.</p>
                 </div>
             </div>
             <div className="flex-1 min-h-0">
                 <PerformanceCharts
                     noWrapper
-                    data={data}
                     chartData={chartData}
                     chartView={chartView}
                     setChartView={setChartView}
-                    isFullscreen={isFullscreen}
-                    setIsFullscreen={setIsFullscreen}
                     selectedPeriod={selectedPeriod}
                     setSelectedPeriod={setSelectedPeriod}
                     periodMetrics={periodMetrics}
                     loading={loading}
                     benchmark={benchmark}
                     setBenchmark={setBenchmark}
+                    windowRanges={selectedVariant?.windowRanges}
                 />
             </div>
         </div>

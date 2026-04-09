@@ -37,7 +37,7 @@ export interface CorrelationData {
   analysis: string;
 }
 
-export interface BackcastMetrics {
+export interface PerformanceMetrics {
   totalReturn: number;
   benchmarkReturn: number;
   alpha: number;
@@ -54,7 +54,14 @@ export interface BackcastMetrics {
   benchmarkSortino: number;
 }
 
-export interface BackcastSeriesPoint {
+export type PerformancePeriod = 'YTD' | 'Q1' | 'Q2' | 'Q3' | 'Q4' | '3M' | '6M' | '1Y' | 'FULL_YEAR';
+
+export interface PerformanceWindowRange {
+  start: string;
+  end?: string | null;
+}
+
+export interface PerformanceSeriesPoint {
   date: string;
   portfolio: number;
   benchmark: number;
@@ -69,7 +76,7 @@ export interface DrawdownEpisode {
   recoveryDays: number | null;
 }
 
-// Per-period, per-ticker attribution derived from the backcast daily series.
+// Per-period, per-ticker attribution derived from the canonical daily performance series.
 // Shaped like PortfolioItem so it can be merged directly into portfolioData.
 export interface PeriodAttributionItem {
   ticker: string;
@@ -80,10 +87,12 @@ export interface PeriodAttributionItem {
   isCash?: boolean;
 }
 
-export interface BackcastResponse {
-  metrics: BackcastMetrics;
-  series: BackcastSeriesPoint[];
+export interface PerformanceVariantResponse {
+  metrics: PerformanceMetrics;
+  series: PerformanceSeriesPoint[];
   missingTickers: string[];
+  windows?: Partial<Record<PerformancePeriod, PerformanceMetrics | null>>;
+  windowRanges?: Partial<Record<PerformancePeriod, PerformanceWindowRange>>;
   topDrawdowns?: DrawdownEpisode[];
   fetchedAt?: string;
   error?: string;
@@ -171,8 +180,6 @@ export interface PortfolioAnalysisResponse {
   monthlySheet: MonthlySheetRow[]; // calendar-month granularity
   periods: PeriodBoundary[]; // sub-period date boundaries
   monthlyPeriods: PeriodBoundary[]; // monthly period boundaries
-  benchmarkReturns: Record<string, number[]>; // {bench_name: [r_period_0, ...]}
-  benchmarkMonthlyReturns: Record<string, number[]>; // {bench_name: [r_month_0, ...]}
 }
 
 export interface RollingMetricPoint {
@@ -185,6 +192,65 @@ export interface PortfolioWorkspaceInput {
   normalizedDates: string[];
   activeTickers: string[];
   latestHoldingsDate: string | null;
+}
+
+export interface BenchmarkSectorRow {
+  sector: string;
+  benchmarkWeight: number;
+  ACWI?: number;
+  TSX?: number;
+}
+
+export interface BenchmarkGeographyRow {
+  region: string;
+  weight: number;
+  ACWI?: number;
+  TSX?: number;
+}
+
+export interface BenchmarkSeriesPoint {
+  date: string;
+  value: number;
+}
+
+export interface BenchmarkCurrencyPerformance {
+  YTD?: number | null;
+  '3M'?: number | null;
+  '6M'?: number | null;
+  '1Y'?: number | null;
+}
+
+export interface BenchmarkCurrencyRow {
+  code: string;
+  weight: number;
+  ticker?: string | null;
+  performance?: BenchmarkCurrencyPerformance | null;
+}
+
+export interface BenchmarkWorkspaceSourceStatus {
+  status: 'fresh' | 'stale' | 'error';
+  error?: string | null;
+}
+
+export interface BenchmarkWorkspaceResponse {
+  composition: {
+    sectors: BenchmarkSectorRow[];
+    geography: BenchmarkGeographyRow[];
+  };
+  performance: {
+    series: Record<string, BenchmarkSeriesPoint[]>;
+  };
+  currency: {
+    rows: BenchmarkCurrencyRow[];
+  };
+  meta: {
+    builtAt: string | null;
+    exposureAsOf: string | null;
+    historyAsOf: string | null;
+    stale: boolean;
+    sourceStatus: Record<string, BenchmarkWorkspaceSourceStatus>;
+    errors: Record<string, string>;
+  };
 }
 
 export interface PortfolioWorkspaceTimeline {
@@ -249,7 +315,7 @@ export interface SectorAttributionRow {
   selectionEffect: number;
   allocationEffect: number;
   interactionEffect: number;
-  benchmarkReturn: number;
+  benchmarkReturn: number | null;
   benchmarkWeight: number;
   portfolioWeight: number;
   portfolioReturn: number;
@@ -272,14 +338,18 @@ export interface AttributionOverviewRangeLayout {
 export interface PortfolioWorkspaceAttribution extends PortfolioAnalysisResponse {
   topContributors: TopContributorLayout[];
   overviewLayouts?: Record<string, Record<string, AttributionOverviewRangeLayout>>;
-  portfolioPeriodReturns: Record<string, number>;
-  portfolioMonthlyReturns: Record<string, number>;
-  portfolioYtdReturn: number;
+}
+
+export interface PerformancePortfolioReturnBundle {
+  periodReturns: Record<string, number>;
+  monthlyReturns: Record<string, number>;
+  ytdReturn: number;
 }
 
 export interface PerformanceWorkspaceSection {
   defaultBenchmark: string;
-  variants: Record<string, BackcastResponse>;
+  portfolio: PerformancePortfolioReturnBundle;
+  variants: Record<string, PerformanceVariantResponse>;
 }
 
 export interface PortfolioWorkspaceResponse {

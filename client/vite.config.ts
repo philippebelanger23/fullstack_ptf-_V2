@@ -10,14 +10,14 @@ export default defineConfig(({ mode }) => {
       host: '0.0.0.0',
       proxy: Object.fromEntries(
         [
-          '/fetch-sectors', '/fetch-performance', '/fetch-betas', '/fetch-dividends',
-          '/index-exposure', '/index-history',
-          '/currency-performance', '/generate-pdf',
+          '/fetch-sectors', '/fetch-betas', '/fetch-dividends',
+          '/benchmark-workspace', '/index-refresh', '/index-exposure', '/index-history',
+          '/generate-pdf',
           '/save-portfolio-config', '/load-portfolio-config',
           '/save-sector-weights', '/load-sector-weights',
           '/save-asset-geo', '/load-asset-geo',
           '/check-nav-lag', '/upload-nav', '/nav-audit', '/save-manual-nav',
-          '/portfolio-backcast', '/portfolio-workspace', '/sector-history', '/risk-contribution', '/rolling-metrics',
+          '/portfolio-workspace', '/sector-history',
         ].map(route => [route, { target: 'http://localhost:8000', changeOrigin: true, secure: false }])
       ),
     },

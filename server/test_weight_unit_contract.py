@@ -7,7 +7,7 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from services.backcast_service import aggregate_period_weights, aggregate_weights, compute_period_attribution
+from services.performance_service import aggregate_period_weights, aggregate_weights, compute_period_attribution
 
 
 def _item(ticker: str, weight: float, date: str, is_mutual_fund: bool = False):

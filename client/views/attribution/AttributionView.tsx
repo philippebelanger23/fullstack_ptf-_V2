@@ -2,7 +2,7 @@
 import { useThemeColors } from '../../hooks/useThemeColors';
 import { Dropdown } from '../../components/Dropdown';
 import { AlertTriangle, Calendar, Grid, Layers, Info, Printer } from 'lucide-react';
-import { PortfolioWorkspaceAttribution } from '../../types';
+import { PerformanceWorkspaceSection, PortfolioWorkspaceAttribution } from '../../types';
 import { FreshnessBadge } from '../../components/ui/FreshnessBadge';
 import { getAvailableCalendarYears } from '../../utils/selectedYear';
 import { buildCanonicalMonthlyHistory, compoundContribution, compoundReturnPct } from './canonicalAttribution';
@@ -10,13 +10,9 @@ import { AttributionTable } from './AttributionTable';
 import { WaterfallChart, SectorAttributionCharts } from './AttributionCharts';
 import {
     buildCanonicalContributorPages,
-    buildCanonicalMonthlyMatrixTable,
-    buildCanonicalPeriodMatrixTable,
-    buildCanonicalPortfolioMonthlyPerformance,
-    type CanonicalAttributionMatrixLayout,
     type CanonicalContributorPageLayout,
-    compoundCanonicalMonthlyPerformance,
 } from '../../selectors/attributionSelectors';
+import { buildPortfolioMonthlyPerformanceMap } from '../../selectors/performanceSelectors';
 
 // â”€â”€ ErrorBoundary â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
@@ -59,6 +55,7 @@ interface AttributionViewProps {
     setSelectedYear: (year: number) => void;
     tablesRequest?: number;
     attributionData?: PortfolioWorkspaceAttribution | null;
+    performanceSection?: PerformanceWorkspaceSection | null;
 }
 
 type AttributionTickerStat = {
@@ -224,21 +221,6 @@ const FuturePeriodMessage = () => (
     </div>
 );
 
-const formatMatrixReturn = (value: number | null) => {
-    if (value === null || value === undefined) return '-';
-    return value < 0 ? `(${Math.abs(value).toFixed(2)}%)` : `${value.toFixed(2)}%`;
-};
-
-const formatMatrixContribution = (value: number | null) => {
-    if (value === null || value === undefined) return '-';
-    return value < 0 ? `(${Math.abs(value * 100).toFixed(2)}%)` : `${Math.abs(value * 100).toFixed(2)}%`;
-};
-
-const formatContributionShare = (value: number | null) => {
-    if (value === null || value === undefined) return '-';
-    return value < 0 ? `(${Math.abs(value).toFixed(2)}%)` : `${value.toFixed(2)}%`;
-};
-
 const CanonicalContributorPagesSection: React.FC<{
     pages: CanonicalContributorPageLayout[];
     year: number;
@@ -252,7 +234,7 @@ const CanonicalContributorPagesSection: React.FC<{
             </div>
         );
     }
-
+ 
     return (
         <div className="space-y-6 print-area">
             {pages.map((page, pageIndex) => (
@@ -263,99 +245,25 @@ const CanonicalContributorPagesSection: React.FC<{
                         </div>
                     )}
                     {page.rows.map((cards, rowIndex) => (
-                        <div key={`${page.key}-row-${rowIndex}`} className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 items-end print-row">
-                            {cards.map((card) => card.isEmpty ? (
-                                <div key={card.key} />
-                            ) : (
-                                <AttributionTable
-                                    key={card.key}
-                                    title={card.title}
-                                    items={card.items}
-                                    isQuarter={card.isQuarter}
-                                    status={card.status}
-                                />
-                            ))}
-                        </div>
+                        <React.Fragment key={`${page.key}-row-${rowIndex}`}>
+                            {rowIndex > 0 && <div className="h-5" aria-hidden="true" />}
+                            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 items-end print-row">
+                                {cards.map((card) => card.isEmpty ? (
+                                    <div key={card.key} />
+                                ) : (
+                                    <AttributionTable
+                                        key={card.key}
+                                        title={card.title}
+                                        items={card.items}
+                                        isQuarter={card.isQuarter}
+                                        status={card.status}
+                                    />
+                                ))}
+                            </div>
+                        </React.Fragment>
                     ))}
                 </div>
             ))}
-        </div>
-    );
-};
-
-const CanonicalMatrixTable: React.FC<{
-    layout: CanonicalAttributionMatrixLayout;
-    emptyMessage: string;
-    showContributionShare?: boolean;
-}> = ({ layout, emptyMessage, showContributionShare = false }) => {
-    if (layout.columns.length === 0 || layout.rows.length === 0) {
-        return (
-            <div className="flex items-center justify-center p-12">
-                <div className="bg-wallstreet-800 p-6 rounded-xl border border-wallstreet-700 text-center">
-                    <p className="text-wallstreet-500 text-sm font-mono">{emptyMessage}</p>
-                </div>
-            </div>
-        );
-    }
-
-    return (
-        <div className="overflow-x-auto rounded-xl border border-wallstreet-700">
-            <table className="w-full text-xs font-mono border-collapse">
-                <thead>
-                    <tr className="bg-wallstreet-800 border-b border-wallstreet-700">
-                        <th className="text-left px-4 py-3 text-wallstreet-500 font-bold sticky left-0 bg-wallstreet-800 min-w-[90px]">Ticker</th>
-                        {layout.columns.map((column) => (
-                            <th key={column.key} colSpan={3} className="text-center px-2 py-3 text-wallstreet-500 font-bold border-l border-wallstreet-700 whitespace-nowrap">
-                                {column.label}
-                            </th>
-                        ))}
-                        <th colSpan={showContributionShare ? 3 : 2} className="text-center px-2 py-3 text-wallstreet-accent font-bold border-l border-wallstreet-700">YTD</th>
-                    </tr>
-                    <tr className="bg-wallstreet-900 border-b border-wallstreet-700">
-                        <th className="sticky left-0 bg-wallstreet-900 px-4 py-2 text-wallstreet-500"></th>
-                        {layout.columns.map((column) => (
-                            <React.Fragment key={`${column.key}-subhead`}>
-                                <th className="px-2 py-2 text-right text-wallstreet-500 border-l border-wallstreet-700">Wt%</th>
-                                <th className="px-2 py-2 text-right text-wallstreet-500">Ret%</th>
-                                <th className="px-2 py-2 text-right text-wallstreet-500">Contrib</th>
-                            </React.Fragment>
-                        ))}
-                        <th className="px-2 py-2 text-right text-wallstreet-500 border-l border-wallstreet-700">Ret%</th>
-                        <th className="px-2 py-2 text-right text-wallstreet-accent font-bold">Contrib</th>
-                        {showContributionShare && (
-                            <th className="px-2 py-2 text-right text-wallstreet-accent font-bold">% of Contribution</th>
-                        )}
-                    </tr>
-                </thead>
-                <tbody>
-                    {layout.rows.map((row, rowIndex) => (
-                        <tr key={row.ticker} className={`border-b border-wallstreet-800 hover:bg-wallstreet-700/40 transition-colors ${rowIndex % 2 === 0 ? '' : 'bg-wallstreet-800/30'}`}>
-                            <td className="sticky left-0 px-4 py-2.5 font-bold text-wallstreet-text bg-wallstreet-900">{row.ticker}</td>
-                            {row.cells.map((cell, cellIndex) => {
-                                const hasData = cell.returnPct !== null && cell.contribution !== null;
-                                return (
-                                    <React.Fragment key={`${row.ticker}-cell-${cellIndex}`}>
-                                        <td className="px-2 py-2.5 text-right text-wallstreet-500 border-l border-wallstreet-800">{hasData ? `${(cell.weight ?? 0).toFixed(1)}%` : '-'}</td>
-                                        <td className={`px-2 py-2.5 text-right ${!hasData ? 'text-wallstreet-500' : (cell.returnPct ?? 0) >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                                            {formatMatrixReturn(cell.returnPct)}
-                                        </td>
-                                        <td className={`px-2 py-2.5 text-right font-semibold ${!hasData ? 'text-wallstreet-500' : (cell.contribution ?? 0) >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                                            {formatMatrixContribution(cell.contribution)}
-                                        </td>
-                                    </React.Fragment>
-                                );
-                            })}
-                            <td className={`px-2 py-2.5 text-right border-l border-wallstreet-700 ${row.ytdReturn >= 0 ? 'text-green-400' : 'text-red-400'}`}>{formatMatrixReturn(row.ytdReturn)}</td>
-                            <td className={`px-2 py-2.5 text-right font-bold ${row.ytdContribution >= 0 ? 'text-green-400' : 'text-red-400'}`}>{formatMatrixContribution(row.ytdContribution)}</td>
-                            {showContributionShare && (
-                                <td className={`px-2 py-2.5 text-right font-bold border-l border-wallstreet-700 ${row.contributionShare === null ? 'text-wallstreet-500' : row.contributionShare >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                                    {formatContributionShare(row.contributionShare)}
-                                </td>
-                            )}
-                        </tr>
-                    ))}
-                </tbody>
-            </table>
         </div>
     );
 };
@@ -373,8 +281,12 @@ interface HeatmapSectionProps {
 const HeatmapSection: React.FC<HeatmapSectionProps> = ({ matrixData, allMonths, portfolioMonthlyPerformance, portfolioTotalPerformance, tc }) => {
     const [heatmapMode, setHeatmapMode] = useState<'CONTRIBUTION' | 'PERFORMANCE'>('CONTRIBUTION');
 
-    const formatHeatmapPct = useCallback((value: number) => {
+    const formatHeatmapReturn = useCallback((value: number) => {
         return value < 0 ? `(${Math.abs(value).toFixed(2)}%)` : `${value > 0 ? '+' : ''}${value.toFixed(2)}%`;
+    }, []);
+
+    const formatHeatmapContribution = useCallback((value: number) => {
+        return value < 0 ? `(${Math.abs(value).toFixed(2)}%)` : `${Math.abs(value).toFixed(2)}%`;
     }, []);
 
     const getHeatmapCellStyle = useCallback((value: number | null, mode: 'CONTRIBUTION' | 'PERFORMANCE') => {
@@ -445,11 +357,11 @@ const HeatmapSection: React.FC<HeatmapSectionProps> = ({ matrixData, allMonths, 
         return {
             totals,
             hasDataMap,
-            grandTotal: matrixData.reduce((sum, row) => sum + row.total, 0),
+            grandTotal: portfolioTotalPerformance ?? 0,
         };
     }, [allMonths, heatmapMode, matrixData, portfolioMonthlyPerformance, portfolioTotalPerformance]);
 
-    const heatmapFooterLabel = heatmapMode === 'PERFORMANCE' ? 'YTD Performance' : 'Compounded Total';
+    const heatmapFooterLabel = heatmapMode === 'PERFORMANCE' ? 'YTD Performance' : 'Portfolio Total';
 
     return (
         <div className="bg-wallstreet-800 rounded-xl border border-wallstreet-700 shadow-lg flex flex-col mt-6">
@@ -520,16 +432,16 @@ const HeatmapSection: React.FC<HeatmapSectionProps> = ({ matrixData, allMonths, 
                                                         style={{ backgroundColor: displayBg, color: showHyphen ? tc.tickFill : text }}
                                                         title={showHyphen ? undefined : `${row.ticker} - ${date.toLocaleDateString('en-US', { month: 'short' }).toUpperCase()}`}
                                                     >
-                                                        {!showHyphen ? (
-                                                            <span className="opacity-100">
-                                                                {formatHeatmapPct(val!)}
+                                                {!showHyphen ? (
+                                                    <span className="opacity-100">
+                                                                {heatmapMode === 'PERFORMANCE' ? formatHeatmapReturn(val!) : formatHeatmapContribution(val!)}
                                                                 {isPartialMf && <sup className="ml-0.5 text-[10px] text-amber-300">*</sup>}
                                                             </span>
                                                         ) : <span className="text-gray-300">-</span>}
                                                         {!showHyphen && val !== null && (
                                                             <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 px-3 py-2 bg-slate-900 text-white text-[10px] rounded opacity-0 group-hover/cell:opacity-100 pointer-events-none z-50 whitespace-nowrap shadow-xl flex flex-col items-center gap-1">
                                                                 <div className="font-bold border-b-0 pb-0 mb-0">{row.ticker} - {date.toLocaleDateString('en-US', { month: 'short' }).toUpperCase()}</div>
-                                                                <div className="text-wallstreet-500">{tooltipLabel}: {formatHeatmapPct(val)}</div>
+                                                                <div className="text-wallstreet-500">{tooltipLabel}: {heatmapMode === 'PERFORMANCE' ? formatHeatmapReturn(val) : formatHeatmapContribution(val)}</div>
                                                                 {isPartialMf && <div className="text-amber-300 font-bold">* Partial MF NAV coverage through the period</div>}
                                                             </div>
                                                         )}
@@ -549,7 +461,7 @@ const HeatmapSection: React.FC<HeatmapSectionProps> = ({ matrixData, allMonths, 
                                         if (showTotalHyphen) {
                                             return <span className="text-gray-300">-</span>;
                                         }
-                                        return <span className={rowTotal >= 0 ? 'text-green-700' : 'text-red-700'}>{formatHeatmapPct(rowTotal)}</span>;
+                                        return <span className={rowTotal >= 0 ? 'text-green-700' : 'text-red-700'}>{heatmapMode === 'PERFORMANCE' ? formatHeatmapReturn(rowTotal) : formatHeatmapContribution(rowTotal)}</span>;
                                     })()}
                                 </td>
                             </tr>
@@ -564,12 +476,12 @@ const HeatmapSection: React.FC<HeatmapSectionProps> = ({ matrixData, allMonths, 
                                 const val = heatmapTotals.totals[key];
                                 return (
                                     <td key={date.toISOString()} className="px-3 py-1 text-center font-mono font-bold text-sm border-b border-wallstreet-700 border-l border-wallstreet-700">
-                                        {hasData ? <span className={val >= 0 ? 'text-green-700' : 'text-red-700'}>{formatHeatmapPct(val)}</span> : <span className="text-gray-300">-</span>}
+                                        {hasData ? <span className={val >= 0 ? 'text-green-700' : 'text-red-700'}>{heatmapMode === 'PERFORMANCE' ? formatHeatmapReturn(val) : formatHeatmapContribution(val)}</span> : <span className="text-gray-300">-</span>}
                                     </td>
                                 )
                             })}
                             <td className="px-3 py-1 text-center font-mono font-bold text-sm border-l border-wallstreet-300 bg-wallstreet-200 text-wallstreet-text">
-                                <span className={heatmapTotals.grandTotal >= 0 ? 'text-green-800' : 'text-red-800'}>{formatHeatmapPct(heatmapTotals.grandTotal)}</span>
+                                <span className={heatmapTotals.grandTotal >= 0 ? 'text-green-800' : 'text-red-800'}>{heatmapMode === 'PERFORMANCE' ? formatHeatmapReturn(heatmapTotals.grandTotal) : formatHeatmapContribution(heatmapTotals.grandTotal)}</span>
                             </td>
                         </tr>
                     </tfoot>
@@ -658,11 +570,10 @@ const AttributionHeader: React.FC<AttributionHeaderProps> = ({ selectedYear, set
 
 // â”€â”€ AttributionViewContent â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-const AttributionViewContent: React.FC<AttributionViewProps> = ({ selectedYear, setSelectedYear, tablesRequest, attributionData }) => {
+const AttributionViewContent: React.FC<AttributionViewProps> = ({ selectedYear, setSelectedYear, tablesRequest, attributionData, performanceSection }) => {
     const analysisResponse = attributionData;
     const tc = useThemeColors();
     const [viewMode, setViewMode] = useState<'OVERVIEW' | 'TABLES'>('OVERVIEW');
-    const [tableMode, setTableMode] = useState<'monthly' | 'month' | 'period'>('monthly');
     const availableYears = useMemo(() => (
         getAvailableCalendarYears(
             [
@@ -699,7 +610,11 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ selectedYear, 
     const [timeRange, setTimeRange] = useState<'YTD' | 'Q1' | 'Q2' | 'Q3' | 'Q4'>('YTD');
     const [regionFilter, setRegionFilter] = useState<'ALL' | 'US' | 'CA'>('ALL');
     const [benchmarkMode, setBenchmarkMode] = useState<'SECTOR' | 'SP500' | 'TSX'>('SECTOR');
-    const fetchedAt = null;
+    const fetchedAt = useMemo(() => {
+        if (!performanceSection) return null;
+        const defaultBenchmark = performanceSection.defaultBenchmark;
+        return performanceSection.variants[defaultBenchmark]?.fetchedAt ?? null;
+    }, [performanceSection]);
 
     const isFuture = useMemo(() => {
         const now = new Date();
@@ -738,35 +653,31 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ selectedYear, 
     const sortedByContrib = useMemo(() => [...overviewTickerStats].sort((a, b) => b.totalContrib - a.totalContrib), [overviewTickerStats]);
     const matrixData = useMemo(() => buildAttributionMatrixData(sortedByContrib, allMonths), [sortedByContrib, allMonths]);
 
-    const portfolioMonthlyPerformance = useMemo(() => (
-        buildCanonicalPortfolioMonthlyPerformance(analysisResponse, allMonths, selectedYear, timeRange)
-    ), [analysisResponse, allMonths, selectedYear, timeRange]);
-
-    const canonicalYtdTotalReturn = useMemo(() => {
-        if (!analysisResponse || timeRange !== 'YTD') return null;
-        const reportingYears = analysisResponse.monthlyPeriods
-            .map(period => new Date(`${period.end}T00:00:00`).getFullYear())
-            .filter(year => !Number.isNaN(year));
-        if (reportingYears.length === 0) return null;
-
-        const latestReportingYear = Math.max(...reportingYears);
-        return latestReportingYear === selectedYear ? analysisResponse.portfolioYtdReturn * 100 : null;
-    }, [analysisResponse, selectedYear, timeRange]);
-
-    const portfolioTotalReturn = useMemo(() => {
-        return canonicalYtdTotalReturn ?? compoundCanonicalMonthlyPerformance(portfolioMonthlyPerformance);
-    }, [canonicalYtdTotalReturn, portfolioMonthlyPerformance]);
-
     const selectedOverviewLayout = useMemo(() => (
         analysisResponse?.overviewLayouts?.[String(selectedYear)]?.[timeRange] ?? null
     ), [analysisResponse, selectedYear, timeRange]);
 
-    const canonicalWaterfallData = useMemo(() => (
-        selectedOverviewLayout?.waterfall?.bars ?? []
-    ), [selectedOverviewLayout]);
+    const portfolioMonthlyPerformance = useMemo(() => (
+        buildPortfolioMonthlyPerformanceMap(
+            performanceSection,
+            analysisResponse?.monthlyPeriods ?? null,
+            allMonths,
+            selectedYear,
+            timeRange,
+        )
+    ), [allMonths, analysisResponse?.monthlyPeriods, performanceSection, selectedYear, timeRange]);
 
-    const canonicalWaterfallDomain = useMemo<[number, number]>(() => (
-        selectedOverviewLayout?.waterfall?.domain ?? [0, 10]
+    const portfolioTotalReturn = useMemo(() => {
+        const rangeTotal = selectedOverviewLayout?.waterfall?.portfolioReturn;
+        return typeof rangeTotal === 'number' ? rangeTotal : null;
+    }, [selectedOverviewLayout]);
+
+    const canonicalWaterfallLayout = useMemo(() => (
+        selectedOverviewLayout?.waterfall ?? {
+            bars: [],
+            domain: [0, 10] as [number, number],
+            portfolioReturn: 0,
+        }
     ), [selectedOverviewLayout]);
 
     const emptySectorAttributionData = useMemo(() => ({
@@ -780,32 +691,8 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ selectedYear, 
         selectedOverviewLayout?.sectorAttribution?.[regionFilter]?.[benchmarkMode] ?? emptySectorAttributionData
     ), [benchmarkMode, emptySectorAttributionData, regionFilter, selectedOverviewLayout]);
 
-    React.useEffect(() => {
-        if (process.env.NODE_ENV !== 'development') return;
-        if (canonicalYtdTotalReturn === null) return;
-
-        const compoundedMonthlyTotal = compoundCanonicalMonthlyPerformance(portfolioMonthlyPerformance);
-        if (compoundedMonthlyTotal === null) return;
-        if (Math.abs(canonicalYtdTotalReturn - compoundedMonthlyTotal) <= 0.0001) return;
-
-        console.warn('[AttributionView] portfolioYtdReturn diverges from compounded canonical monthly returns', {
-            selectedYear,
-            canonicalYtdTotalReturn,
-            compoundedMonthlyTotal,
-            canonicalMonthlyPerformance: portfolioMonthlyPerformance,
-        });
-    }, [canonicalYtdTotalReturn, portfolioMonthlyPerformance, selectedYear]);
-
     const canonicalContributorPages = useMemo(() => (
         buildCanonicalContributorPages(analysisResponse, selectedYear)
-    ), [analysisResponse, selectedYear]);
-
-    const canonicalMonthlyMatrixLayout = useMemo(() => (
-        buildCanonicalMonthlyMatrixTable(analysisResponse, selectedYear)
-    ), [analysisResponse, selectedYear]);
-
-    const canonicalPeriodMatrixLayout = useMemo(() => (
-        buildCanonicalPeriodMatrixTable(analysisResponse, selectedYear)
     ), [analysisResponse, selectedYear]);
 
     if (!analysisResponse) {
@@ -869,7 +756,7 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ selectedYear, 
 
                     <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 h-auto lg:h-[500px]">
 
-                        <WaterfallChart waterfallData={canonicalWaterfallData} waterfallDomain={canonicalWaterfallDomain} />
+                        <WaterfallChart waterfallData={canonicalWaterfallLayout.bars} waterfallDomain={canonicalWaterfallLayout.domain} />
 
                         <SectorAttributionCharts
                             sectorAttributionData={canonicalSectorAttributionData}
@@ -889,60 +776,22 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ selectedYear, 
 
 
 
-                    <HeatmapSection
-                        matrixData={matrixData}
-                        allMonths={allMonths}
-                        portfolioMonthlyPerformance={portfolioMonthlyPerformance}
-                        portfolioTotalPerformance={portfolioTotalReturn}
-                        tc={tc}
-                    />
+                        <HeatmapSection
+                            matrixData={matrixData}
+                            allMonths={allMonths}
+                            portfolioMonthlyPerformance={portfolioMonthlyPerformance}
+                            portfolioTotalPerformance={portfolioTotalReturn}
+                            tc={tc}
+                        />
                 </div>
                 )
             ) : (
-                        <div className="space-y-4">
-                        {/* Table mode toggle */}
-                        <div className="flex items-center gap-3">
-                            <span className="text-xs font-mono text-wallstreet-500 uppercase tracking-wider">View:</span>
-                            <div className="flex p-1 bg-wallstreet-200 rounded-xl">
-                                <button
-                                    onClick={() => setTableMode('monthly')}
-                                    className={`px-3 py-1.5 rounded-lg text-xs font-bold font-mono transition-all ${tableMode === 'monthly' ? 'bg-wallstreet-800 text-wallstreet-accent shadow-sm' : 'text-wallstreet-500 hover:text-wallstreet-text'}`}
-                                >
-                                    Top Contributors/Disruptors
-                                </button>
-                                <button
-                                    onClick={() => setTableMode('month')}
-                                    className={`px-3 py-1.5 rounded-lg text-xs font-bold font-mono transition-all ${tableMode === 'month' ? 'bg-wallstreet-800 text-wallstreet-accent shadow-sm' : 'text-wallstreet-500 hover:text-wallstreet-text'}`}
-                                >
-                                    By Month
-                                </button>
-                                <button
-                                    onClick={() => setTableMode('period')}
-                                    className={`px-3 py-1.5 rounded-lg text-xs font-bold font-mono transition-all ${tableMode === 'period' ? 'bg-wallstreet-800 text-wallstreet-accent shadow-sm' : 'text-wallstreet-500 hover:text-wallstreet-text'}`}
-                                >
-                                    By Period
-                                </button>
-                            </div>
-                        </div>
-
-                        {tableMode === 'monthly' ? (
-                            <CanonicalContributorPagesSection
-                                pages={canonicalContributorPages}
-                                year={selectedYear}
-                            />
-                        ) : tableMode === 'month' ? (
-                            <CanonicalMatrixTable
-                                layout={canonicalMonthlyMatrixLayout}
-                                emptyMessage="No monthly data available. Reload the portfolio to generate monthly sheets."
-                                showContributionShare={true}
-                            />
-                        ) : (
-                            <CanonicalMatrixTable
-                                layout={canonicalPeriodMatrixLayout}
-                                emptyMessage="No period data available. Reload the portfolio to generate period sheets."
-                            />
-                        )}
-                        </div>
+                    <div className="space-y-4">
+                        <CanonicalContributorPagesSection
+                            pages={canonicalContributorPages}
+                            year={selectedYear}
+                        />
+                    </div>
                 )}
         </div>
     );

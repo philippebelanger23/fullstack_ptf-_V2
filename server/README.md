@@ -19,14 +19,13 @@ Server runs at `http://localhost:8000`.
 | Endpoint | Description |
 | --- | --- |
 | `POST /portfolio-workspace` | Canonical portfolio workspace used by the live app |
+| `GET /benchmark-workspace` | Canonical benchmark workspace used by index, dashboard, and report views |
+| `POST /index-refresh` | Rebuild benchmark workspace cache and refresh benchmark slices |
 | `POST /analyze-manual` | Legacy attribution analysis response kept for compatibility |
-| `POST /portfolio-backcast` | Legacy compatibility wrapper backed by the canonical workspace |
-| `POST /risk-contribution` | Legacy compatibility wrapper backed by the canonical workspace |
-| `POST /rolling-metrics` | Legacy compatibility wrapper backed by the canonical workspace |
 | `GET /fetch-sectors` | Sector classification lookup |
 | `GET /sector-history` | Sector benchmark history |
-| `GET /index-history` | Benchmark index history |
-| `GET /index-exposure` | Benchmark sector and geography weights |
+| `GET /index-history` | Compatibility wrapper over benchmark workspace history |
+| `GET /index-exposure` | Compatibility wrapper over benchmark workspace composition |
 | `POST /save-portfolio-config` | Persist portfolio configuration |
 | `GET /load-portfolio-config` | Load saved configuration |
 | `POST /upload-nav` | Upload custom mutual fund NAV data |
@@ -65,8 +64,12 @@ server/
    - `performance`
    - `risk`
    - `audit`
-4. Supporting routes such as sector history and index exposure enrich view-specific benchmark context.
-5. Legacy routes remain available only as compatibility shims or debugging references.
+4. A separate canonical benchmark workspace builder computes:
+   - `composition`
+   - `performance`
+   - `currency`
+   - `meta`
+5. Compatibility routes such as `index-history` and `index-exposure` now proxy that benchmark workspace instead of owning their own fetch logic.
 
 ## Special Cases
 

@@ -2,7 +2,7 @@ import React, { useMemo, useState, useId } from 'react';
 import { Info } from 'lucide-react';
 import { LineChart, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, Legend } from 'recharts';
 import { formatPercent, formatTooltipDate } from '../../utils/formatters';
-import type { PeriodMetrics } from './PerformanceKPIs';
+import type { PerformanceMetrics, PerformancePeriod } from '../../types';
 import { useThemeColors } from '../../hooks/useThemeColors';
 
 type ChartView = 'absolute' | 'relative' | 'drawdowns';
@@ -10,8 +10,8 @@ type ChartView = 'absolute' | 'relative' | 'drawdowns';
 interface UnifiedPerformancePanelProps {
     chartData: Record<string, unknown>[];
     chartView: ChartView;
-    periodMetrics: PeriodMetrics | null;
-    selectedPeriod: string;
+    periodMetrics: PerformanceMetrics | null;
+    selectedPeriod: PerformancePeriod;
     benchmark: string;
     loading?: boolean;
     hideKPIs?: boolean;
@@ -20,7 +20,6 @@ interface UnifiedPerformancePanelProps {
 
 const METRIC_DESCRIPTIONS: Record<string, string> = {
     'Total Return': 'Cumulative return of the portfolio over the selected period, expressed as a percentage.',
-    'Alpha': 'Excess return of the portfolio compared to the benchmark. Positive alpha indicates outperformance.',
     'Sharpe Ratio': 'Risk-adjusted return metric. Higher values indicate better risk-adjusted performance.',
     'Sortino Ratio': 'Similar to Sharpe but only penalizes downside volatility, ignoring upside movements.',
     'Volatility': 'Standard deviation of returns, measuring the variability and risk of the portfolio.',
@@ -82,7 +81,7 @@ export const UnifiedPerformancePanel: React.FC<UnifiedPerformancePanelProps> = (
 
     const getMonthlyTicks = useMemo(() => {
         if (chartData.length === 0) return [];
-        if (selectedPeriod === '3M' || selectedPeriod === 'YTD' || selectedPeriod === '2025' || selectedPeriod === '6M') {
+        if (selectedPeriod === '3M' || selectedPeriod === 'YTD' || selectedPeriod === 'FULL_YEAR' || selectedPeriod === '6M') {
             return chartData
                 .map(item => item.date as string)
                 .filter((_, i) => i % 10 === 0);
@@ -106,7 +105,6 @@ export const UnifiedPerformancePanel: React.FC<UnifiedPerformancePanelProps> = (
 
     const metrics = [
         { label: 'Total Return', ptf: periodMetrics?.totalReturn, bmk: periodMetrics?.benchmarkReturn, format: 'percent' },
-        { label: 'Alpha', ptf: periodMetrics?.alpha, bmk: 0, format: 'percent' },
         { label: 'Sharpe Ratio', ptf: periodMetrics?.sharpeRatio, bmk: periodMetrics?.benchmarkSharpe, format: 'decimal' },
         { label: 'Sortino Ratio', ptf: periodMetrics?.sortinoRatio, bmk: periodMetrics?.benchmarkSortino, format: 'decimal' },
         { label: 'Volatility', ptf: periodMetrics?.volatility, bmk: periodMetrics?.benchmarkVolatility, format: 'vol' },
@@ -141,7 +139,7 @@ export const UnifiedPerformancePanel: React.FC<UnifiedPerformancePanelProps> = (
     const getDeltaColor = (value: number | undefined, metricLabel: string) => {
         if (value === undefined || value === null) return 'text-wallstreet-500';
         // Metrics where positive delta (higher) is better
-        const positiveBetter = ['Total Return', 'Alpha', 'Sharpe Ratio', 'Sortino Ratio', 'Info Ratio', 'Max Drawdown'];
+        const positiveBetter = ['Total Return', 'Sharpe Ratio', 'Sortino Ratio', 'Info Ratio', 'Max Drawdown'];
         // Metrics where negative delta (lower) is better
         const negativeBetter = ['Volatility'];
 

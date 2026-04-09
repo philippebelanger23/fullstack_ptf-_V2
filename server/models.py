@@ -44,9 +44,3 @@ class PortfolioConfig(BaseModel):
 class ManualAnalysisRequest(BaseModel):
     items: List[PortfolioItem]
 
-
-class BackcastRequest(BaseModel):
-    items: List[PortfolioItem]
-    benchmark: str = "75/25"  # "75/25" | "TSX" | "SP500" | "ACWI"
-    includeAttribution: bool = False  # when True, response includes periodAttribution list
-

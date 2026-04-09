@@ -1,8 +1,8 @@
 import React from 'react';
-import type { Period, PeriodMetrics } from './PerformanceKPIs';
-import type { BackcastResponse } from '../../types';
+import type { PerformanceMetrics, PerformancePeriod, PerformanceWindowRange } from '../../types';
 import { UnifiedPerformancePanel } from './UnifiedPerformancePanel';
 import type { PerformanceChartView } from '../../selectors/performanceSelectors';
+import { PERFORMANCE_PERIOD_GROUPS, getPerformancePeriodButtonLabel } from '../../utils/performancePeriods';
 
 export type ChartView = PerformanceChartView;
 
@@ -14,36 +14,32 @@ const BENCHMARKS = [
 ] as const;
 
 interface PerformanceChartsProps {
-    data: BackcastResponse | null;
     chartData: Record<string, unknown>[];
     chartView: ChartView;
     setChartView: (v: ChartView) => void;
-    isFullscreen: boolean;
-    setIsFullscreen: (v: boolean) => void;
-    selectedPeriod: Period;
-    setSelectedPeriod: (v: Period) => void;
-    periodMetrics: PeriodMetrics | null;
+    selectedPeriod: PerformancePeriod;
+    setSelectedPeriod: (v: PerformancePeriod) => void;
+    periodMetrics: PerformanceMetrics | null;
     loading: boolean;
     benchmark: string;
     setBenchmark: (v: string) => void;
+    windowRanges?: Partial<Record<PerformancePeriod, PerformanceWindowRange>> | null;
     hideBenchmarkSelector?: boolean;
     hideKPIs?: boolean;
     noWrapper?: boolean;
 }
 
 export const PerformanceCharts: React.FC<PerformanceChartsProps> = ({
-    data,
     chartData,
     chartView,
     setChartView,
-    isFullscreen,
-    setIsFullscreen,
     selectedPeriod,
     setSelectedPeriod,
     periodMetrics,
     loading,
     benchmark,
     setBenchmark,
+    windowRanges,
     hideBenchmarkSelector = false,
     hideKPIs = false,
     noWrapper = false,
@@ -88,21 +84,28 @@ export const PerformanceCharts: React.FC<PerformanceChartsProps> = ({
                             ))}
                         </>)}
                 </div>
-                <div className="flex bg-wallstreet-900 p-1 rounded-xl">
-                        {(['2025', 'YTD', '3M', '6M', '1Y'] as Period[]).map((period) => (
-                            <React.Fragment key={period}>
-                                <button
-                                    onClick={() => setSelectedPeriod(period)}
-                                    className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all duration-200 ${selectedPeriod === period
-                                        ? 'bg-wallstreet-accent text-white shadow-sm'
-                                        : 'text-wallstreet-500 hover:text-wallstreet-text hover:bg-wallstreet-700'
-                                        }`}
-                                >
-                                    {period}
-                                </button>
-                                {period === '2025' && <div className="mx-1 h-4 w-px bg-wallstreet-600" />}
+                <div className="print-hide flex justify-center">
+                    <div className="inline-flex flex-wrap items-center justify-center gap-1.5 rounded-2xl border border-wallstreet-700 bg-wallstreet-800 px-3 py-2 shadow-sm">
+                        {PERFORMANCE_PERIOD_GROUPS.map((group, groupIndex) => (
+                            <React.Fragment key={group.key}>
+                                {groupIndex > 0 && <span className="px-1 text-xs font-bold text-wallstreet-500">/</span>}
+                                <div className="flex items-center gap-1">
+                                    {group.periods.map((period) => (
+                                        <button
+                                            key={period}
+                                            onClick={() => setSelectedPeriod(period)}
+                                            className={`px-2.5 py-1.5 text-[11px] font-bold rounded-lg transition-all duration-200 ${selectedPeriod === period
+                                                ? 'bg-wallstreet-accent text-white shadow-sm'
+                                                : 'text-wallstreet-500 hover:text-wallstreet-text hover:bg-wallstreet-900'
+                                                }`}
+                                        >
+                                            {getPerformancePeriodButtonLabel(period, windowRanges?.[period])}
+                                        </button>
+                                    ))}
+                                </div>
                             </React.Fragment>
                         ))}
+                    </div>
                 </div>
             </div>
 

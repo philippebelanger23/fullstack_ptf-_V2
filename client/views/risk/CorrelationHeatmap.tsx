@@ -2,13 +2,58 @@ import React, { useState } from 'react';
 import { useThemeColors } from '../../hooks/useThemeColors';
 import { correlationColor } from './riskUtils';
 
+type CorrelationMatrix = { tickers: string[]; matrix: number[][] };
+
+type WeightedTicker = {
+    ticker: string;
+    weight: number;
+};
+
 interface CorrelationHeatmapProps {
-    correlationMatrix: { tickers: string[]; matrix: number[][] };
+    correlationMatrix: CorrelationMatrix;
     loading: boolean;
     noWrapper?: boolean;
 }
 
 const CELL_SIZE = 38;
+
+const formatTickerLabel = (ticker: string) => {
+    const clean = ticker.replace('.TO', '');
+    if (clean.includes('-')) return clean.replace(/-/g, '·');
+    return clean;
+};
+
+export const buildTopWeightedCorrelationMatrix = (
+    correlationMatrix: CorrelationMatrix | null | undefined,
+    positions: WeightedTicker[] | null | undefined,
+    limit = 15,
+): CorrelationMatrix => {
+    if (!correlationMatrix?.tickers.length || !correlationMatrix.matrix.length || !positions?.length) {
+        return correlationMatrix ?? { tickers: [], matrix: [] };
+    }
+
+    const orderedTickers = positions
+        .map(({ ticker, weight }) => ({ ticker: ticker.trim(), weight: Number(weight ?? 0) }))
+        .filter(({ ticker }) => ticker.length > 0)
+        .sort((left, right) => right.weight - left.weight)
+        .slice(0, limit);
+
+    if (orderedTickers.length === 0) return correlationMatrix;
+
+    const indexByTicker = new Map(
+        correlationMatrix.tickers.map((ticker, index) => [ticker.toUpperCase(), index] as const),
+    );
+    const selectedIndices = orderedTickers
+        .map(({ ticker }) => indexByTicker.get(ticker.toUpperCase()))
+        .filter((index): index is number => index !== undefined);
+
+    if (selectedIndices.length === 0) return correlationMatrix;
+
+    return {
+        tickers: selectedIndices.map((index) => correlationMatrix.tickers[index]),
+        matrix: selectedIndices.map((rowIndex) => selectedIndices.map((colIndex) => correlationMatrix.matrix[rowIndex]?.[colIndex] ?? 0)),
+    };
+};
 
 export const CorrelationHeatmap: React.FC<CorrelationHeatmapProps> = ({ correlationMatrix, loading, noWrapper }) => {
     const tc = useThemeColors();
@@ -38,23 +83,23 @@ export const CorrelationHeatmap: React.FC<CorrelationHeatmapProps> = ({ correlat
                 <div style={{ width: labelWidth + gridWidth }} className="relative">
                     {/* Legend + hover detail — floated into the empty upper-right triangle */}
                     <div className="absolute flex flex-col items-end gap-1 pointer-events-none" style={{ top: 0, left: labelWidth + (CELL_SIZE + 2) * 2, right: 0 }}>
-                        <div className="flex items-center gap-2.5">
-                            <span className="text-sm font-mono font-bold text-wallstreet-500">0.0</span>
-                            <div className="h-4 w-48 rounded-full overflow-hidden flex relative">
+                        <div className="flex items-center gap-3">
+                            <span className="text-base font-mono font-bold text-wallstreet-500">0.0</span>
+                            <div className="h-5 w-64 rounded-full overflow-hidden flex relative">
                                 {Array.from({ length: 24 }).map((_, k) => (
                                     <div key={k} className="flex-1 h-full" style={{ backgroundColor: correlationColor(k / 23, tc.isDark) }} />
                                 ))}
                             </div>
-                            <span className="text-sm font-mono font-bold text-red-500">1.0</span>
+                            <span className="text-base font-mono font-bold text-red-500">1.0</span>
                         </div>
-                        <div className="h-6 flex items-center text-sm font-mono">
+                        <div className="h-7 flex items-center text-base font-mono">
                             {hovered && hovered.i !== hovered.j ? (
                                 <span className={`font-bold ${
                                     displayMatrix[hovered.i][hovered.j] > 0.7 ? 'text-red-500'
                                         : displayMatrix[hovered.i][hovered.j] < 0.3 ? 'text-blue-500'
                                             : 'text-wallstreet-text'
                                 }`}>
-                                    {displayTickers[hovered.i].replace('.TO','')} ↔ {displayTickers[hovered.j].replace('.TO','')} — {displayMatrix[hovered.i][hovered.j].toFixed(3)}
+                                    {formatTickerLabel(displayTickers[hovered.i])} ↔ {formatTickerLabel(displayTickers[hovered.j])} — {displayMatrix[hovered.i][hovered.j].toFixed(3)}
                                 </span>
                             ) : (
                                 <span className="text-wallstreet-500">Hover a cell to see details</span>
@@ -66,13 +111,13 @@ export const CorrelationHeatmap: React.FC<CorrelationHeatmapProps> = ({ correlat
                     {displayMatrix.map((row, i) => (
                         <div key={i} className="flex items-center">
                             <div
-                                className={`shrink-0 text-right pr-2 text-[13px] font-mono font-medium truncate transition-colors ${
+                                className={`shrink-0 text-right pr-2 text-[14px] font-mono font-medium truncate transition-colors ${
                                     hovered?.i === i ? 'text-wallstreet-text' : 'text-wallstreet-500'
                                 }`}
                                 style={{ width: labelWidth }}
                                 title={displayTickers[i]}
                             >
-                                {displayTickers[i].replace('.TO', '')}
+                                {formatTickerLabel(displayTickers[i])}
                             </div>
                             {row.map((value, j) => {
                                 // Only render lower triangular (j <= i)
@@ -120,13 +165,13 @@ export const CorrelationHeatmap: React.FC<CorrelationHeatmapProps> = ({ correlat
                         {displayTickers.map((ticker, j) => (
                             <div
                                 key={j}
-                                className={`shrink-0 flex items-center justify-center pt-1 text-[13px] font-mono font-medium transition-colors ${
+                                className={`shrink-0 flex items-center justify-center pt-1 text-[14px] font-mono font-medium transition-colors ${
                                     hovered?.j === j ? 'text-wallstreet-text' : 'text-wallstreet-500'
                                 }`}
                                 style={{ width: CELL_SIZE + 2 }}
                                 title={ticker}
                             >
-                                {ticker.replace('.TO', '')}
+                                {formatTickerLabel(ticker)}
                             </div>
                         ))}
                     </div>

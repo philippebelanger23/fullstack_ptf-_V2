@@ -1,25 +1,11 @@
 import React, { useMemo, useState } from 'react';
-import { PortfolioItem } from '../types';
+import { BenchmarkGeographyRow, BenchmarkSectorRow, PortfolioItem } from '../types';
 import { useThemeColors } from '../hooks/useThemeColors';
-
-interface IndexSector {
-    sector: string;
-    Index: number;
-    ACWI?: number;
-    TSX?: number;
-}
-
-interface GeoEntry {
-    region: string;
-    weight: number;
-    ACWI?: number;
-    TSX?: number;
-}
 
 interface Props {
     currentHoldings: PortfolioItem[];
-    benchmarkSectors: IndexSector[];
-    benchmarkGeography: GeoEntry[];
+    benchmarkSectors: BenchmarkSectorRow[];
+    benchmarkGeography: BenchmarkGeographyRow[];
     assetGeo?: Record<string, string>;
     noWrapper?: boolean;
     titleActions?: React.ReactNode;
@@ -103,7 +89,7 @@ function getGeo(item: PortfolioItem, assetGeo?: Record<string, string>): GeoKey 
 }
 
 // Helper: benchmark geo buckets from benchmarkGeography
-function getBenchGeoTotals(benchmarkGeography: GeoEntry[]): Record<GeoKey, number> {
+function getBenchGeoTotals(benchmarkGeography: BenchmarkGeographyRow[]): Record<GeoKey, number> {
     const totals: Record<GeoKey, number> = { CA: 0, US: 0, INTL: 0 };
     benchmarkGeography.forEach(entry => {
         const bucket: GeoKey =
@@ -179,7 +165,7 @@ export const SectorGeographyDeviationCard: React.FC<Props> = ({
             const normalized = SECTOR_MAP[item.sector] || (SECTOR_ORDER.includes(item.sector as any) ? item.sector : null);
             if (!normalized || !benchmarkGrid[normalized] || totalGeoWeight <= 0) return;
             GEOS.forEach(geo => {
-                benchmarkGrid[normalized][geo] = item.Index * (benchGeoTotals[geo] / totalGeoWeight);
+                benchmarkGrid[normalized][geo] = item.benchmarkWeight * (benchGeoTotals[geo] / totalGeoWeight);
             });
         });
 
