@@ -15,39 +15,39 @@ from services.workspace_service import build_portfolio_workspace  # noqa: E402
 CLIENT_YEAR_AUDIT_FINDINGS = [
     {
         "path": "client/App.tsx",
-        "issue": "selectedYear state is hard typed as 2025 | 2026 and defaults to 2026.",
+        "issue": "selectedYear state is now dynamic and defaults to the current calendar year.",
     },
     {
         "path": "client/views/UploadView.tsx",
-        "issue": "NAV audit filters branch as selectedYear === 2025 else 2026 using hardcoded boundary dates.",
+        "issue": "NAV audit filtering now delegates to year-window helpers instead of hardcoded 2025/2026 branches.",
     },
     {
         "path": "client/components/manual-entry/ManualEntryModal.tsx",
-        "issue": "Manual entry year selector only exposes 2025 and 2026.",
+        "issue": "Manual entry year selector now derives available years from the loaded reporting periods.",
     },
     {
         "path": "client/components/manual-entry/useManualEntryState.ts",
-        "issue": "Manual-entry period filtering branches as 2025 else 2026 instead of deriving years from data.",
+        "issue": "Manual-entry period filtering now derives reporting years from data.",
     },
     {
-        "path": "client/views/performance/PerformanceKPIs.tsx",
-        "issue": "Performance period type includes literal '2025' instead of a year-generic full-year mode.",
+        "path": "client/types.ts",
+        "issue": "Performance period type now uses a generic FULL_YEAR mode instead of a literal calendar year.",
     },
     {
         "path": "client/views/performance/PerformanceCharts.tsx",
-        "issue": "Performance period buttons expose literal '2025' only.",
+        "issue": "Performance period buttons now render a dynamic prior-year full-year label from a generic FULL_YEAR mode.",
     },
     {
         "path": "client/views/ReportView.tsx",
-        "issue": "One-pager/report period labels and selectors still expose 'Full Year 2025'.",
+        "issue": "One-pager/report period labels and selectors now use a dynamic prior-year full-year label.",
     },
     {
         "path": "client/utils/dateUtils.ts",
-        "issue": "Date-range helper has a literal case for '2025' with fixed 2024-12-31 -> 2025-12-31 bounds.",
+        "issue": "Date-range helper now resolves a generic FULL_YEAR window from the current calendar year.",
     },
     {
         "path": "client/components/IndexPerformanceChart.tsx",
-        "issue": "Index chart period model includes a literal 2025 mode.",
+        "issue": "Index chart period model already uses rolling windows and does not carry a literal 2025 mode.",
     },
 ]
 
@@ -334,7 +334,7 @@ def write_year_audit(ticker: str, workspace: dict[str, Any], config: dict[str, A
             "has_2026_periods": any((date or "").startswith("2026") for date in attr_period_end_dates),
             "has_2025_months": any((date or "").startswith("2025") for date in attr_monthly_end_dates),
             "has_2026_months": any((date or "").startswith("2026") for date in attr_monthly_end_dates),
-            "portfolio_ytd_return": attr.get("portfolioYtdReturn"),
+            "portfolio_ytd_return": workspace.get("performance", {}).get("portfolio", {}).get("ytdReturn"),
         },
         "findings": {
             "client": CLIENT_YEAR_AUDIT_FINDINGS,

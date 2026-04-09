@@ -10,9 +10,9 @@ export default defineConfig(({ mode }) => {
       host: '0.0.0.0',
       proxy: Object.fromEntries(
         [
-          '/fetch-sectors', '/fetch-performance', '/fetch-betas', '/fetch-dividends',
-          '/index-exposure', '/index-history',
-          '/currency-performance', '/generate-pdf',
+          '/fetch-sectors', '/fetch-betas', '/fetch-dividends',
+          '/benchmark-workspace', '/index-refresh', '/index-exposure', '/index-history',
+          '/generate-pdf',
           '/save-portfolio-config', '/load-portfolio-config',
           '/save-sector-weights', '/load-sector-weights',
           '/save-asset-geo', '/load-asset-geo',

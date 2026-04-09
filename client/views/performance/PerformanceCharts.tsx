@@ -1,12 +1,12 @@
 import React from 'react';
-import type { Period, PeriodMetrics } from './PerformanceKPIs';
+import type { PerformanceMetrics, PerformancePeriod } from '../../types';
 import { UnifiedPerformancePanel } from './UnifiedPerformancePanel';
 import type { PerformanceChartView } from '../../selectors/performanceSelectors';
 
 export type ChartView = PerformanceChartView;
 
-const PERIOD_GROUPS: readonly { key: string; periods: Period[] }[] = [
-    { key: 'year', periods: ['2025'] },
+const PERIOD_GROUPS: readonly { key: string; periods: PerformancePeriod[] }[] = [
+    { key: 'year', periods: ['FULL_YEAR'] },
     { key: 'rolling', periods: ['YTD', '3M', '6M', '1Y'] },
     { key: 'quarters', periods: ['Q1', 'Q2', 'Q3', 'Q4'] },
 ];
@@ -22,9 +22,9 @@ interface PerformanceChartsProps {
     chartData: Record<string, unknown>[];
     chartView: ChartView;
     setChartView: (v: ChartView) => void;
-    selectedPeriod: Period;
-    setSelectedPeriod: (v: Period) => void;
-    periodMetrics: PeriodMetrics | null;
+    selectedPeriod: PerformancePeriod;
+    setSelectedPeriod: (v: PerformancePeriod) => void;
+    periodMetrics: PerformanceMetrics | null;
     loading: boolean;
     benchmark: string;
     setBenchmark: (v: string) => void;
@@ -47,6 +47,11 @@ export const PerformanceCharts: React.FC<PerformanceChartsProps> = ({
     hideKPIs = false,
     noWrapper = false,
 }) => {
+    const periodLabel = (period: PerformancePeriod) => {
+        if (period !== 'FULL_YEAR') return period;
+        return String(new Date().getFullYear() - 1);
+    };
+
     const inner = (
         <>
             {/* Toolbar */}
@@ -102,7 +107,7 @@ export const PerformanceCharts: React.FC<PerformanceChartsProps> = ({
                                                 : 'text-wallstreet-500 hover:text-wallstreet-text hover:bg-wallstreet-900'
                                                 }`}
                                         >
-                                            {period}
+                                            {periodLabel(period)}
                                         </button>
                                     ))}
                                 </div>

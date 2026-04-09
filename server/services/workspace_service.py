@@ -16,7 +16,7 @@ import pandas as pd
 import yfinance as yf
 
 from cache_manager import load_cache, save_cache
-from constants import BENCHMARK_TICKERS, CASH_TICKER, FX_TICKER
+from constants import BENCHMARK_TICKERS, CASH_TICKER
 from data_loader import load_historic_nav_csvs, load_manual_navs_json, merge_nav_sources
 from market_data import (
     PRICE_HISTORY_LOOKBACK_WINDOW_DAYS,
@@ -36,9 +36,11 @@ from services.attribution_math import (
 )
 from services.performance_service import (
     aggregate_period_weights,
+    build_performance_window_ranges,
     build_benchmark_returns,
     build_period_weighted_portfolio_returns,
     compute_performance_metrics,
+    compute_performance_window_metrics,
     compute_beta,
     compute_annualized_vol,
     fetch_returns_df,
@@ -688,40 +690,6 @@ def _select_facts_in_span(
     ].copy()
 
 
-def _compute_benchmark_span_return(
-    ticker: str,
-    start_date: pd.Timestamp,
-    end_date: pd.Timestamp,
-    cache: dict,
-) -> float:
-    if ticker == FX_TICKER:
-        return float(get_fx_return(start_date, end_date, cache))
-
-    price_start = get_price_on_date(ticker, start_date, cache)
-    price_end = get_price_on_date(ticker, end_date, cache)
-    if price_start in (None, 0) or price_end is None:
-        return 0.0
-
-    raw_return = price_return(price_start, price_end)
-    if ticker == "^GSPTSE":
-        return float(raw_return)
-    fx_return = get_fx_return(start_date, end_date, cache)
-    return float(apply_fx_adjustment(raw_return, fx_return, True))
-
-
-def _build_benchmark_lists(
-    periods: list[tuple[pd.Timestamp, pd.Timestamp]],
-    monthly_periods: list[tuple[pd.Timestamp, pd.Timestamp]],
-    cache: dict,
-) -> tuple[dict[str, list[float]], dict[str, list[float]]]:
-    period_lists: dict[str, list[float]] = {}
-    monthly_lists: dict[str, list[float]] = {}
-    for name, ticker in BENCHMARK_TICKERS.items():
-        period_lists[name] = [_compute_benchmark_span_return(ticker, start, end, cache) for start, end in periods]
-        monthly_lists[name] = [_compute_benchmark_span_return(ticker, start, end, cache) for start, end in monthly_periods]
-    return period_lists, monthly_lists
-
-
 def _serialize_holdings_items(
     holding_facts: pd.DataFrame,
     periods: list[tuple[pd.Timestamp, pd.Timestamp]],
@@ -1042,8 +1010,8 @@ def _build_canonical_portfolio_period_returns(
 
         if in_p:
             baseline = pre[-1] if pre else in_p[0]
-            start_val = baseline["portfolio"]
-            end_val = in_p[-1]["portfolio"]
+            start_val = baseline.get("value", baseline.get("portfolio"))
+            end_val = in_p[-1].get("value", in_p[-1].get("portfolio"))
             result[key] = (end_val / start_val - 1.0) if start_val else 0.0
         else:
             result[key] = 0.0
@@ -1070,8 +1038,8 @@ def _build_canonical_portfolio_monthly_returns(
 
         if in_p:
             baseline = pre[-1] if pre else in_p[0]
-            start_val = baseline["portfolio"]
-            end_val = in_p[-1]["portfolio"]
+            start_val = baseline.get("value", baseline.get("portfolio"))
+            end_val = in_p[-1].get("value", in_p[-1].get("portfolio"))
             result[key] = (end_val / start_val - 1.0) if start_val else 0.0
         else:
             result[key] = 0.0
@@ -1748,6 +1716,11 @@ def _build_performance_section(
 ) -> dict[str, Any]:
     benchmark_names = ["75/25", "TSX", "SP500", "ACWI"]
     timestamp = datetime.now(timezone.utc).isoformat()
+    empty_portfolio_bundle = {
+        "periodReturns": {},
+        "monthlyReturns": {},
+        "ytdReturn": 0.0,
+    }
 
     class _SimpleItem:
         def __init__(self, payload: dict[str, Any]):
@@ -1761,7 +1734,7 @@ def _build_performance_section(
     normalized_items = [_SimpleItem(item) for item in holdings_items]
     period_weights = aggregate_period_weights(normalized_items, nav_tickers=nav_tickers)
     if not period_weights:
-        return {"defaultBenchmark": "75/25", "variants": {}}
+        return {"defaultBenchmark": "75/25", "portfolio": empty_portfolio_bundle, "variants": {}}
 
     all_tickers = list({ticker for _, weights, _ in period_weights for ticker in weights if not is_cash_ticker(ticker)})
     all_mutual_fund_tickers = {ticker for _, _, mf_tickers in period_weights for ticker in mf_tickers}
@@ -1786,6 +1759,7 @@ def _build_performance_section(
         logger.warning("workspace performance section unavailable: %s", exc)
         return {
             "defaultBenchmark": "75/25",
+            "portfolio": empty_portfolio_bundle,
             "variants": {
                 name: {"metrics": {}, "series": [], "missingTickers": sorted(all_tickers), "fetchedAt": timestamp, "error": f"Performance workspace unavailable: {exc}"}
                 for name in benchmark_names
@@ -1799,10 +1773,14 @@ def _build_performance_section(
             "USD-listed tickers will NOT be FX-adjusted; CAD returns may be overstated."
         )
 
+    window_as_of = pd.Timestamp.now().normalize()
+    window_ranges = build_performance_window_ranges(window_as_of)
     variants: dict[str, Any] = {}
     for benchmark_name in benchmark_names:
         benchmark_returns = build_benchmark_returns(returns_df, benchmark=benchmark_name)
         variant = compute_performance_metrics(portfolio_returns, benchmark_returns)
+        variant["windows"] = compute_performance_window_metrics(portfolio_returns, benchmark_returns, as_of=window_as_of)
+        variant["windowRanges"] = window_ranges
         variant["missingTickers"] = missing
         variant["fetchedAt"] = timestamp
         if benchmark_name == "75/25":
@@ -1817,6 +1795,7 @@ def _build_performance_section(
 
     return {
         "defaultBenchmark": "75/25",
+        "portfolio": empty_portfolio_bundle,
         "variants": variants,
     }
 
@@ -2120,9 +2099,6 @@ def build_portfolio_workspace(items: list[Any]) -> dict[str, Any]:
                 cache,
             )
 
-        with _timed_step("build_benchmark_lists", periods=len(periods), monthly_periods=len(monthly_periods)):
-            benchmark_returns, benchmark_monthly_returns = _build_benchmark_lists(periods, monthly_periods, cache)
-
         with _timed_step("load_custom_sectors"):
             custom_sectors_path = resolve_storage_path("data/custom_sectors.json")
             custom_sectors = {}
@@ -2158,9 +2134,8 @@ def build_portfolio_workspace(items: list[Any]) -> dict[str, Any]:
             | set(BENCHMARK_TICKERS.values())
         )
 
-        # portfolio_period_returns / portfolio_monthly_returns / portfolio_ytd_return are
-        # now built from the canonical yfinance NAV series AFTER performance is computed.
-        # Placeholders here; values are assigned in the canonical block below.
+        # Canonical portfolio return maps are built from the shared performance series
+        # after the performance section is assembled.
         portfolio_period_returns: dict[str, float] = {}
         portfolio_monthly_returns: dict[str, float] = {}
         portfolio_ytd_return: float = 0.0
@@ -2215,24 +2190,12 @@ def build_portfolio_workspace(items: list[Any]) -> dict[str, Any]:
             portfolio_monthly_returns, portfolio_ytd_return = _build_canonical_portfolio_monthly_returns(
                 _canonical_performance_series, monthly_periods
             )
-
-        daily_performance_series = {
-            name: list(variant.get("series", []))
-            for name, variant in performance.get("variants", {}).items()
+        performance["portfolio"] = {
+            **performance.get("portfolio", {}),
+            "periodReturns": portfolio_period_returns,
+            "monthlyReturns": portfolio_monthly_returns,
+            "ytdReturn": portfolio_ytd_return,
         }
-        performance_errors = {
-            name: variant.get("error")
-            for name, variant in performance.get("variants", {}).items()
-            if variant.get("error")
-        }
-        performance_fetched_at = next(
-            (
-                variant.get("fetchedAt")
-                for variant in performance.get("variants", {}).values()
-                if variant.get("fetchedAt")
-            ),
-            None,
-        )
 
         with _timed_step("build_risk_section", holdings=len(latest_items)):
             risk = _build_risk_section(latest_items, period_items, set(nav_dict.keys()), nav_dict, prefetched_returns_df=_shared_returns_df)
@@ -2276,16 +2239,8 @@ def build_portfolio_workspace(items: list[Any]) -> dict[str, Any]:
             "monthlySheet": _build_canonical_monthly_sheet(_canonical_period_attribution, monthly_periods),
             "periods": [{"start": _serialize_timestamp(start), "end": _serialize_timestamp(end)} for start, end in periods],
             "monthlyPeriods": [{"start": _serialize_timestamp(start), "end": _serialize_timestamp(end)} for start, end in monthly_periods],
-            "benchmarkReturns": benchmark_returns,
-            "benchmarkMonthlyReturns": benchmark_monthly_returns,
             "topContributors": _build_canonical_top_contributors(_canonical_period_attribution, periods),
             "overviewLayouts": overview_layouts,
-            "portfolioPeriodReturns": portfolio_period_returns,
-            "portfolioMonthlyReturns": portfolio_monthly_returns,
-            "portfolioYtdReturn": portfolio_ytd_return,
-            "dailyPerformanceSeries": daily_performance_series,
-            "performanceFetchedAt": performance_fetched_at,
-            "performanceErrors": performance_errors,
         },
         "performance": performance,
         "risk": risk,

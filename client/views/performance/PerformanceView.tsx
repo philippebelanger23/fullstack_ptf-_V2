@@ -1,33 +1,35 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { AlertCircle } from 'lucide-react';
-import type { PortfolioWorkspaceAttribution } from '../../types';
+import type { PerformancePeriod, PerformanceWorkspaceSection } from '../../types';
 import { FreshnessBadge } from '../../components/ui/FreshnessBadge';
-import type { Period, PeriodMetrics } from './PerformanceKPIs';
 import { PerformanceCharts, type ChartView } from './PerformanceCharts';
 import {
-    buildCanonicalPerformanceSeries,
-    buildCanonicalRelativeChartData,
+    buildPerformanceSeries,
+    buildPerformanceWindowRange,
     buildChartDataFromSeries,
-    computePeriodMetricsFromSeries,
-    filterSeriesByPeriod,
+    filterSeriesByWindowRange,
 } from '../../selectors/performanceSelectors';
 
 export const PerformanceView: React.FC<{
     isActive?: boolean;
     defaultBenchmark?: string;
-    attributionData?: PortfolioWorkspaceAttribution | null;
-}> = ({ isActive, defaultBenchmark = '75/25', attributionData }) => {
-    const [selectedPeriod, setSelectedPeriod] = useState<Period>('YTD');
+    performanceSection?: PerformanceWorkspaceSection | null;
+}> = ({ isActive, defaultBenchmark = '75/25', performanceSection }) => {
+    const [selectedPeriod, setSelectedPeriod] = useState<PerformancePeriod>('YTD');
     const [chartView, setChartView] = useState<ChartView>('absolute');
     const [benchmark, setBenchmark] = useState<string>(defaultBenchmark);
 
     const availableBenchmarks = useMemo(
-        () => Object.keys(attributionData?.dailyPerformanceSeries ?? {}),
-        [attributionData],
+        () => Object.keys(performanceSection?.variants ?? {}),
+        [performanceSection],
     );
-    const canonicalSeries = useMemo(() => buildCanonicalPerformanceSeries(attributionData, benchmark), [attributionData, benchmark]);
-    const loading = isActive !== false && !attributionData;
-    const error = attributionData?.performanceErrors?.[benchmark]
+    const selectedVariant = performanceSection?.variants?.[benchmark] ?? null;
+    const canonicalSeries = useMemo(
+        () => buildPerformanceSeries(selectedVariant),
+        [selectedVariant],
+    );
+    const loading = isActive !== false && !performanceSection;
+    const error = selectedVariant?.error
         ?? (!loading && canonicalSeries.length === 0 ? 'No canonical performance series available.' : null);
 
     useEffect(() => {
@@ -40,25 +42,19 @@ export const PerformanceView: React.FC<{
         if (firstAvailable) setBenchmark(firstAvailable);
     }, [availableBenchmarks, benchmark, defaultBenchmark]);
 
-    const relativeChartData = useMemo(() => {
-        return buildCanonicalRelativeChartData(attributionData, benchmark, selectedPeriod);
-    }, [attributionData, benchmark, selectedPeriod]);
-
-    const chartData = useMemo(() => {
-        if (chartView === 'relative') return relativeChartData;
-        return buildChartDataFromSeries(
-            filterSeriesByPeriod(canonicalSeries, selectedPeriod),
-            chartView,
-        );
-    }, [canonicalSeries, chartView, selectedPeriod, relativeChartData]);
+    const selectedWindowRange = useMemo(() => (
+        buildPerformanceWindowRange(selectedVariant, selectedPeriod)
+    ), [selectedPeriod, selectedVariant]);
 
     const filteredSeries = useMemo(() => {
-        return filterSeriesByPeriod(canonicalSeries, selectedPeriod);
-    }, [canonicalSeries, selectedPeriod]);
+        return filterSeriesByWindowRange(canonicalSeries, selectedWindowRange);
+    }, [canonicalSeries, selectedWindowRange]);
 
-    const periodMetrics = useMemo((): PeriodMetrics | null => {
-        return computePeriodMetricsFromSeries(filteredSeries);
-    }, [filteredSeries]);
+    const chartData = useMemo(() => {
+        return buildChartDataFromSeries(filteredSeries, chartView);
+    }, [chartView, filteredSeries]);
+
+    const periodMetrics = selectedVariant?.windows?.[selectedPeriod] ?? null;
 
     if (loading) {
         return (
@@ -123,7 +119,7 @@ export const PerformanceView: React.FC<{
                 <div>
                     <div className="flex items-center gap-3">
                         <h1 className="text-3xl font-bold text-wallstreet-text tracking-tight">Performance Deep Dive</h1>
-                        <FreshnessBadge fetchedAt={attributionData?.performanceFetchedAt ?? null} />
+                        <FreshnessBadge fetchedAt={selectedVariant?.fetchedAt ?? null} />
                     </div>
                     <p className="text-wallstreet-500 mt-1">Canonical workspace performance series and relative return metrics.</p>
                 </div>

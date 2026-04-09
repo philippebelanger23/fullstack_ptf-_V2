@@ -54,6 +54,13 @@ export interface PerformanceMetrics {
   benchmarkSortino: number;
 }
 
+export type PerformancePeriod = 'YTD' | 'Q1' | 'Q2' | 'Q3' | 'Q4' | '3M' | '6M' | '1Y' | 'FULL_YEAR';
+
+export interface PerformanceWindowRange {
+  start: string;
+  end?: string | null;
+}
+
 export interface PerformanceSeriesPoint {
   date: string;
   portfolio: number;
@@ -84,6 +91,8 @@ export interface PerformanceVariantResponse {
   metrics: PerformanceMetrics;
   series: PerformanceSeriesPoint[];
   missingTickers: string[];
+  windows?: Partial<Record<PerformancePeriod, PerformanceMetrics | null>>;
+  windowRanges?: Partial<Record<PerformancePeriod, PerformanceWindowRange>>;
   topDrawdowns?: DrawdownEpisode[];
   fetchedAt?: string;
   error?: string;
@@ -171,8 +180,6 @@ export interface PortfolioAnalysisResponse {
   monthlySheet: MonthlySheetRow[]; // calendar-month granularity
   periods: PeriodBoundary[]; // sub-period date boundaries
   monthlyPeriods: PeriodBoundary[]; // monthly period boundaries
-  benchmarkReturns: Record<string, number[]>; // {bench_name: [r_period_0, ...]}
-  benchmarkMonthlyReturns: Record<string, number[]>; // {bench_name: [r_month_0, ...]}
 }
 
 export interface RollingMetricPoint {
@@ -185,6 +192,65 @@ export interface PortfolioWorkspaceInput {
   normalizedDates: string[];
   activeTickers: string[];
   latestHoldingsDate: string | null;
+}
+
+export interface BenchmarkSectorRow {
+  sector: string;
+  benchmarkWeight: number;
+  ACWI?: number;
+  TSX?: number;
+}
+
+export interface BenchmarkGeographyRow {
+  region: string;
+  weight: number;
+  ACWI?: number;
+  TSX?: number;
+}
+
+export interface BenchmarkSeriesPoint {
+  date: string;
+  value: number;
+}
+
+export interface BenchmarkCurrencyPerformance {
+  YTD?: number | null;
+  '3M'?: number | null;
+  '6M'?: number | null;
+  '1Y'?: number | null;
+}
+
+export interface BenchmarkCurrencyRow {
+  code: string;
+  weight: number;
+  ticker?: string | null;
+  performance?: BenchmarkCurrencyPerformance | null;
+}
+
+export interface BenchmarkWorkspaceSourceStatus {
+  status: 'fresh' | 'stale' | 'error';
+  error?: string | null;
+}
+
+export interface BenchmarkWorkspaceResponse {
+  composition: {
+    sectors: BenchmarkSectorRow[];
+    geography: BenchmarkGeographyRow[];
+  };
+  performance: {
+    series: Record<string, BenchmarkSeriesPoint[]>;
+  };
+  currency: {
+    rows: BenchmarkCurrencyRow[];
+  };
+  meta: {
+    builtAt: string | null;
+    exposureAsOf: string | null;
+    historyAsOf: string | null;
+    stale: boolean;
+    sourceStatus: Record<string, BenchmarkWorkspaceSourceStatus>;
+    errors: Record<string, string>;
+  };
 }
 
 export interface PortfolioWorkspaceTimeline {
@@ -272,16 +338,17 @@ export interface AttributionOverviewRangeLayout {
 export interface PortfolioWorkspaceAttribution extends PortfolioAnalysisResponse {
   topContributors: TopContributorLayout[];
   overviewLayouts?: Record<string, Record<string, AttributionOverviewRangeLayout>>;
-  portfolioPeriodReturns: Record<string, number>;
-  portfolioMonthlyReturns: Record<string, number>;
-  portfolioYtdReturn: number;
-  dailyPerformanceSeries?: Record<string, PerformanceSeriesPoint[]>;
-  performanceFetchedAt?: string | null;
-  performanceErrors?: Record<string, string>;
+}
+
+export interface PerformancePortfolioReturnBundle {
+  periodReturns: Record<string, number>;
+  monthlyReturns: Record<string, number>;
+  ytdReturn: number;
 }
 
 export interface PerformanceWorkspaceSection {
   defaultBenchmark: string;
+  portfolio: PerformancePortfolioReturnBundle;
   variants: Record<string, PerformanceVariantResponse>;
 }
 

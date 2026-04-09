@@ -1,25 +1,11 @@
 import React, { useMemo, useState } from 'react';
 import ReactDOM from 'react-dom';
-import { PortfolioItem } from '../types';
-
-interface IndexSector {
-    sector: string;
-    Index: number;
-    ACWI?: number;
-    TSX?: number;
-}
-
-interface GeoEntry {
-    region: string;
-    weight: number;
-    ACWI?: number;
-    TSX?: number;
-}
+import { BenchmarkGeographyRow, BenchmarkSectorRow, PortfolioItem } from '../types';
 
 interface Props {
     currentHoldings: PortfolioItem[];
-    benchmarkData: IndexSector[];
-    benchmarkGeography?: GeoEntry[];
+    benchmarkData: BenchmarkSectorRow[];
+    benchmarkGeography?: BenchmarkGeographyRow[];
     assetGeo?: Record<string, string>;
     noWrapper?: boolean;
     titleActions?: React.ReactNode;
@@ -108,7 +94,7 @@ export const SectorDeviationCard: React.FC<Props> = ({ currentHoldings, benchmar
         benchmarkData.forEach(item => {
             const normalized = SECTOR_MAP[item.sector];
             if (normalized) {
-                benchmarkWeights[normalized] = item.Index;
+                benchmarkWeights[normalized] = item.benchmarkWeight;
             }
         });
 

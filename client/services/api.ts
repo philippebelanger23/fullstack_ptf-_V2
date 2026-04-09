@@ -1,4 +1,4 @@
-import { PortfolioItem, PortfolioWorkspaceResponse } from '../types';
+import { BenchmarkWorkspaceResponse, PortfolioItem, PortfolioWorkspaceResponse } from '../types';
 
 const API_Base_URL = ''; // Use relative path to leverage Vite proxy
 
@@ -194,81 +194,22 @@ export const fetchPortfolioWorkspace = async (items: PortfolioItem[]): Promise<P
     return await response.json();
 };
 
-export const triggerIndexRefresh = async (): Promise<{ exposure: string; history_cache: string }> => {
+export const fetchBenchmarkWorkspace = async (): Promise<BenchmarkWorkspaceResponse> => {
+    return memoizedRequest('GET /benchmark-workspace', async () => {
+        const response = await fetch(`${API_Base_URL}/benchmark-workspace`);
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Failed to fetch benchmark workspace: ${response.status} ${errorText}`);
+        }
+        return await response.json();
+    }, 2000);
+};
+
+export const triggerIndexRefresh = async (): Promise<{ status: string; builtAt?: string | null; stale?: boolean; errors?: Record<string, string> }> => {
     const response = await fetch(`${API_Base_URL}/index-refresh`, { method: 'POST' });
     if (!response.ok) throw new Error("Index refresh failed");
+    invalidateRequestCache('GET /benchmark-workspace');
     return response.json();
-};
-
-export const fetchIndexExposure = async (): Promise<{ sectors: any[], geography: any[], last_scraped?: string }> => {
-    return memoizedRequest('GET /index-exposure', async () => {
-        try {
-            const response = await fetch(`${API_Base_URL}/index-exposure`);
-            if (!response.ok) throw new Error("Failed to fetch index exposure");
-
-            return await response.json();
-        } catch (error) {
-            console.error("Error fetching index exposure:", error);
-            return { sectors: [], geography: [] };
-        }
-    });
-};
-
-export const fetchCurrencyPerformance = async (tickers: string[]): Promise<Record<string, Record<string, number>>> => {
-    const normalizedTickers = Array.from(new Set(tickers.map(ticker => ticker.trim()))).sort();
-    const cacheKey = `POST /fetch-performance:${normalizedTickers.join(',')}`;
-    return memoizedRequest(cacheKey, async () => {
-        try {
-            const response = await fetch(`${API_Base_URL}/fetch-performance`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ tickers: normalizedTickers }),
-            });
-
-            if (response.ok) {
-                return await response.json();
-            } else {
-                console.error('Failed to fetch currency performance');
-                return {};
-            }
-        } catch (error) {
-            console.error("Error fetching currency performance:", error);
-            return {};
-        }
-    });
-};
-
-// In-memory cache for index history data
-let indexHistoryCache: {
-    data: Record<string, { date: string, value: number }[]> | null;
-    timestamp: number;
-} = { data: null, timestamp: 0 };
-
-const INDEX_HISTORY_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
-
-export const fetchIndexHistory = async (): Promise<Record<string, { date: string, value: number }[]>> => {
-    return memoizedRequest('GET /index-history', async () => {
-        const now = Date.now();
-        if (indexHistoryCache.data && (now - indexHistoryCache.timestamp) < INDEX_HISTORY_CACHE_TTL) {
-            return indexHistoryCache.data;
-        }
-
-        try {
-            const response = await fetch(`${API_Base_URL}/index-history`);
-            if (response.ok) {
-                const data = await response.json();
-                // Update cache
-                indexHistoryCache = { data, timestamp: now };
-                return data;
-            } else {
-                console.error('Failed to fetch index history');
-                return { "ACWI": [], "XIC.TO": [], "Index": [] };
-            }
-        } catch (error) {
-            console.error("Error fetching index history:", error);
-            return { "ACWI": [], "XIC.TO": [], "Index": [] };
-        }
-    }, INDEX_HISTORY_CACHE_TTL);
 };
 
 export const savePortfolioConfig = async (config: { tickers: any[], periods: any[] }): Promise<void> => {

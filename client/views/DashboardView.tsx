@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { PortfolioItem, RiskContributionResponse } from '../types';
+import { BenchmarkWorkspaceResponse, PortfolioItem, RiskContributionResponse } from '../types';
 import { PortfolioTable } from '../components/PortfolioTable';
 import { KPICard } from '../components/KPICard';
 import { PortfolioEvolutionChart } from '../components/PortfolioEvolutionChart';
@@ -8,7 +8,7 @@ import { SectorGeographyDeviationCard } from '../components/SectorGeographyDevia
 import { Wallet, Layers, PieChart as PieChartIcon, Wallet2Icon, WalletIcon, AlertCircle, RefreshCw } from 'lucide-react';
 import { FreshnessBadge } from '../components/ui/FreshnessBadge';
 import { LoadingSequencePanel, type LoadStatus } from '../components/ui/LoadingSequencePanel';
-import { fetchBetas, fetchDividends, fetchIndexExposure, fetchSectors, loadAssetGeo, loadSectorWeights } from '../services/api';
+import { fetchBetas, fetchDividends, fetchSectors, loadAssetGeo, loadSectorWeights } from '../services/api';
 
 interface DashboardViewProps {
   data: PortfolioItem[];
@@ -16,6 +16,9 @@ interface DashboardViewProps {
   assetGeo?: Record<string, string>;
   isActive?: boolean;
   workspaceRisk?: RiskContributionResponse | null;
+  benchmarkWorkspace?: BenchmarkWorkspaceResponse | null;
+  benchmarkLoading?: boolean;
+  benchmarkError?: string | null;
 }
 
 const COLORS = [
@@ -31,7 +34,16 @@ const DASHBOARD_LOAD_STEPS = [
   { key: 'benchmark', label: 'Benchmark Exposure', sub: 'Index sector & geography weights' },
 ] as const;
 
-export const DashboardView: React.FC<DashboardViewProps> = ({ data, customSectors, assetGeo, isActive, workspaceRisk }) => {
+export const DashboardView: React.FC<DashboardViewProps> = ({
+  data,
+  customSectors,
+  assetGeo,
+  isActive,
+  workspaceRisk,
+  benchmarkWorkspace,
+  benchmarkLoading,
+  benchmarkError,
+}) => {
   const { dates, latestDate, currentHoldings, totalWeight } = useMemo(() => {
     const dates = Array.from(new Set(data.map(d => d.date))).sort() as string[];
     const latestDate = dates[dates.length - 1];
@@ -162,17 +174,17 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ data, customSector
 
   const [marketBetaMap, setMarketBetaMap] = React.useState<Record<string, number>>({});
   const [marketDividendYieldMap, setMarketDividendYieldMap] = React.useState<Record<string, number>>({});
-  const [benchmarkSectors, setBenchmarkSectors] = React.useState<any[]>([]);
-  const [benchmarkGeography, setBenchmarkGeography] = React.useState<any[]>([]);
   const [portfolioBeta, setPortfolioBeta] = React.useState<number | null>(null);
 
   // Error and loading state for better UX
   const [dataFetchError, setDataFetchError] = React.useState<string | null>(null);
   const [isLoadingMarketData, setIsLoadingMarketData] = React.useState(true);
-  const [fetchedAt, setFetchedAt] = React.useState<string | null>(null);
   const [loadProgress, setLoadProgress] = React.useState<Record<string, 'pending' | 'done' | 'error'>>({
     sectors: 'pending', market: 'pending', benchmark: 'pending',
   });
+  const benchmarkSectors = useMemo(() => benchmarkWorkspace?.composition.sectors ?? [], [benchmarkWorkspace]);
+  const benchmarkGeography = useMemo(() => benchmarkWorkspace?.composition.geography ?? [], [benchmarkWorkspace]);
+  const fetchedAt = useMemo(() => benchmarkWorkspace?.meta.builtAt ?? workspaceRisk?.fetchedAt ?? null, [benchmarkWorkspace, workspaceRisk]);
 
   React.useEffect(() => {
     setPortfolioBeta(workspaceRisk?.portfolioBeta ?? null);
@@ -185,11 +197,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ data, customSector
     const resetDerivedMarketState = () => {
       setMarketBetaMap({});
       setMarketDividendYieldMap({});
-      setBenchmarkSectors([]);
-      setBenchmarkGeography([]);
       setPortfolioBeta(null);
       setDataFetchError(null);
-      setFetchedAt(null);
     };
 
     const fetchData = async () => {
@@ -208,6 +217,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ data, customSector
       if (currentTickers.length === 0) {
         if (!cancelled) {
           setIsLoadingMarketData(false);
+        }
+        return;
+      }
+
+      if (benchmarkLoading && !benchmarkWorkspace) {
+        if (!cancelled) {
+          setLoadProgress(prev => ({ ...prev, benchmark: 'pending' }));
         }
         return;
       }
@@ -283,21 +299,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ data, customSector
           }
         }
 
-        // Fetch Benchmark Data
-        try {
-          const exposure = await fetchIndexExposure();
-          if (cancelled) return;
-          if (exposure && exposure.sectors) {
-            setBenchmarkSectors(exposure.sectors);
-          }
-          if (exposure && exposure.geography) {
-            setBenchmarkGeography(exposure.geography);
-          }
+        if (benchmarkWorkspace?.composition) {
           setLoadProgress(prev => ({ ...prev, benchmark: 'done' }));
-        } catch (e) {
-          console.error("Failed to fetch benchmark data:", e);
-          errors.push("benchmark");
-          if (!cancelled) setLoadProgress(prev => ({ ...prev, benchmark: 'error' }));
+        } else {
+          if (benchmarkError) {
+            errors.push("benchmark");
+          }
+          setLoadProgress(prev => ({ ...prev, benchmark: benchmarkLoading ? 'pending' : 'error' }));
         }
 
         // Set error message if any fetches failed
@@ -313,7 +321,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ data, customSector
         } finally {
           if (cancelled) return;
           setIsLoadingMarketData(false);
-        setFetchedAt(new Date().toISOString());
       }
     };
 
@@ -324,7 +331,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ data, customSector
     return () => {
       cancelled = true;
     };
-  }, [data, customSectors, assetGeo, currentHoldings]);
+  }, [data, customSectors, assetGeo, currentHoldings, benchmarkWorkspace, benchmarkLoading, benchmarkError]);
 
   // Derive enrichedCurrentHoldings by merging sectorMap at render time
   const enrichedCurrentHoldings = useMemo(() => {

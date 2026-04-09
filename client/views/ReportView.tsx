@@ -8,19 +8,23 @@ import { AttributionTable } from './attribution/AttributionTable';
 import { SectorBadge } from './risk/RiskTable';
 import { CorrelationHeatmap } from './risk/CorrelationHeatmap';
 import type { ChartView } from './performance/PerformanceCharts';
-import type { Period } from './performance/PerformanceKPIs';
 import { UnifiedPerformancePanel } from './performance/UnifiedPerformancePanel';
 import { LoadingSequencePanel, type LoadStatus } from '../components/ui/LoadingSequencePanel';
 import {
-    fetchIndexExposure, fetchSectors,
+    fetchSectors,
     loadSectorWeights, loadAssetGeo
 } from '../services/api';
 import { formatPct } from '../utils/formatters';
 import { getDateRangeForPeriod } from '../utils/dateUtils';
 import { buildOnePagerAttributionItems } from '../selectors/attributionSelectors';
-import { buildCanonicalPerformanceSeries, buildChartDataFromSeries, filterSeriesByPeriod } from '../selectors/performanceSelectors';
 import {
-    PortfolioItem, PerformanceVariantResponse, PortfolioWorkspaceAttribution, RiskContributionResponse, ViewState,
+    buildPerformanceSeries,
+    buildPerformanceWindowRange,
+    buildChartDataFromSeries,
+    filterSeriesByWindowRange,
+} from '../selectors/performanceSelectors';
+import {
+    BenchmarkWorkspaceResponse, PerformancePeriod, PerformanceWorkspaceSection, PortfolioItem, PortfolioWorkspaceAttribution, RiskContributionResponse, ViewState,
 } from '../types';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -31,14 +35,17 @@ interface ReportViewProps {
     assetGeo?: Record<string, string>;
     onNavigate?: (view: ViewState) => void;
     isActive?: boolean;
-    performanceVariant?: PerformanceVariantResponse | null;
+    performanceSection?: PerformanceWorkspaceSection | null;
     workspaceRisk?: RiskContributionResponse | null;
     attributionData?: PortfolioWorkspaceAttribution | null;
+    benchmarkWorkspace?: BenchmarkWorkspaceResponse | null;
+    benchmarkLoading?: boolean;
+    benchmarkError?: string | null;
 }
 
 const fmtDate = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 
-const PERIOD_LABELS: Record<Period, string> = {
+const PERIOD_LABELS: Record<PerformancePeriod, string> = {
     'YTD': 'Year to Date',
     'Q1': 'Q1',
     'Q2': 'Q2',
@@ -47,19 +54,27 @@ const PERIOD_LABELS: Record<Period, string> = {
     '3M': '3 Months',
     '6M': '6 Months',
     '1Y': '1 Year',
-    '2025': 'Full Year 2025',
+    'FULL_YEAR': 'Full Year',
 };
 
-const REPORT_PERIOD_GROUPS: readonly { key: string; periods: Period[] }[] = [
-    { key: 'year', periods: ['2025'] },
+const REPORT_PERIOD_GROUPS: readonly { key: string; periods: PerformancePeriod[] }[] = [
+    { key: 'year', periods: ['FULL_YEAR'] },
     { key: 'rolling', periods: ['YTD', '3M', '6M', '1Y'] },
     { key: 'quarters', periods: ['Q1', 'Q2', 'Q3', 'Q4'] },
 ];
 
-const getPeriodTitle = (period: Period): string => {
+const REPORT_BENCHMARK_LABELS: Record<string, string> = {
+    '75/25': '75/25 Composite (75% ACWI (CAD) + 25% XIC.TO)',
+    ACWI: 'ACWI (CAD-converted)',
+    TSX: 'S&P/TSX Composite (XIC.TO)',
+    SP500: 'S&P 500 CAD (XUS.TO)',
+};
+
+const getPeriodTitle = (period: PerformancePeriod): string => {
     const { start, end } = getDateRangeForPeriod(period);
     const endDate = end ?? new Date();
-    return `${PERIOD_LABELS[period]} (${fmtDate(start)} – ${fmtDate(endDate)})`;
+    const label = period === 'FULL_YEAR' ? `Full Year ${endDate.getFullYear()}` : PERIOD_LABELS[period];
+    return `${label} (${fmtDate(start)} - ${fmtDate(endDate)})`;
 };
 
 // ── KPI cell ──────────────────────────────────────────────────────────────────
@@ -133,20 +148,35 @@ const PanelActions: React.FC<{
 
 // ── Main Component ─────────────────────────────────────────────────────────────
 
-export const ReportView: React.FC<ReportViewProps> = ({ data, customSectors, assetGeo, onNavigate, isActive, performanceVariant, workspaceRisk, attributionData }) => {
+export const ReportView: React.FC<ReportViewProps> = ({
+    data,
+    customSectors,
+    assetGeo,
+    onNavigate,
+    isActive,
+    performanceSection,
+    workspaceRisk,
+    attributionData,
+    benchmarkWorkspace,
+    benchmarkLoading,
+    benchmarkError,
+}) => {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
-    const [benchmarkSectors, setBenchmarkSectors] = useState<any[]>([]);
-    const [benchmarkGeography, setBenchmarkGeography] = useState<any[]>([]);
     const [sectorMap, setSectorMap] = useState<Record<string, string>>({});
     const [localCustomSectorWeights, setLocalCustomSectorWeights] = useState<Record<string, Record<string, number>>>({});
     const [localAssetGeo, setLocalAssetGeo] = useState<Record<string, string>>({});
-    const [selectedPeriod, setSelectedPeriod] = useState<Period>('YTD');
+    const [selectedPeriod, setSelectedPeriod] = useState<PerformancePeriod>('YTD');
     const [chartView, setChartView] = useState<ChartView>('absolute');
     const [loadProgress, setLoadProgress] = useState<Record<string, 'pending' | 'done' | 'error'>>({
         benchmark: 'pending', sectors: 'pending',
     });
     const [expandedPanel, setExpandedPanel] = useState<string | null>(null);
+    const periodButtonLabel = (period: PerformancePeriod) => (
+        period === 'FULL_YEAR' ? String(new Date().getFullYear() - 1) : period
+    );
+    const benchmarkSectors = useMemo(() => benchmarkWorkspace?.composition.sectors ?? [], [benchmarkWorkspace]);
+    const benchmarkGeography = useMemo(() => benchmarkWorkspace?.composition.geography ?? [], [benchmarkWorkspace]);
     // Close expanded panel on ESC
     useEffect(() => {
         const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') setExpandedPanel(null); };
@@ -185,12 +215,17 @@ export const ReportView: React.FC<ReportViewProps> = ({ data, customSectors, ass
                     setLoading(false);
                     return;
                 }
-                if (!performanceVariant || !workspaceRisk) {
+                if (!performanceSection || !workspaceRisk) {
                     setLoading(true);
                     return;
                 }
-                if (performanceVariant.error) {
-                    setError(performanceVariant.error);
+                if (benchmarkLoading && !benchmarkWorkspace) {
+                    setLoading(true);
+                    return;
+                }
+                const defaultBenchmark = performanceSection.defaultBenchmark;
+                if (performanceSection.variants[defaultBenchmark]?.error) {
+                    setError(performanceSection.variants[defaultBenchmark]?.error ?? 'Performance workspace unavailable.');
                     setLoading(false);
                     return;
                 }
@@ -205,10 +240,9 @@ export const ReportView: React.FC<ReportViewProps> = ({ data, customSectors, ass
                         .filter(d => d.ticker && !d.isCash && !d.ticker.includes('$'))
                         .map(d => d.ticker.trim())
                 ));
-                const exposure = await trackFetch('benchmark', fetchIndexExposure);
-                if (cancelled) return;
                 const sectors = await trackFetch('sectors', () => fetchSectors(tickersToFetch));
                 if (cancelled) return;
+                setLoadProgress(prev => ({ ...prev, benchmark: benchmarkWorkspace?.composition ? 'done' : 'error' }));
                 setLoadProgress(prev => ({ ...prev, performance: 'done', attribution: 'done', risk: 'done' }));
                 const [loadedWeights, loadedGeo] = await Promise.all([
                     customSectors ? Promise.resolve(null) : loadSectorWeights(),
@@ -216,8 +250,6 @@ export const ReportView: React.FC<ReportViewProps> = ({ data, customSectors, ass
                 ]);
                 if (cancelled) return;
 
-                if (exposure?.sectors) setBenchmarkSectors(exposure.sectors);
-                if (exposure?.geography) setBenchmarkGeography(exposure.geography);
                 if (Object.keys(sectors).length > 0) setSectorMap(prev => ({ ...prev, ...sectors }));
                 if (!customSectors && loadedWeights && Object.keys(loadedWeights).length > 0) {
                     setLocalCustomSectorWeights(loadedWeights);
@@ -234,7 +266,7 @@ export const ReportView: React.FC<ReportViewProps> = ({ data, customSectors, ass
         };
         fetchData();
         return () => { cancelled = true; };
-    }, [assetGeo, customSectors, data, isActive, performanceVariant, workspaceRisk]);
+    }, [assetGeo, benchmarkWorkspace, benchmarkLoading, customSectors, data, isActive, performanceSection, workspaceRisk]);
 
     // ── Derived data ──────────────────────────────────────────────────────────
 
@@ -252,16 +284,22 @@ export const ReportView: React.FC<ReportViewProps> = ({ data, customSectors, ass
             });
     }, [data, effectiveCustomSectors, sectorMap]);
 
+    const reportBenchmark = performanceSection?.defaultBenchmark ?? '75/25';
+    const comparisonVariant = performanceSection?.variants?.[reportBenchmark] ?? null;
     const canonicalPerformanceSeries = useMemo(() => (
-        buildCanonicalPerformanceSeries(attributionData, '75/25')
-    ), [attributionData]);
+        buildPerformanceSeries(comparisonVariant)
+    ), [comparisonVariant]);
+
+    const selectedWindowRange = useMemo(() => (
+        buildPerformanceWindowRange(comparisonVariant, selectedPeriod)
+    ), [comparisonVariant, selectedPeriod]);
 
     const chartData = useMemo(() => {
         return buildChartDataFromSeries(
-            filterSeriesByPeriod(canonicalPerformanceSeries, selectedPeriod),
+            filterSeriesByWindowRange(canonicalPerformanceSeries, selectedWindowRange),
             chartView,
         );
-    }, [canonicalPerformanceSeries, chartView, selectedPeriod]);
+    }, [canonicalPerformanceSeries, chartView, selectedWindowRange]);
 
     const periodAttribution = useMemo(() => (
         buildOnePagerAttributionItems(attributionData, selectedPeriod)
@@ -327,9 +365,9 @@ export const ReportView: React.FC<ReportViewProps> = ({ data, customSectors, ass
     }, [enrichedCurrentHoldings]);
 
     const fetchedAt = useMemo(() => {
-        const times = [attributionData?.performanceFetchedAt, workspaceRisk?.fetchedAt].filter(Boolean) as string[];
+        const times = [comparisonVariant?.fetchedAt, workspaceRisk?.fetchedAt, benchmarkWorkspace?.meta.builtAt].filter(Boolean) as string[];
         return times.length > 0 ? times.sort()[0] : null;
-    }, [attributionData, workspaceRisk]);
+    }, [benchmarkWorkspace, comparisonVariant, workspaceRisk]);
 
     const topCorrelationMatrix = workspaceRisk?.correlationMatrix ?? { tickers: [], matrix: [] };
 
@@ -408,9 +446,7 @@ export const ReportView: React.FC<ReportViewProps> = ({ data, customSectors, ass
         );
     }
 
-    if (!performanceVariant || !workspaceRisk) return null;
-
-    const m = performanceVariant.metrics;
+    if (!performanceSection || !workspaceRisk) return null;
     const genDate = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
 
     // ── Expanded panel content ────────────────────────────────────────────────
@@ -432,7 +468,16 @@ export const ReportView: React.FC<ReportViewProps> = ({ data, customSectors, ass
                         </div>
                         {/* Explicit flex column so noWrapper flex-1 resolves in expanded modal */}
                         <div className="flex-1 min-h-0 flex flex-col">
-                            <UnifiedPerformancePanel chartData={chartData} chartView={chartView} periodMetrics={null} selectedPeriod={selectedPeriod} benchmark="75/25" loading={false} hideKPIs noWrapper />
+                            <UnifiedPerformancePanel
+                                chartData={chartData}
+                                chartView={chartView}
+                                periodMetrics={comparisonVariant?.windows?.[selectedPeriod] ?? null}
+                                selectedPeriod={selectedPeriod}
+                                benchmark={reportBenchmark}
+                                loading={false}
+                                hideKPIs
+                                noWrapper
+                            />
                         </div>
                     </div>
                 );
@@ -521,7 +566,7 @@ export const ReportView: React.FC<ReportViewProps> = ({ data, customSectors, ass
                         PORTFOLIO <span className="text-wallstreet-accent">REPORT</span>
                     </h1>
                     <p className="text-wallstreet-500 text-xs mt-0.5 font-mono">
-                        {genDate} &middot; Benchmark: 75/25 Composite (75% ACWI (CAD) + 25% XIC.TO)
+                        {genDate} &middot; Benchmark: {REPORT_BENCHMARK_LABELS[reportBenchmark] ?? reportBenchmark}
                     </p>
                 </div>
                 <div className="print-hide flex justify-center">
@@ -539,7 +584,7 @@ export const ReportView: React.FC<ReportViewProps> = ({ data, customSectors, ass
                                                 : 'text-wallstreet-500 hover:text-wallstreet-text hover:bg-wallstreet-900'
                                                 }`}
                                         >
-                                            {period}
+                                            {periodButtonLabel(period)}
                                         </button>
                                     ))}
                                 </div>
@@ -588,9 +633,9 @@ export const ReportView: React.FC<ReportViewProps> = ({ data, customSectors, ass
                     <UnifiedPerformancePanel
                         chartData={chartData}
                         chartView={chartView}
-                        periodMetrics={null}
+                        periodMetrics={comparisonVariant?.windows?.[selectedPeriod] ?? null}
                         selectedPeriod={selectedPeriod}
-                        benchmark="75/25"
+                        benchmark={reportBenchmark}
                         loading={false}
                         hideKPIs
                         noWrapper
@@ -753,3 +798,4 @@ export const ReportView: React.FC<ReportViewProps> = ({ data, customSectors, ass
         </div>
     );
 };
+

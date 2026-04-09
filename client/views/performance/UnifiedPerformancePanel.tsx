@@ -2,7 +2,7 @@ import React, { useMemo, useState, useId } from 'react';
 import { Info } from 'lucide-react';
 import { LineChart, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, Legend } from 'recharts';
 import { formatPercent, formatTooltipDate } from '../../utils/formatters';
-import type { PeriodMetrics } from './PerformanceKPIs';
+import type { PerformanceMetrics, PerformancePeriod } from '../../types';
 import { useThemeColors } from '../../hooks/useThemeColors';
 
 type ChartView = 'absolute' | 'relative' | 'drawdowns';
@@ -10,8 +10,8 @@ type ChartView = 'absolute' | 'relative' | 'drawdowns';
 interface UnifiedPerformancePanelProps {
     chartData: Record<string, unknown>[];
     chartView: ChartView;
-    periodMetrics: PeriodMetrics | null;
-    selectedPeriod: string;
+    periodMetrics: PerformanceMetrics | null;
+    selectedPeriod: PerformancePeriod;
     benchmark: string;
     loading?: boolean;
     hideKPIs?: boolean;
@@ -81,7 +81,7 @@ export const UnifiedPerformancePanel: React.FC<UnifiedPerformancePanelProps> = (
 
     const getMonthlyTicks = useMemo(() => {
         if (chartData.length === 0) return [];
-        if (selectedPeriod === '3M' || selectedPeriod === 'YTD' || selectedPeriod === '2025' || selectedPeriod === '6M') {
+        if (selectedPeriod === '3M' || selectedPeriod === 'YTD' || selectedPeriod === 'FULL_YEAR' || selectedPeriod === '6M') {
             return chartData
                 .map(item => item.date as string)
                 .filter((_, i) => i % 10 === 0);

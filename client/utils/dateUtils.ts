@@ -1,4 +1,4 @@
-import { Period } from '../views/performance/PerformanceKPIs';
+import type { PerformancePeriod } from '../types';
 
 /**
  * Returns the start (and optional end) Date for a given performance period.
@@ -7,7 +7,7 @@ import { Period } from '../views/performance/PerformanceKPIs';
  * period-start convention (rebalance periods begin at the Dec 31 close) and
  * matches standard financial reporting (YTD = since Dec 31 prior-year close).
  */
-export const getDateRangeForPeriod = (period: Period): { start: Date; end?: Date } => {
+export const getDateRangeForPeriod = (period: PerformancePeriod): { start: Date; end?: Date } => {
     const now = new Date();
     now.setHours(0, 0, 0, 0);
     const year = now.getFullYear();
@@ -26,8 +26,8 @@ export const getDateRangeForPeriod = (period: Period): { start: Date; end?: Date
     };
 
     switch (period) {
-        case '2025':
-            return { start: new Date(2024, 11, 31), end: new Date(2025, 11, 31) };
+        case 'FULL_YEAR':
+            return { start: new Date(year - 2, 11, 31), end: new Date(year - 1, 11, 31) };
         case 'YTD':
             return { start: new Date(year - 1, 11, 31) };
         case 'Q1':

@@ -32,6 +32,8 @@ logger = logging.getLogger(__name__)
 
 configure_yfinance_cache()
 
+PERFORMANCE_WINDOW_KEYS = ("FULL_YEAR", "YTD", "Q1", "Q2", "Q3", "Q4", "3M", "6M", "1Y")
+
 
 def _normalize_close_download(downloaded: pd.DataFrame | pd.Series, tickers: list[str]) -> pd.DataFrame:
     return extract_download_price_frame(downloaded, tickers)
@@ -599,6 +601,71 @@ def compute_performance_metrics(
     return {"metrics": metrics, "series": performance_series, "topDrawdowns": top_drawdowns}
 
 
+def _resolve_window_range(period: str, as_of: pd.Timestamp) -> tuple[pd.Timestamp, pd.Timestamp | None]:
+    as_of = pd.Timestamp(as_of).normalize()
+    year = as_of.year
+
+    quarter_ranges = {
+        "Q1": (pd.Timestamp(year=year, month=1, day=1), pd.Timestamp(year=year, month=3, day=31)),
+        "Q2": (pd.Timestamp(year=year, month=4, day=1), pd.Timestamp(year=year, month=6, day=30)),
+        "Q3": (pd.Timestamp(year=year, month=7, day=1), pd.Timestamp(year=year, month=9, day=30)),
+        "Q4": (pd.Timestamp(year=year, month=10, day=1), pd.Timestamp(year=year, month=12, day=31)),
+    }
+    if period in quarter_ranges:
+        return quarter_ranges[period]
+    if period == "FULL_YEAR":
+        return pd.Timestamp(year=year - 2, month=12, day=31), pd.Timestamp(year=year - 1, month=12, day=31)
+    if period == "YTD":
+        return pd.Timestamp(year=year - 1, month=12, day=31), None
+    if period == "3M":
+        return as_of - pd.DateOffset(months=3), None
+    if period == "6M":
+        return as_of - pd.DateOffset(months=6), None
+    if period == "1Y":
+        return as_of - pd.DateOffset(years=1), None
+    return as_of - pd.DateOffset(years=1), None
+
+
+def build_performance_window_ranges(
+    as_of: pd.Timestamp | None = None,
+) -> dict[str, dict[str, str | None]]:
+    as_of_date = pd.Timestamp(as_of).normalize() if as_of is not None else pd.Timestamp.now().normalize()
+    ranges: dict[str, dict[str, str | None]] = {}
+    for period in PERFORMANCE_WINDOW_KEYS:
+        start_date, end_date = _resolve_window_range(period, as_of_date)
+        ranges[period] = {
+            "start": start_date.strftime("%Y-%m-%d"),
+            "end": end_date.strftime("%Y-%m-%d") if end_date is not None else None,
+        }
+    return ranges
+
+
+def compute_performance_window_metrics(
+    portfolio_returns: pd.Series,
+    benchmark_returns: pd.Series,
+    as_of: pd.Timestamp | None = None,
+) -> dict[str, dict | None]:
+    if portfolio_returns.empty or benchmark_returns.empty:
+        return {period: None for period in PERFORMANCE_WINDOW_KEYS}
+
+    as_of_date = pd.Timestamp(as_of).normalize() if as_of is not None else pd.Timestamp.now().normalize()
+    windows: dict[str, dict | None] = {}
+
+    for period in PERFORMANCE_WINDOW_KEYS:
+        start_date, end_date = _resolve_window_range(period, as_of_date)
+        mask = portfolio_returns.index >= start_date
+        if end_date is not None:
+            mask &= portfolio_returns.index <= end_date
+
+        filtered_portfolio = portfolio_returns.loc[mask]
+        if len(filtered_portfolio) < 5:
+            windows[period] = None
+            continue
+
+        filtered_benchmark = benchmark_returns.reindex(filtered_portfolio.index).fillna(0.0)
+        windows[period] = compute_performance_metrics(filtered_portfolio, filtered_benchmark)["metrics"]
+
+    return windows
 def compute_rolling_metrics(
     portfolio_returns: pd.Series,
     benchmark_returns: pd.Series,

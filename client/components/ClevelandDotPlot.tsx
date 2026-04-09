@@ -12,9 +12,10 @@ import {
     Rectangle
 } from 'recharts';
 import { useThemeColors } from '../hooks/useThemeColors';
+import { BenchmarkSectorRow } from '../types';
 
 interface DotPlotProps {
-    data: any[];
+    data: BenchmarkSectorRow[];
 }
 
 export const ClevelandDotPlot: React.FC<DotPlotProps> = ({ data }) => {
@@ -145,7 +146,7 @@ export const ClevelandDotPlot: React.FC<DotPlotProps> = ({ data }) => {
                 <Scatter name="TSX (25%)" dataKey="TSX" fill="#dc2626" shape="circle" />
 
                 {/* Index Triangle */}
-                <Scatter name="75/25 Composite" dataKey="Index" fill="#10b981" shape="triangle" />
+                <Scatter name="75/25 Composite" dataKey="benchmarkWeight" fill="#10b981" shape="triangle" />
 
             </ComposedChart>
         </ResponsiveContainer>

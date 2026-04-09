@@ -18,7 +18,8 @@ The live app boots from one shared workspace request:
 - `client/App.tsx`
   - `fetchPortfolioWorkspace(...)`
   - stores `workspace`
-  - passes `workspace.attribution` into `AttributionView`, `PerformanceView`, and `ReportView`
+  - passes `workspace.attribution` into attribution-specific consumers
+  - passes `workspace.performance` into performance consumers and the attribution heatmap footer/freshness path
 - `client/services/api.ts`
   - `POST /portfolio-workspace`
 - `server/routes/portfolio.py`
@@ -141,7 +142,7 @@ Primary data source:
 Supporting sources:
 
 - `workspace.attribution.periodItems` or `items` for weight snapshots and mutual-fund partial flags
-- `workspace.attribution.portfolioMonthlyReturns` for footer performance values
+- `workspace.performance.portfolio.monthlyReturns` for footer performance values
 - `workspace.attribution.overviewLayouts[year][range].waterfall.portfolioReturn` for total return
 
 How it works:
@@ -193,14 +194,12 @@ Client path:
 
 - `client/views/performance/PerformanceView.tsx`
 - `client/selectors/performanceSelectors.ts`
-  - `buildCanonicalPerformanceSeries(...)`
-  - `buildCanonicalRelativeChartData(...)`
+  - `buildPerformanceSeries(...)`
+  - `buildChartDataFromSeries(...)`
 
 Server source:
 
-- `workspace.attribution.dailyPerformanceSeries`
-- `workspace.attribution.portfolioMonthlyReturns`
-- `workspace.attribution.benchmarkMonthlyReturns`
+- `workspace.performance.variants[...]`
 
 Verdict:
 
@@ -208,19 +207,19 @@ Verdict:
 
 Lean-code note:
 
-- This is one of the cleanest consumers in the app.
+- This consumer now reads directly from the performance owner instead of attribution-carried copies.
 
 ### 6. One-pager report performance and attribution
 
 Client path:
 
 - `client/views/ReportView.tsx`
-  - `buildCanonicalPerformanceSeries(...)`
+  - `buildPerformanceSeries(...)`
   - `buildOnePagerAttributionItems(...)`
 
 Server source:
 
-- performance chart: `workspace.attribution.dailyPerformanceSeries`
+- performance chart: `workspace.performance.variants["75/25"].series`
 - attribution card: `workspace.attribution.periodSheet`
 
 Verdict:
@@ -285,20 +284,22 @@ Verdict:
 
 - These are stale references to an older mental model.
 
-### 4. Unused canonical fields on the client
+### 4. Removed copied performance payload from attribution
 
-Wire fields present in `workspace.attribution`:
+The app no longer carries these fields under `workspace.attribution`:
 
+- `dailyPerformanceSeries`
 - `portfolioPeriodReturns`
+- `portfolioMonthlyReturns`
 - `portfolioYtdReturn`
+- `performanceFetchedAt`
+- `performanceErrors`
+- unused benchmark return arrays
 
-Observed usage:
+Current state:
 
-- I did not find a live client consumer.
-
-Related issue:
-
-- `AttributionView` sets `const fetchedAt = null` instead of using `analysisResponse.performanceFetchedAt`, even though that canonical field exists and is already used elsewhere.
+- `AttributionView` reads freshness and monthly portfolio footer values from `workspace.performance`
+- Relative Performance and the one-pager performance chart also read `workspace.performance`
 
 ## What To Remove Or Refactor First
 
@@ -331,4 +332,4 @@ The Return Contribution path is now on one shared attribution spine:
 
 - Waterfall, Attribution Analysis, tables, relative performance, and one-pager attribution are canonical.
 
-The next cleanup is no longer a live math mismatch. It is mostly about removing dead matrix-table code and stale legacy references.
+The next cleanup is no longer a live math mismatch or an ownership mismatch. It is mostly about removing stale legacy references and any remaining unnecessary client-side reshaping.

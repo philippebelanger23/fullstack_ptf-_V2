@@ -2,7 +2,7 @@
 import { useThemeColors } from '../../hooks/useThemeColors';
 import { Dropdown } from '../../components/Dropdown';
 import { AlertTriangle, Calendar, Grid, Layers, Info, Printer } from 'lucide-react';
-import { PortfolioWorkspaceAttribution } from '../../types';
+import { PerformanceWorkspaceSection, PortfolioWorkspaceAttribution } from '../../types';
 import { FreshnessBadge } from '../../components/ui/FreshnessBadge';
 import { getAvailableCalendarYears } from '../../utils/selectedYear';
 import { buildCanonicalMonthlyHistory, compoundContribution, compoundReturnPct } from './canonicalAttribution';
@@ -10,9 +10,9 @@ import { AttributionTable } from './AttributionTable';
 import { WaterfallChart, SectorAttributionCharts } from './AttributionCharts';
 import {
     buildCanonicalContributorPages,
-    buildCanonicalPortfolioMonthlyPerformance,
     type CanonicalContributorPageLayout,
 } from '../../selectors/attributionSelectors';
+import { buildPortfolioMonthlyPerformanceMap } from '../../selectors/performanceSelectors';
 
 // â”€â”€ ErrorBoundary â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
@@ -55,6 +55,7 @@ interface AttributionViewProps {
     setSelectedYear: (year: number) => void;
     tablesRequest?: number;
     attributionData?: PortfolioWorkspaceAttribution | null;
+    performanceSection?: PerformanceWorkspaceSection | null;
 }
 
 type AttributionTickerStat = {
@@ -569,7 +570,7 @@ const AttributionHeader: React.FC<AttributionHeaderProps> = ({ selectedYear, set
 
 // â”€â”€ AttributionViewContent â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-const AttributionViewContent: React.FC<AttributionViewProps> = ({ selectedYear, setSelectedYear, tablesRequest, attributionData }) => {
+const AttributionViewContent: React.FC<AttributionViewProps> = ({ selectedYear, setSelectedYear, tablesRequest, attributionData, performanceSection }) => {
     const analysisResponse = attributionData;
     const tc = useThemeColors();
     const [viewMode, setViewMode] = useState<'OVERVIEW' | 'TABLES'>('OVERVIEW');
@@ -609,7 +610,11 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ selectedYear, 
     const [timeRange, setTimeRange] = useState<'YTD' | 'Q1' | 'Q2' | 'Q3' | 'Q4'>('YTD');
     const [regionFilter, setRegionFilter] = useState<'ALL' | 'US' | 'CA'>('ALL');
     const [benchmarkMode, setBenchmarkMode] = useState<'SECTOR' | 'SP500' | 'TSX'>('SECTOR');
-    const fetchedAt = analysisResponse?.performanceFetchedAt ?? null;
+    const fetchedAt = useMemo(() => {
+        if (!performanceSection) return null;
+        const defaultBenchmark = performanceSection.defaultBenchmark;
+        return performanceSection.variants[defaultBenchmark]?.fetchedAt ?? null;
+    }, [performanceSection]);
 
     const isFuture = useMemo(() => {
         const now = new Date();
@@ -653,8 +658,14 @@ const AttributionViewContent: React.FC<AttributionViewProps> = ({ selectedYear, 
     ), [analysisResponse, selectedYear, timeRange]);
 
     const portfolioMonthlyPerformance = useMemo(() => (
-        buildCanonicalPortfolioMonthlyPerformance(analysisResponse, allMonths, selectedYear, timeRange)
-    ), [analysisResponse, allMonths, selectedYear, timeRange]);
+        buildPortfolioMonthlyPerformanceMap(
+            performanceSection,
+            analysisResponse?.monthlyPeriods ?? null,
+            allMonths,
+            selectedYear,
+            timeRange,
+        )
+    ), [allMonths, analysisResponse?.monthlyPeriods, performanceSection, selectedYear, timeRange]);
 
     const portfolioTotalReturn = useMemo(() => {
         const rangeTotal = selectedOverviewLayout?.waterfall?.portfolioReturn;

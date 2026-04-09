@@ -9,8 +9,8 @@ import { IndexView } from './views/IndexView';
 import { PerformanceView } from './views/PerformanceView';
 import { RiskContributionView } from './views/RiskContributionView';
 import { LoadingSequencePanel, type LoadStatus } from './components/ui/LoadingSequencePanel';
-import { PortfolioItem, ViewState, PerformanceVariantResponse, PortfolioWorkspaceAttribution, PortfolioWorkspaceResponse } from './types';
-import { loadPortfolioConfig, convertConfigToItems, loadSectorWeights, loadAssetGeo, fetchPortfolioWorkspace } from './services/api';
+import { BenchmarkWorkspaceResponse, PortfolioItem, ViewState, PortfolioWorkspaceAttribution, PortfolioWorkspaceResponse } from './types';
+import { loadPortfolioConfig, convertConfigToItems, loadSectorWeights, loadAssetGeo, fetchBenchmarkWorkspace, fetchPortfolioWorkspace, triggerIndexRefresh } from './services/api';
 
 const AUTOLOAD_WORKSPACE_TIMEOUT_MS = 60000;
 const BOOT_STEPS = [
@@ -96,7 +96,11 @@ class GlobalErrorBoundary extends Component<{ children: React.ReactNode }, { has
 function App() {
   const [currentView, setCurrentView] = useState<ViewState>(ViewState.UPLOAD);
   const [workspace, setWorkspace] = useState<PortfolioWorkspaceResponse | null>(null);
+  const [benchmarkWorkspace, setBenchmarkWorkspace] = useState<BenchmarkWorkspaceResponse | null>(null);
+  const [benchmarkLoading, setBenchmarkLoading] = useState(true);
+  const [benchmarkRefreshing, setBenchmarkRefreshing] = useState(false);
   const [bootError, setBootError] = useState<string | null>(null);
+  const [benchmarkError, setBenchmarkError] = useState<string | null>(null);
   // Historical upload metadata retained for the current workspace session.
   const [fileHistory, setFileHistory] = useState<{ name: string, count: number }[]>([]);
 
@@ -126,7 +130,6 @@ function App() {
   });
   const portfolioData = useMemo<PortfolioItem[]>(() => workspace?.holdings.items ?? [], [workspace]);
   const attributionData = useMemo<PortfolioWorkspaceAttribution | null>(() => workspace?.attribution ?? null, [workspace]);
-  const performanceVariant = useMemo<PerformanceVariantResponse | null>(() => workspace?.performance?.variants?.['75/25'] ?? null, [workspace]);
   const workspaceRisk = useMemo(() => workspace?.risk ?? null, [workspace]);
   // Portfolio items come from the canonical workspace payload.
   // Shared attribution and performance selectors derive container-specific views from that spine.
@@ -216,6 +219,44 @@ function App() {
 
     autoLoad();
     return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadBenchmark = async () => {
+      try {
+        setBenchmarkLoading(true);
+        const nextBenchmarkWorkspace = await fetchBenchmarkWorkspace();
+        if (cancelled) return;
+        setBenchmarkWorkspace(nextBenchmarkWorkspace);
+        setBenchmarkError(null);
+      } catch (err) {
+        if (cancelled) return;
+        console.error("Benchmark workspace load failed:", err);
+        setBenchmarkError(err instanceof Error ? err.message : 'Benchmark workspace load failed.');
+      } finally {
+        if (!cancelled) setBenchmarkLoading(false);
+      }
+    };
+
+    loadBenchmark();
+    return () => { cancelled = true; };
+  }, []);
+
+  const refreshBenchmarkData = React.useCallback(async () => {
+    setBenchmarkRefreshing(true);
+    try {
+      await triggerIndexRefresh();
+      const nextBenchmarkWorkspace = await fetchBenchmarkWorkspace();
+      setBenchmarkWorkspace(nextBenchmarkWorkspace);
+      setBenchmarkError(null);
+    } catch (err) {
+      console.error("Benchmark workspace refresh failed:", err);
+      setBenchmarkError(err instanceof Error ? err.message : 'Benchmark workspace refresh failed.');
+    } finally {
+      setBenchmarkRefreshing(false);
+    }
   }, []);
 
   useEffect(() => {
@@ -331,19 +372,40 @@ function App() {
 
           {/* Mount once visited, then keep alive */}
           {visited.has(ViewState.DASHBOARD) && viewPane(ViewState.DASHBOARD,
-            <DashboardView data={portfolioData} customSectors={customSectors} assetGeo={assetGeo} isActive={currentView === ViewState.DASHBOARD} workspaceRisk={workspaceRisk} />
+            <DashboardView
+              data={portfolioData}
+              customSectors={customSectors}
+              assetGeo={assetGeo}
+              isActive={currentView === ViewState.DASHBOARD}
+              workspaceRisk={workspaceRisk}
+              benchmarkWorkspace={benchmarkWorkspace}
+              benchmarkLoading={benchmarkLoading}
+              benchmarkError={benchmarkError}
+            />
           )}
           {visited.has(ViewState.INDEX) && viewPane(ViewState.INDEX,
-            <IndexView />
+            <IndexView
+              benchmarkWorkspace={benchmarkWorkspace}
+              loading={benchmarkLoading}
+              error={benchmarkError}
+              refreshing={benchmarkRefreshing}
+              onRefresh={refreshBenchmarkData}
+            />
           )}
           {visited.has(ViewState.ATTRIBUTION) && viewPane(ViewState.ATTRIBUTION,
-            <AttributionView selectedYear={selectedYear} setSelectedYear={setSelectedYear} tablesRequest={attributionTablesRequest} attributionData={attributionData} />
+            <AttributionView
+              selectedYear={selectedYear}
+              setSelectedYear={setSelectedYear}
+              tablesRequest={attributionTablesRequest}
+              attributionData={attributionData}
+              performanceSection={workspace?.performance ?? null}
+            />
           )}
           {visited.has(ViewState.PERFORMANCE) && viewPane(ViewState.PERFORMANCE,
             <PerformanceView
               isActive={currentView === ViewState.PERFORMANCE}
               defaultBenchmark={workspace?.performance?.defaultBenchmark}
-              attributionData={attributionData}
+              performanceSection={workspace?.performance ?? null}
             />
           )}
           {visited.has(ViewState.RISK_CONTRIBUTION) && viewPane(ViewState.RISK_CONTRIBUTION,
@@ -364,9 +426,12 @@ function App() {
               customSectors={customSectors}
               assetGeo={assetGeo}
               isActive={currentView === ViewState.ANALYSIS}
-              performanceVariant={performanceVariant}
+              performanceSection={workspace?.performance ?? null}
               workspaceRisk={workspaceRisk}
               attributionData={attributionData}
+              benchmarkWorkspace={benchmarkWorkspace}
+              benchmarkLoading={benchmarkLoading}
+              benchmarkError={benchmarkError}
               onNavigate={(view) => {
                 if (view === ViewState.ATTRIBUTION) setAttributionTablesRequest(r => r + 1);
                 setCurrentView(view);

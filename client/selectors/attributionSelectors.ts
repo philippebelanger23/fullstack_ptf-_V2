@@ -1,58 +1,9 @@
-import type { PortfolioWorkspaceAttribution } from '../types';
-import type { Period } from '../views/performance/PerformanceKPIs';
+import type { PerformancePeriod, PortfolioWorkspaceAttribution } from '../types';
 import type { TableItem } from '../views/attribution/attributionUtils';
 import { getDateRangeForPeriod } from '../utils/dateUtils';
 import { compoundContribution, compoundReturnPct } from '../views/attribution/canonicalAttribution';
 
-export type AttributionOverviewRange = 'YTD' | 'Q1' | 'Q2' | 'Q3' | 'Q4';
-
-const QUARTER_MONTHS: Record<Exclude<AttributionOverviewRange, 'YTD'>, number[]> = {
-    Q1: [0, 1, 2],
-    Q2: [3, 4, 5],
-    Q3: [6, 7, 8],
-    Q4: [9, 10, 11],
-};
-
-const monthKey = (date: Date) => `${date.getFullYear()}-${date.getMonth()}`;
-
 const monthLabel = (value: Date) => value.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-
-export const buildCanonicalPortfolioMonthlyPerformance = (
-    attribution: PortfolioWorkspaceAttribution | null | undefined,
-    allMonths: Date[],
-    selectedYear: number,
-    selectedRange: AttributionOverviewRange,
-): Record<string, number | null> => {
-    const valuesByMonth: Record<string, number | null> = {};
-    allMonths.forEach(date => {
-        valuesByMonth[monthKey(date)] = null;
-    });
-
-    if (!attribution?.monthlyPeriods?.length) return valuesByMonth;
-
-    for (const period of attribution.monthlyPeriods) {
-        const endDate = new Date(`${period.end}T00:00:00`);
-        const endMonth = endDate.getMonth();
-        const isSelectedQuarter = selectedRange === 'YTD' || QUARTER_MONTHS[selectedRange].includes(endMonth);
-        if (endDate.getFullYear() !== selectedYear || !isSelectedQuarter) continue;
-
-        const returnKey = `${period.start}|${period.end}`;
-        const returnValue = attribution.portfolioMonthlyReturns[returnKey];
-        valuesByMonth[`${selectedYear}-${endMonth}`] = typeof returnValue === 'number' ? returnValue * 100 : null;
-    }
-
-    return valuesByMonth;
-};
-
-export const compoundCanonicalMonthlyPerformance = (
-    monthlyPerformance: Record<string, number | null>,
-): number | null => {
-    const selectedReturns = Object.values(monthlyPerformance).filter(
-        (value): value is number => value !== null && value !== undefined,
-    );
-    if (selectedReturns.length === 0) return null;
-    return (selectedReturns.reduce((product, value) => product * (1 + (value / 100)), 1) - 1) * 100;
-};
 
 const isCashTicker = (ticker: string) => {
     const tickerUpper = ticker.toUpperCase();
@@ -162,7 +113,7 @@ export const buildCanonicalContributorPages = (
 
 export const buildOnePagerAttributionItems = (
     attribution: PortfolioWorkspaceAttribution | null | undefined,
-    selectedPeriod: Period,
+    selectedPeriod: PerformancePeriod,
 ): TableItem[] => {
     if (!attribution?.periodSheet?.length || !attribution?.periods?.length) return [];
 

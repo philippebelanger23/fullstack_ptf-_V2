@@ -46,7 +46,6 @@ def test_build_portfolio_workspace_normalizes_duplicate_rows_and_latest_snapshot
     monkeypatch.setattr(workspace_service, "load_cache", lambda: {})
     monkeypatch.setattr(workspace_service, "save_cache", lambda cache: None)
     monkeypatch.setattr(workspace_service, "_prime_price_cache_for_dates", lambda *args, **kwargs: None)
-    monkeypatch.setattr(workspace_service, "_build_benchmark_lists", lambda *args, **kwargs: ({}, {}))
     monkeypatch.setattr(
         workspace_service,
         "fetch_returns_df",
@@ -57,6 +56,11 @@ def test_build_portfolio_workspace_normalizes_duplicate_rows_and_latest_snapshot
         "_build_performance_section",
         lambda *args, **kwargs: {
             "defaultBenchmark": "75/25",
+            "portfolio": {
+                "periodReturns": {},
+                "monthlyReturns": {},
+                "ytdReturn": 0.0,
+            },
             "variants": {
                 "75/25": {
                     "series": [
@@ -162,6 +166,11 @@ def test_build_performance_section_emits_all_benchmark_variants(monkeypatch):
         },
     )
     monkeypatch.setattr(
+        workspace_service,
+        "compute_performance_window_metrics",
+        lambda *args, **kwargs: {"YTD": {"totalReturn": 1.0}},
+    )
+    monkeypatch.setattr(
         performance_service,
         "compute_period_attribution",
         lambda returns_df, period_weights, nav_tickers=None: [{"ticker": "AAA", "date": "2026-04-02", "weight": 10.0, "returnPct": 0.03, "contribution": 0.3}],
@@ -177,7 +186,41 @@ def test_build_performance_section_emits_all_benchmark_variants(monkeypatch):
     assert performance["defaultBenchmark"] == "75/25"
     assert set(performance["variants"].keys()) == {"75/25", "TSX", "SP500", "ACWI"}
     assert performance["variants"]["75/25"]["periodAttribution"][0]["ticker"] == "AAA"
+    assert performance["variants"]["75/25"]["windows"]["YTD"]["totalReturn"] == 1.0
+    assert performance["variants"]["75/25"]["windowRanges"]["YTD"]["start"] is not None
     assert "periodAttribution" not in performance["variants"]["TSX"]
+
+
+def test_compute_performance_window_metrics_uses_named_windows(monkeypatch):
+    index = pd.to_datetime([
+        "2026-01-05",
+        "2026-01-20",
+        "2026-02-10",
+        "2026-03-01",
+        "2026-03-31",
+        "2026-04-01",
+        "2026-04-02",
+        "2026-04-03",
+    ])
+    portfolio_returns = pd.Series([0.0, 0.01, -0.005, 0.02, 0.01, 0.0, 0.003, 0.004], index=index)
+    benchmark_returns = pd.Series([0.0, 0.008, -0.004, 0.015, 0.008, 0.0, 0.002, 0.003], index=index)
+
+    monkeypatch.setattr(
+        performance_service,
+        "compute_performance_metrics",
+        lambda portfolio_slice, benchmark_slice: {"metrics": {"totalReturn": len(portfolio_slice)}},
+    )
+
+    windows = performance_service.compute_performance_window_metrics(
+        portfolio_returns,
+        benchmark_returns,
+        as_of=pd.Timestamp("2026-04-03"),
+    )
+
+    assert windows["YTD"] == {"totalReturn": 8}
+    assert windows["Q1"] == {"totalReturn": 5}
+    assert windows["Q2"] is None
+    assert windows["FULL_YEAR"] is None
 
 
 def test_build_portfolio_workspace_emits_canonical_monthly_return_maps(monkeypatch):
@@ -190,12 +233,16 @@ def test_build_portfolio_workspace_emits_canonical_monthly_return_maps(monkeypat
         "fetch_returns_df",
         lambda *args, **kwargs: (pd.DataFrame(index=pd.DatetimeIndex([])), pd.DataFrame(index=pd.DatetimeIndex([])), []),
     )
-    monkeypatch.setattr(workspace_service, "_build_benchmark_lists", lambda *args, **kwargs: ({}, {}))
     monkeypatch.setattr(
         workspace_service,
         "_build_performance_section",
         lambda *args, **kwargs: {
             "defaultBenchmark": "75/25",
+            "portfolio": {
+                "periodReturns": {},
+                "monthlyReturns": {},
+                "ytdReturn": 0.0,
+            },
             "variants": {
                 "75/25": {
                     "series": [
@@ -235,8 +282,9 @@ def test_build_portfolio_workspace_emits_canonical_monthly_return_maps(monkeypat
     monthly_period = workspace["attribution"]["monthlyPeriods"][0]
     monthly_key = f"{monthly_period['start']}|{monthly_period['end']}"
 
-    assert workspace["attribution"]["portfolioMonthlyReturns"] == {monthly_key: pytest.approx(0.1)}
-    assert workspace["attribution"]["portfolioYtdReturn"] == pytest.approx(0.1)
+    assert workspace["performance"]["portfolio"]["monthlyReturns"] == {monthly_key: pytest.approx(0.1)}
+    assert workspace["performance"]["portfolio"]["ytdReturn"] == pytest.approx(0.1)
+    assert "portfolioMonthlyReturns" not in workspace["attribution"]
 
 
 def test_build_attribution_overview_layouts_uses_canonical_period_attribution(monkeypatch):

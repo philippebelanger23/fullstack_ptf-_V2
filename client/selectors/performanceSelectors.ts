@@ -1,102 +1,98 @@
-import type { PerformanceSeriesPoint, PortfolioWorkspaceAttribution } from '../types';
-import type { Period, PeriodMetrics } from '../views/performance/PerformanceKPIs';
-import { getDateRangeForPeriod } from '../utils/dateUtils';
-
-// Builds the Relative tab chart from canonical monthly returns — matches attribution compounding exactly.
-export const buildCanonicalRelativeChartData = (
-    attribution: PortfolioWorkspaceAttribution | null | undefined,
-    benchmark: string,
-    selectedPeriod: Period,
-): { date: string; 'Excess Return': number }[] => {
-    if (!attribution?.monthlyPeriods?.length || !attribution.portfolioMonthlyReturns) return [];
-
-    const benchmarkMonthlyRates = attribution.benchmarkMonthlyReturns?.[benchmark];
-    if (!benchmarkMonthlyRates?.length) return [];
-
-    const { start, end } = getDateRangeForPeriod(selectedPeriod);
-    const startStr = start.toISOString().split('T')[0];
-    const endStr = end ? end.toISOString().split('T')[0] : '9999-12-31';
-
-    // Filter to months whose end date falls within the selected period
-    const filteredPeriods = attribution.monthlyPeriods
-        .map((period, idx) => ({ period, idx }))
-        .filter(({ period }) => period.end >= startStr && period.end <= endStr);
-
-    if (filteredPeriods.length === 0) return [];
-
-    // Start anchor
-    const points: { date: string; 'Excess Return': number }[] = [
-        { date: startStr, 'Excess Return': 0 },
-    ];
-
-    let cumulativePtf = 1;
-    let cumulativeBmk = 1;
-
-    for (const { period, idx } of filteredPeriods) {
-        const key = `${period.start}|${period.end}`;
-        const ptfMonthlyReturn = attribution.portfolioMonthlyReturns[key];
-        const bmkMonthlyReturn = benchmarkMonthlyRates[idx];
-
-        if (typeof ptfMonthlyReturn !== 'number' || typeof bmkMonthlyReturn !== 'number') continue;
-
-        cumulativePtf *= 1 + ptfMonthlyReturn;
-        cumulativeBmk *= 1 + bmkMonthlyReturn;
-
-        const excessReturn = (cumulativePtf / cumulativeBmk - 1) * 100;
-        points.push({ date: period.end, 'Excess Return': excessReturn });
-    }
-
-    return points;
-};
+import type {
+    PeriodBoundary,
+    PerformancePeriod,
+    PerformanceSeriesPoint,
+    PerformanceVariantResponse,
+    PerformanceWindowRange,
+    PerformanceWorkspaceSection,
+} from '../types';
 
 export type PerformanceChartView = 'absolute' | 'relative' | 'drawdowns';
+type AttributionOverviewRange = 'YTD' | 'Q1' | 'Q2' | 'Q3' | 'Q4';
 
 export type PerformanceChartPoint =
     | { date: string; Portfolio: number; Benchmark: number }
     | { date: string; 'Excess Return': number };
 
-const mean = (values: number[]) => values.reduce((sum, value) => sum + value, 0) / values.length;
-
-const sampleStdDev = (values: number[]) => {
-    if (values.length < 2) return 0;
-    const average = mean(values);
-    return Math.sqrt(values.reduce((sum, value) => sum + (value - average) ** 2, 0) / (values.length - 1));
+const ATTRIBUTION_QUARTER_MONTHS: Record<Exclude<AttributionOverviewRange, 'YTD'>, number[]> = {
+    Q1: [0, 1, 2],
+    Q2: [3, 4, 5],
+    Q3: [6, 7, 8],
+    Q4: [9, 10, 11],
 };
 
-const covariance = (left: number[], right: number[]) => {
-    if (left.length < 2) return 0;
-    const leftMean = mean(left);
-    const rightMean = mean(right);
-    return left.reduce((sum, value, index) => sum + (value - leftMean) * (right[index] - rightMean), 0) / (left.length - 1);
+const monthKey = (date: Date) => `${date.getFullYear()}-${date.getMonth()}`;
+const getTodayIsoDate = () => {
+    const now = new Date();
+    now.setHours(0, 0, 0, 0);
+    return now.toISOString().split('T')[0];
 };
 
-const downsideDeviation = (values: number[]) => {
-    const sumSquares = values.reduce((sum, value) => sum + Math.min(value, 0) ** 2, 0);
-    return Math.sqrt(sumSquares / values.length);
-};
-
-export const filterSeriesByPeriod = (
+const sanitizePerformanceSeries = (
     series: PerformanceSeriesPoint[] | null | undefined,
-    selectedPeriod: Period,
 ): PerformanceSeriesPoint[] => {
     if (!series?.length) return [];
-    const { start, end } = getDateRangeForPeriod(selectedPeriod);
-    const startDateStr = start.toISOString().split('T')[0];
-    const endDateStr = end ? end.toISOString().split('T')[0] : '9999-12-31';
-    return series.filter(point => point.date >= startDateStr && point.date <= endDateStr);
+
+    const todayIso = getTodayIsoDate();
+    const byDate = new Map<string, PerformanceSeriesPoint>();
+
+    series.forEach((point) => {
+        if (!point || typeof point.date !== 'string' || point.date > todayIso) return;
+        if (!Number.isFinite(point.portfolio) || !Number.isFinite(point.benchmark)) return;
+        if (point.portfolio <= 0 || point.benchmark <= 0) return;
+        byDate.set(point.date, {
+            date: point.date,
+            portfolio: point.portfolio,
+            benchmark: point.benchmark,
+        });
+    });
+
+    return Array.from(byDate.values()).sort((a, b) => a.date.localeCompare(b.date));
+};
+
+export const filterSeriesByWindowRange = (
+    series: PerformanceSeriesPoint[] | null | undefined,
+    windowRange: PerformanceWindowRange | null | undefined,
+): PerformanceSeriesPoint[] => {
+    if (!series?.length) return [];
+    const startDateStr = windowRange?.start;
+    if (!startDateStr) return sanitizePerformanceSeries(series);
+    const todayIso = getTodayIsoDate();
+    const endDateStr = windowRange?.end
+        ? [windowRange.end, todayIso].sort()[0]
+        : todayIso;
+    const sanitizedSeries = sanitizePerformanceSeries(series);
+    const inWindow = sanitizedSeries.filter(point => point.date >= startDateStr && point.date <= endDateStr);
+    if (inWindow.length === 0) return [];
+    if (inWindow[0].date === startDateStr) return inWindow;
+
+    const anchorPoint = [...sanitizedSeries]
+        .reverse()
+        .find(point => point.date < startDateStr);
+
+    if (!anchorPoint) return inWindow;
+
+    return [
+        {
+            ...anchorPoint,
+            date: startDateStr,
+        },
+        ...inWindow,
+    ];
 };
 
 export const buildChartDataFromSeries = (
     filteredSeries: PerformanceSeriesPoint[],
     chartView: PerformanceChartView,
 ): PerformanceChartPoint[] => {
-    if (filteredSeries.length === 0) return [];
+    const sanitizedSeries = sanitizePerformanceSeries(filteredSeries);
+    if (sanitizedSeries.length === 0) return [];
 
-    const startPortfolio = filteredSeries[0].portfolio;
-    const startBenchmark = filteredSeries[0].benchmark;
+    const startPortfolio = sanitizedSeries[0].portfolio;
+    const startBenchmark = sanitizedSeries[0].benchmark;
 
     if (chartView === 'absolute') {
-        return filteredSeries.map(point => ({
+        return sanitizedSeries.map(point => ({
             date: point.date,
             Portfolio: ((point.portfolio - startPortfolio) / startPortfolio) * 100,
             Benchmark: ((point.benchmark - startBenchmark) / startBenchmark) * 100,
@@ -104,7 +100,7 @@ export const buildChartDataFromSeries = (
     }
 
     if (chartView === 'relative') {
-        return filteredSeries.map(point => {
+        return sanitizedSeries.map(point => {
             const portfolioReturn = ((point.portfolio - startPortfolio) / startPortfolio) * 100;
             const benchmarkReturn = ((point.benchmark - startBenchmark) / startBenchmark) * 100;
             return {
@@ -114,9 +110,9 @@ export const buildChartDataFromSeries = (
         });
     }
 
-    let maxPortfolio = filteredSeries[0].portfolio;
-    let maxBenchmark = filteredSeries[0].benchmark;
-    return filteredSeries.map(point => {
+    let maxPortfolio = sanitizedSeries[0].portfolio;
+    let maxBenchmark = sanitizedSeries[0].benchmark;
+    return sanitizedSeries.map(point => {
         maxPortfolio = Math.max(maxPortfolio, point.portfolio);
         maxBenchmark = Math.max(maxBenchmark, point.benchmark);
         return {
@@ -127,79 +123,44 @@ export const buildChartDataFromSeries = (
     });
 };
 
-export const computePeriodMetricsFromSeries = (
-    filteredSeries: PerformanceSeriesPoint[],
-): PeriodMetrics | null => {
-    if (filteredSeries.length < 5) return null;
-
-    const portfolioReturns: number[] = [];
-    const benchmarkReturns: number[] = [];
-    for (let index = 1; index < filteredSeries.length; index += 1) {
-        portfolioReturns.push(
-            (filteredSeries[index].portfolio - filteredSeries[index - 1].portfolio) / filteredSeries[index - 1].portfolio,
-        );
-        benchmarkReturns.push(
-            (filteredSeries[index].benchmark - filteredSeries[index - 1].benchmark) / filteredSeries[index - 1].benchmark,
-        );
-    }
-
-    if (portfolioReturns.length === 0) return null;
-
-    const portfolioStdDev = sampleStdDev(portfolioReturns);
-    const benchmarkStdDev = sampleStdDev(benchmarkReturns);
-    const portfolioMean = mean(portfolioReturns);
-    const benchmarkMean = mean(benchmarkReturns);
-    const benchmarkVariance = benchmarkStdDev ** 2;
-
-    const totalReturn = ((filteredSeries[filteredSeries.length - 1].portfolio - filteredSeries[0].portfolio) / filteredSeries[0].portfolio) * 100;
-    const benchmarkReturn = ((filteredSeries[filteredSeries.length - 1].benchmark - filteredSeries[0].benchmark) / filteredSeries[0].benchmark) * 100;
-
-    const volatility = portfolioStdDev * Math.sqrt(252) * 100;
-    const benchmarkVolatility = benchmarkStdDev * Math.sqrt(252) * 100;
-    const sharpeRatio = portfolioStdDev > 0 ? (portfolioMean / portfolioStdDev) * Math.sqrt(252) : 0;
-    const benchmarkSharpe = benchmarkStdDev > 0 ? (benchmarkMean / benchmarkStdDev) * Math.sqrt(252) : 0;
-    const portfolioDownsideDeviation = downsideDeviation(portfolioReturns);
-    const benchmarkDownsideDeviation = downsideDeviation(benchmarkReturns);
-    const sortinoRatio = portfolioDownsideDeviation > 0 ? (portfolioMean / portfolioDownsideDeviation) * Math.sqrt(252) : 0;
-    const benchmarkSortino = benchmarkDownsideDeviation > 0 ? (benchmarkMean / benchmarkDownsideDeviation) * Math.sqrt(252) : 0;
-    const beta = benchmarkVariance > 0 ? covariance(portfolioReturns, benchmarkReturns) / benchmarkVariance : 1;
-
-    const excessReturns = portfolioReturns.map((value, index) => value - benchmarkReturns[index]);
-    const trackingError = sampleStdDev(excessReturns) * Math.sqrt(252) * 100;
-    const informationRatio = trackingError > 0 ? ((mean(excessReturns) * 252) * 100) / trackingError : 0;
-
-    let maxPortfolio = filteredSeries[0].portfolio;
-    let maxDrawdown = 0;
-    let maxBenchmark = filteredSeries[0].benchmark;
-    let benchmarkMaxDrawdown = 0;
-    for (const point of filteredSeries) {
-        maxPortfolio = Math.max(maxPortfolio, point.portfolio);
-        maxDrawdown = Math.min(maxDrawdown, (point.portfolio - maxPortfolio) / maxPortfolio);
-        maxBenchmark = Math.max(maxBenchmark, point.benchmark);
-        benchmarkMaxDrawdown = Math.min(benchmarkMaxDrawdown, (point.benchmark - maxBenchmark) / maxBenchmark);
-    }
-
-    return {
-        totalReturn,
-        benchmarkReturn,
-        alpha: totalReturn - benchmarkReturn,
-        sharpeRatio,
-        sortinoRatio,
-        informationRatio,
-        trackingError,
-        volatility,
-        benchmarkVolatility,
-        benchmarkSharpe,
-        benchmarkSortino,
-        beta,
-        maxDrawdown: maxDrawdown * 100,
-        benchmarkMaxDrawdown: benchmarkMaxDrawdown * 100,
-    };
+export const buildPerformanceSeries = (
+    variant: PerformanceVariantResponse | null | undefined,
+): PerformanceSeriesPoint[] => {
+    return sanitizePerformanceSeries(variant?.series);
 };
 
-export const buildCanonicalPerformanceSeries = (
-    attribution: PortfolioWorkspaceAttribution | null | undefined,
-    benchmark: string,
-): PerformanceSeriesPoint[] => {
-    return attribution?.dailyPerformanceSeries?.[benchmark] ?? [];
+export const buildPerformanceWindowRange = (
+    variant: PerformanceVariantResponse | null | undefined,
+    period: PerformancePeriod,
+): PerformanceWindowRange | null => {
+    return variant?.windowRanges?.[period] ?? null;
+};
+
+export const buildPortfolioMonthlyPerformanceMap = (
+    performanceSection: PerformanceWorkspaceSection | null | undefined,
+    monthlyPeriods: PeriodBoundary[] | null | undefined,
+    allMonths: Date[],
+    selectedYear: number,
+    selectedRange: AttributionOverviewRange,
+): Record<string, number | null> => {
+    const valuesByMonth: Record<string, number | null> = {};
+    allMonths.forEach((date) => {
+        valuesByMonth[monthKey(date)] = null;
+    });
+
+    if (!monthlyPeriods?.length) return valuesByMonth;
+
+    const monthlyReturns = performanceSection?.portfolio.monthlyReturns ?? {};
+    for (const period of monthlyPeriods) {
+        const endDate = new Date(`${period.end}T00:00:00`);
+        const endMonth = endDate.getMonth();
+        const isSelectedQuarter = selectedRange === 'YTD' || ATTRIBUTION_QUARTER_MONTHS[selectedRange].includes(endMonth);
+        if (endDate.getFullYear() !== selectedYear || !isSelectedQuarter) continue;
+
+        const returnKey = `${period.start}|${period.end}`;
+        const returnValue = monthlyReturns[returnKey];
+        valuesByMonth[monthKey(new Date(selectedYear, endMonth, 1))] = typeof returnValue === 'number' ? returnValue * 100 : null;
+    }
+
+    return valuesByMonth;
 };
